@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use wasmtime::*;
 
 use crate::capabilities::{register_host_functions, HostState};
-use crate::engine::{SandboxPolicy, WasmEngine};
+use crate::engine::{ModuleLoader, SandboxPolicy, WasmEngine};
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum PageStatus {
@@ -23,19 +23,37 @@ pub struct BrowserHost {
 impl BrowserHost {
     pub fn new() -> Result<Self> {
         let policy = SandboxPolicy::default();
-        let wasm_engine = WasmEngine::new(policy)?;
+        let wasm_engine = WasmEngine::new(policy.clone())?;
+
+        let loader = Arc::new(ModuleLoader {
+            engine: wasm_engine.engine().clone(),
+            max_memory_pages: policy.max_memory_pages,
+            fuel_limit: policy.fuel_limit,
+        });
+
+        let mut host_state = HostState::default();
+        host_state.module_loader = Some(loader);
 
         Ok(Self {
             wasm_engine,
             status: Arc::new(Mutex::new(PageStatus::Idle)),
-            host_state: HostState::default(),
+            host_state,
         })
     }
 
     /// Recreate a BrowserHost sharing existing state (used by background worker threads).
-    pub fn recreate(host_state: HostState, status: Arc<Mutex<PageStatus>>) -> Self {
+    pub fn recreate(mut host_state: HostState, status: Arc<Mutex<PageStatus>>) -> Self {
         let policy = SandboxPolicy::default();
-        let wasm_engine = WasmEngine::new(policy).expect("failed to create engine");
+        let wasm_engine = WasmEngine::new(policy.clone()).expect("failed to create engine");
+
+        if host_state.module_loader.is_none() {
+            host_state.module_loader = Some(Arc::new(ModuleLoader {
+                engine: wasm_engine.engine().clone(),
+                max_memory_pages: policy.max_memory_pages,
+                fuel_limit: policy.fuel_limit,
+            }));
+        }
+
         Self {
             wasm_engine,
             status,
@@ -84,6 +102,13 @@ impl BrowserHost {
         let instance = linker
             .instantiate(&mut store, &module)
             .context("failed to instantiate wasm module")?;
+
+        // The guest module defines its own linear memory (memory 0) and
+        // exports it as "memory".  String pointers from the guest refer to
+        // THIS memory, not the oxide::memory we defined in the linker.
+        if let Some(guest_mem) = instance.get_memory(&mut store, "memory") {
+            store.data_mut().memory = Some(guest_mem);
+        }
 
         let start_app = instance
             .get_typed_func::<(), ()>(&mut store, "start_app")

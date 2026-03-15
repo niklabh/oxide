@@ -5,7 +5,8 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 use wasmtime::*;
 
-// Shared state between host functions and the UI layer.
+use crate::engine::ModuleLoader;
+
 #[derive(Clone)]
 pub struct HostState {
     pub console: Arc<Mutex<Vec<ConsoleEntry>>>,
@@ -14,6 +15,7 @@ pub struct HostState {
     pub timers: Arc<Mutex<Vec<TimerEntry>>>,
     pub clipboard: Arc<Mutex<String>>,
     pub memory: Option<Memory>,
+    pub module_loader: Option<Arc<ModuleLoader>>,
 }
 
 #[derive(Clone, Debug)]
@@ -30,11 +32,20 @@ pub enum ConsoleLevel {
     Error,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct CanvasState {
     pub commands: Vec<DrawCommand>,
     pub width: u32,
     pub height: u32,
+    pub images: Vec<DecodedImage>,
+    pub generation: u64,
+}
+
+#[derive(Clone, Debug)]
+pub struct DecodedImage {
+    pub width: u32,
+    pub height: u32,
+    pub pixels: Vec<u8>,
 }
 
 #[derive(Clone, Debug)]
@@ -44,6 +55,7 @@ pub enum DrawCommand {
     Circle { cx: f32, cy: f32, radius: f32, r: u8, g: u8, b: u8, a: u8 },
     Text { x: f32, y: f32, size: f32, r: u8, g: u8, b: u8, text: String },
     Line { x1: f32, y1: f32, x2: f32, y2: f32, r: u8, g: u8, b: u8, thickness: f32 },
+    Image { x: f32, y: f32, w: f32, h: f32, image_id: usize },
 }
 
 #[derive(Clone, Debug)]
@@ -62,11 +74,14 @@ impl Default for HostState {
                 commands: Vec::new(),
                 width: 800,
                 height: 600,
+                images: Vec::new(),
+                generation: 0,
             })),
             storage: Arc::new(Mutex::new(HashMap::new())),
             timers: Arc::new(Mutex::new(Vec::new())),
             clipboard: Arc::new(Mutex::new(String::new())),
             memory: None,
+            module_loader: None,
         }
     }
 }
@@ -79,6 +94,14 @@ fn read_guest_string(memory: &Memory, store: &impl AsContext, ptr: u32, len: u32
     String::from_utf8(data.to_vec()).context("guest string is not valid utf-8")
 }
 
+fn read_guest_bytes(memory: &Memory, store: &impl AsContext, ptr: u32, len: u32) -> Result<Vec<u8>> {
+    let data = memory
+        .data(store)
+        .get(ptr as usize..(ptr + len) as usize)
+        .context("guest buffer out of bounds")?;
+    Ok(data.to_vec())
+}
+
 fn write_guest_bytes(memory: &Memory, store: &mut impl AsContextMut, ptr: u32, bytes: &[u8]) -> Result<()> {
     memory
         .data_mut(store)
@@ -86,6 +109,14 @@ fn write_guest_bytes(memory: &Memory, store: &mut impl AsContextMut, ptr: u32, b
         .context("guest buffer out of bounds")?
         .copy_from_slice(bytes);
     Ok(())
+}
+
+fn console_log(console: &Arc<Mutex<Vec<ConsoleEntry>>>, level: ConsoleLevel, message: String) {
+    console.lock().unwrap().push(ConsoleEntry {
+        timestamp: chrono::Local::now().format("%H:%M:%S%.3f").to_string(),
+        level,
+        message,
+    });
 }
 
 /// Register all host-provided capabilities onto the linker.
@@ -98,12 +129,7 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
         |caller: Caller<'_, HostState>, ptr: u32, len: u32| {
             let mem = caller.data().memory.expect("memory not set");
             let msg = read_guest_string(&mem, &caller, ptr, len).unwrap_or_default();
-            let entry = ConsoleEntry {
-                timestamp: chrono::Local::now().format("%H:%M:%S%.3f").to_string(),
-                level: ConsoleLevel::Log,
-                message: msg,
-            };
-            caller.data().console.lock().unwrap().push(entry);
+            console_log(&caller.data().console, ConsoleLevel::Log, msg);
         },
     )?;
 
@@ -113,12 +139,7 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
         |caller: Caller<'_, HostState>, ptr: u32, len: u32| {
             let mem = caller.data().memory.expect("memory not set");
             let msg = read_guest_string(&mem, &caller, ptr, len).unwrap_or_default();
-            let entry = ConsoleEntry {
-                timestamp: chrono::Local::now().format("%H:%M:%S%.3f").to_string(),
-                level: ConsoleLevel::Warn,
-                message: msg,
-            };
-            caller.data().console.lock().unwrap().push(entry);
+            console_log(&caller.data().console, ConsoleLevel::Warn, msg);
         },
     )?;
 
@@ -128,12 +149,7 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
         |caller: Caller<'_, HostState>, ptr: u32, len: u32| {
             let mem = caller.data().memory.expect("memory not set");
             let msg = read_guest_string(&mem, &caller, ptr, len).unwrap_or_default();
-            let entry = ConsoleEntry {
-                timestamp: chrono::Local::now().format("%H:%M:%S%.3f").to_string(),
-                level: ConsoleLevel::Error,
-                message: msg,
-            };
-            caller.data().console.lock().unwrap().push(entry);
+            console_log(&caller.data().console, ConsoleLevel::Error, msg);
         },
     )?;
 
@@ -179,7 +195,6 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
                     let data_written = file_data.len().min(data_cap as usize);
                     write_guest_bytes(&mem, &mut caller, data_ptr, &file_data[..data_written]).ok();
 
-                    // pack two u32s: (name_len << 32) | data_len
                     ((name_written as u64) << 32) | (data_written as u64)
                 }
                 None => 0,
@@ -195,6 +210,8 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
         |caller: Caller<'_, HostState>, r: u32, g: u32, b: u32, a: u32| {
             let mut canvas = caller.data().canvas.lock().unwrap();
             canvas.commands.clear();
+            canvas.images.clear();
+            canvas.generation += 1;
             canvas.commands.push(DrawCommand::Clear {
                 r: r as u8, g: g as u8, b: b as u8, a: a as u8,
             });
@@ -255,6 +272,39 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
         |caller: Caller<'_, HostState>| -> u64 {
             let canvas = caller.data().canvas.lock().unwrap();
             ((canvas.width as u64) << 32) | (canvas.height as u64)
+        },
+    )?;
+
+    // ── Canvas Image ─────────────────────────────────────────────────
+
+    linker.func_wrap(
+        "oxide",
+        "api_canvas_image",
+        |caller: Caller<'_, HostState>, x: f32, y: f32, w: f32, h: f32, data_ptr: u32, data_len: u32| {
+            let mem = caller.data().memory.expect("memory not set");
+            let raw = read_guest_bytes(&mem, &caller, data_ptr, data_len).unwrap_or_default();
+            match image::load_from_memory(&raw) {
+                Ok(img) => {
+                    let rgba = img.to_rgba8();
+                    let (iw, ih) = (rgba.width(), rgba.height());
+                    let decoded = DecodedImage {
+                        width: iw,
+                        height: ih,
+                        pixels: rgba.into_raw(),
+                    };
+                    let mut canvas = caller.data().canvas.lock().unwrap();
+                    let image_id = canvas.images.len();
+                    canvas.images.push(decoded);
+                    canvas.commands.push(DrawCommand::Image { x, y, w, h, image_id });
+                }
+                Err(e) => {
+                    console_log(
+                        &caller.data().console,
+                        ConsoleLevel::Error,
+                        format!("[IMAGE] Failed to decode: {e}"),
+                    );
+                }
+            }
         },
     )?;
 
@@ -358,12 +408,254 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
             let mem = caller.data().memory.expect("memory not set");
             let title = read_guest_string(&mem, &caller, title_ptr, title_len).unwrap_or_default();
             let body = read_guest_string(&mem, &caller, body_ptr, body_len).unwrap_or_default();
-            let entry = ConsoleEntry {
-                timestamp: chrono::Local::now().format("%H:%M:%S%.3f").to_string(),
-                level: ConsoleLevel::Log,
-                message: format!("[NOTIFICATION] {title}: {body}"),
+            console_log(
+                &caller.data().console,
+                ConsoleLevel::Log,
+                format!("[NOTIFICATION] {title}: {body}"),
+            );
+        },
+    )?;
+
+    // ── HTTP Fetch ───────────────────────────────────────────────────
+    // Synchronous HTTP client exposed to guest wasm. The actual network
+    // call runs on a dedicated OS thread to avoid blocking the tokio
+    // runtime that the browser host lives on.
+
+    linker.func_wrap(
+        "oxide",
+        "api_fetch",
+        |mut caller: Caller<'_, HostState>,
+         method_ptr: u32, method_len: u32,
+         url_ptr: u32, url_len: u32,
+         ct_ptr: u32, ct_len: u32,
+         body_ptr: u32, body_len: u32,
+         out_ptr: u32, out_cap: u32| -> i64 {
+            let mem = caller.data().memory.expect("memory not set");
+            let method = read_guest_string(&mem, &caller, method_ptr, method_len).unwrap_or_default();
+            let url = read_guest_string(&mem, &caller, url_ptr, url_len).unwrap_or_default();
+            let content_type = read_guest_string(&mem, &caller, ct_ptr, ct_len).unwrap_or_default();
+            let body = if body_len > 0 {
+                read_guest_bytes(&mem, &caller, body_ptr, body_len).unwrap_or_default()
+            } else {
+                Vec::new()
             };
-            caller.data().console.lock().unwrap().push(entry);
+
+            console_log(
+                &caller.data().console,
+                ConsoleLevel::Log,
+                format!("[FETCH] {method} {url}"),
+            );
+
+            let (resp_tx, resp_rx) = std::sync::mpsc::sync_channel::<Result<(u16, Vec<u8>), String>>(1);
+
+            std::thread::spawn(move || {
+                let result = (|| -> Result<(u16, Vec<u8>), String> {
+                    let client = reqwest::blocking::Client::builder()
+                        .timeout(Duration::from_secs(30))
+                        .build()
+                        .map_err(|e| e.to_string())?;
+                    let parsed: reqwest::Method = method.parse().unwrap_or(reqwest::Method::GET);
+                    let mut req = client.request(parsed, &url);
+                    if !content_type.is_empty() {
+                        req = req.header("Content-Type", &content_type);
+                    }
+                    if !body.is_empty() {
+                        req = req.body(body);
+                    }
+                    let resp = req.send().map_err(|e| e.to_string())?;
+                    let status = resp.status().as_u16();
+                    let bytes = resp.bytes().map_err(|e| e.to_string())?.to_vec();
+                    Ok((status, bytes))
+                })();
+                let _ = resp_tx.send(result);
+            });
+
+            match resp_rx.recv() {
+                Ok(Ok((status, response_body))) => {
+                    let write_len = response_body.len().min(out_cap as usize);
+                    write_guest_bytes(&mem, &mut caller, out_ptr, &response_body[..write_len]).ok();
+                    ((status as i64) << 32) | (write_len as i64)
+                }
+                Ok(Err(e)) => {
+                    console_log(
+                        &caller.data().console,
+                        ConsoleLevel::Error,
+                        format!("[FETCH ERROR] {e}"),
+                    );
+                    -1
+                }
+                Err(_) => -1,
+            }
+        },
+    )?;
+
+    // ── Dynamic Module Loading ───────────────────────────────────────
+    // Allows a running wasm guest to fetch and execute another .wasm
+    // module. The child module shares the same canvas, console, and
+    // storage — similar to how a <script> tag loads code into the same
+    // page context.
+
+    linker.func_wrap(
+        "oxide",
+        "api_load_module",
+        |caller: Caller<'_, HostState>, url_ptr: u32, url_len: u32| -> i32 {
+            let mem = caller.data().memory.expect("memory not set");
+            let url = read_guest_string(&mem, &caller, url_ptr, url_len).unwrap_or_default();
+            let loader = match &caller.data().module_loader {
+                Some(l) => l.clone(),
+                None => return -1,
+            };
+            let mut child_state = caller.data().clone();
+            child_state.memory = None;
+            let console = caller.data().console.clone();
+
+            console_log(&console, ConsoleLevel::Log, format!("[LOAD] Fetching module: {url}"));
+
+            let (tx, rx) = std::sync::mpsc::sync_channel::<Result<Vec<u8>, String>>(1);
+            let fetch_url = url.clone();
+            std::thread::spawn(move || {
+                let result = (|| -> Result<Vec<u8>, String> {
+                    let client = reqwest::blocking::Client::builder()
+                        .timeout(Duration::from_secs(30))
+                        .build()
+                        .map_err(|e| e.to_string())?;
+                    let resp = client
+                        .get(&fetch_url)
+                        .header("Accept", "application/wasm")
+                        .send()
+                        .map_err(|e| e.to_string())?;
+                    if !resp.status().is_success() {
+                        return Err(format!("HTTP {}", resp.status()));
+                    }
+                    resp.bytes().map(|b| b.to_vec()).map_err(|e| e.to_string())
+                })();
+                let _ = tx.send(result);
+            });
+
+            let wasm_bytes = match rx.recv() {
+                Ok(Ok(bytes)) => bytes,
+                Ok(Err(e)) => {
+                    console_log(&console, ConsoleLevel::Error, format!("[LOAD ERROR] {e}"));
+                    return -1;
+                }
+                Err(_) => return -1,
+            };
+
+            let module = match Module::new(&loader.engine, &wasm_bytes) {
+                Ok(m) => m,
+                Err(e) => {
+                    console_log(&console, ConsoleLevel::Error, format!("[LOAD ERROR] Compile: {e}"));
+                    return -2;
+                }
+            };
+
+            let mut store = Store::new(&loader.engine, child_state);
+            if store.set_fuel(loader.fuel_limit).is_err() {
+                return -3;
+            }
+
+            let mut child_linker = Linker::new(&loader.engine);
+            if register_host_functions(&mut child_linker).is_err() {
+                return -3;
+            }
+
+            let mem_type = MemoryType::new(1, Some(loader.max_memory_pages));
+            let memory = match Memory::new(&mut store, mem_type) {
+                Ok(m) => m,
+                Err(_) => return -4,
+            };
+
+            if child_linker.define(&store, "oxide", "memory", memory).is_err() {
+                return -5;
+            }
+            store.data_mut().memory = Some(memory);
+
+            let instance = match child_linker.instantiate(&mut store, &module) {
+                Ok(i) => i,
+                Err(e) => {
+                    console_log(&console, ConsoleLevel::Error, format!("[LOAD ERROR] Instantiate: {e}"));
+                    return -6;
+                }
+            };
+
+            // Use the child module's own exported memory for string I/O
+            if let Some(guest_mem) = instance.get_memory(&mut store, "memory") {
+                store.data_mut().memory = Some(guest_mem);
+            }
+
+            let start_fn = match instance.get_typed_func::<(), ()>(&mut store, "start_app") {
+                Ok(f) => f,
+                Err(_) => {
+                    console_log(&console, ConsoleLevel::Error, "[LOAD ERROR] Module missing start_app".into());
+                    return -7;
+                }
+            };
+
+            match start_fn.call(&mut store, ()) {
+                Ok(()) => {
+                    console_log(&console, ConsoleLevel::Log, format!("[LOAD] Module {url} executed successfully"));
+                    0
+                }
+                Err(e) => {
+                    let msg = if e.to_string().contains("fuel") {
+                        "[LOAD ERROR] Child module fuel limit exceeded".to_string()
+                    } else {
+                        format!("[LOAD ERROR] Runtime: {e}")
+                    };
+                    console_log(&console, ConsoleLevel::Error, msg);
+                    -8
+                }
+            }
+        },
+    )?;
+
+    // ── SHA-256 Hashing ──────────────────────────────────────────────
+
+    linker.func_wrap(
+        "oxide",
+        "api_hash_sha256",
+        |mut caller: Caller<'_, HostState>, data_ptr: u32, data_len: u32, out_ptr: u32| -> u32 {
+            use sha2::{Sha256, Digest};
+            let mem = caller.data().memory.expect("memory not set");
+            let data = read_guest_bytes(&mem, &caller, data_ptr, data_len).unwrap_or_default();
+            let hash = Sha256::digest(&data);
+            write_guest_bytes(&mem, &mut caller, out_ptr, &hash).ok();
+            hash.len() as u32
+        },
+    )?;
+
+    // ── Base64 Encoding / Decoding ───────────────────────────────────
+
+    linker.func_wrap(
+        "oxide",
+        "api_base64_encode",
+        |mut caller: Caller<'_, HostState>, data_ptr: u32, data_len: u32, out_ptr: u32, out_cap: u32| -> u32 {
+            use base64::Engine;
+            let mem = caller.data().memory.expect("memory not set");
+            let data = read_guest_bytes(&mem, &caller, data_ptr, data_len).unwrap_or_default();
+            let encoded = base64::engine::general_purpose::STANDARD.encode(&data);
+            let bytes = encoded.as_bytes();
+            let write_len = bytes.len().min(out_cap as usize);
+            write_guest_bytes(&mem, &mut caller, out_ptr, &bytes[..write_len]).ok();
+            write_len as u32
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_base64_decode",
+        |mut caller: Caller<'_, HostState>, data_ptr: u32, data_len: u32, out_ptr: u32, out_cap: u32| -> u32 {
+            use base64::Engine;
+            let mem = caller.data().memory.expect("memory not set");
+            let encoded = read_guest_string(&mem, &caller, data_ptr, data_len).unwrap_or_default();
+            match base64::engine::general_purpose::STANDARD.decode(&encoded) {
+                Ok(decoded) => {
+                    let write_len = decoded.len().min(out_cap as usize);
+                    write_guest_bytes(&mem, &mut caller, out_ptr, &decoded[..write_len]).ok();
+                    write_len as u32
+                }
+                Err(_) => 0,
+            }
         },
     )?;
 

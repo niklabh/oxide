@@ -4,12 +4,19 @@ use wasmtime::*;
 const MAX_MEMORY_PAGES: u32 = 256; // 256 * 64KB = 16MB
 const FUEL_LIMIT: u64 = 500_000_000; // ~500M instructions before forced halt
 
+#[derive(Clone)]
 pub struct SandboxPolicy {
     pub max_memory_pages: u32,
     pub fuel_limit: u64,
     pub allow_filesystem: bool,
     pub allow_env_vars: bool,
     pub allow_network_sockets: bool,
+}
+
+pub struct ModuleLoader {
+    pub engine: Engine,
+    pub max_memory_pages: u32,
+    pub fuel_limit: u64,
 }
 
 impl Default for SandboxPolicy {

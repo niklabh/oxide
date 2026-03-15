@@ -17,6 +17,8 @@
 //! }
 //! ```
 
+pub mod proto;
+
 // ─── Raw FFI imports from the host ──────────────────────────────────────────
 
 #[link(wasm_import_module = "oxide")]
@@ -59,6 +61,9 @@ extern "C" {
     #[link_name = "api_canvas_dimensions"]
     fn _api_canvas_dimensions() -> u64;
 
+    #[link_name = "api_canvas_image"]
+    fn _api_canvas_image(x: f32, y: f32, w: f32, h: f32, data_ptr: u32, data_len: u32);
+
     #[link_name = "api_storage_set"]
     fn _api_storage_set(key_ptr: u32, key_len: u32, val_ptr: u32, val_len: u32);
 
@@ -82,9 +87,30 @@ extern "C" {
 
     #[link_name = "api_notify"]
     fn _api_notify(title_ptr: u32, title_len: u32, body_ptr: u32, body_len: u32);
+
+    #[link_name = "api_fetch"]
+    fn _api_fetch(
+        method_ptr: u32, method_len: u32,
+        url_ptr: u32, url_len: u32,
+        ct_ptr: u32, ct_len: u32,
+        body_ptr: u32, body_len: u32,
+        out_ptr: u32, out_cap: u32,
+    ) -> i64;
+
+    #[link_name = "api_load_module"]
+    fn _api_load_module(url_ptr: u32, url_len: u32) -> i32;
+
+    #[link_name = "api_hash_sha256"]
+    fn _api_hash_sha256(data_ptr: u32, data_len: u32, out_ptr: u32) -> u32;
+
+    #[link_name = "api_base64_encode"]
+    fn _api_base64_encode(data_ptr: u32, data_len: u32, out_ptr: u32, out_cap: u32) -> u32;
+
+    #[link_name = "api_base64_decode"]
+    fn _api_base64_decode(data_ptr: u32, data_len: u32, out_ptr: u32, out_cap: u32) -> u32;
 }
 
-// ─── Safe wrappers ──────────────────────────────────────────────────────────
+// ─── Console API ────────────────────────────────────────────────────────────
 
 /// Print a message to the browser console (log level).
 pub fn log(msg: &str) {
@@ -101,12 +127,16 @@ pub fn error(msg: &str) {
     unsafe { _api_error(msg.as_ptr() as u32, msg.len() as u32) }
 }
 
+// ─── Geolocation API ────────────────────────────────────────────────────────
+
 /// Get the device's mock geolocation as a `"lat,lon"` string.
 pub fn get_location() -> String {
     let mut buf = [0u8; 128];
     let len = unsafe { _api_get_location(buf.as_mut_ptr() as u32, buf.len() as u32) };
     String::from_utf8_lossy(&buf[..len as usize]).to_string()
 }
+
+// ─── File Upload API ────────────────────────────────────────────────────────
 
 /// File returned from the native file picker.
 pub struct UploadedFile {
@@ -182,6 +212,14 @@ pub fn canvas_dimensions() -> (u32, u32) {
     ((packed >> 32) as u32, (packed & 0xFFFF_FFFF) as u32)
 }
 
+/// Draw an image on the canvas from encoded image bytes (PNG, JPEG, GIF, WebP).
+/// The browser decodes the image and renders it at the given rectangle.
+pub fn canvas_image(x: f32, y: f32, w: f32, h: f32, data: &[u8]) {
+    unsafe {
+        _api_canvas_image(x, y, w, h, data.as_ptr() as u32, data.len() as u32)
+    }
+}
+
 // ─── Local Storage API ──────────────────────────────────────────────────────
 
 /// Store a key-value pair in sandboxed local storage.
@@ -254,4 +292,133 @@ pub fn notify(title: &str, body: &str) {
             body.as_ptr() as u32, body.len() as u32,
         )
     }
+}
+
+// ─── HTTP Fetch API ─────────────────────────────────────────────────────────
+
+/// Response from an HTTP fetch call.
+pub struct FetchResponse {
+    pub status: u32,
+    pub body: Vec<u8>,
+}
+
+impl FetchResponse {
+    /// Interpret the response body as UTF-8 text.
+    pub fn text(&self) -> String {
+        String::from_utf8_lossy(&self.body).to_string()
+    }
+}
+
+/// Perform an HTTP request.  Returns the status code and response body.
+///
+/// `content_type` sets the `Content-Type` header (pass `""` to omit).
+/// Protobuf is the native format — use `"application/protobuf"` for binary
+/// payloads.
+pub fn fetch(method: &str, url: &str, content_type: &str, body: &[u8]) -> Result<FetchResponse, i64> {
+    let mut out_buf = vec![0u8; 4 * 1024 * 1024]; // 4 MB response buffer
+    let result = unsafe {
+        _api_fetch(
+            method.as_ptr() as u32, method.len() as u32,
+            url.as_ptr() as u32, url.len() as u32,
+            content_type.as_ptr() as u32, content_type.len() as u32,
+            body.as_ptr() as u32, body.len() as u32,
+            out_buf.as_mut_ptr() as u32, out_buf.len() as u32,
+        )
+    };
+    if result < 0 {
+        return Err(result);
+    }
+    let status = (result >> 32) as u32;
+    let body_len = (result & 0xFFFF_FFFF) as usize;
+    Ok(FetchResponse {
+        status,
+        body: out_buf[..body_len].to_vec(),
+    })
+}
+
+/// HTTP GET request.
+pub fn fetch_get(url: &str) -> Result<FetchResponse, i64> {
+    fetch("GET", url, "", &[])
+}
+
+/// HTTP POST with raw bytes.
+pub fn fetch_post(url: &str, content_type: &str, body: &[u8]) -> Result<FetchResponse, i64> {
+    fetch("POST", url, content_type, body)
+}
+
+/// HTTP POST with protobuf body (sets `Content-Type: application/protobuf`).
+pub fn fetch_post_proto(url: &str, msg: &proto::ProtoEncoder) -> Result<FetchResponse, i64> {
+    fetch("POST", url, "application/protobuf", msg.as_bytes())
+}
+
+/// HTTP PUT with raw bytes.
+pub fn fetch_put(url: &str, content_type: &str, body: &[u8]) -> Result<FetchResponse, i64> {
+    fetch("PUT", url, content_type, body)
+}
+
+/// HTTP DELETE.
+pub fn fetch_delete(url: &str) -> Result<FetchResponse, i64> {
+    fetch("DELETE", url, "", &[])
+}
+
+// ─── Dynamic Module Loading ─────────────────────────────────────────────────
+
+/// Fetch and execute another `.wasm` module from a URL.
+/// The loaded module shares the same canvas, console, and storage context.
+/// Returns 0 on success, negative error code on failure.
+pub fn load_module(url: &str) -> i32 {
+    unsafe { _api_load_module(url.as_ptr() as u32, url.len() as u32) }
+}
+
+// ─── Crypto / Hash API ─────────────────────────────────────────────────────
+
+/// Compute the SHA-256 hash of the given data. Returns 32 bytes.
+pub fn hash_sha256(data: &[u8]) -> [u8; 32] {
+    let mut out = [0u8; 32];
+    unsafe {
+        _api_hash_sha256(data.as_ptr() as u32, data.len() as u32, out.as_mut_ptr() as u32);
+    }
+    out
+}
+
+/// Return SHA-256 hash as a lowercase hex string.
+pub fn hash_sha256_hex(data: &[u8]) -> String {
+    let hash = hash_sha256(data);
+    let mut hex = String::with_capacity(64);
+    for byte in &hash {
+        hex.push(HEX_CHARS[(*byte >> 4) as usize]);
+        hex.push(HEX_CHARS[(*byte & 0x0F) as usize]);
+    }
+    hex
+}
+
+const HEX_CHARS: [char; 16] = [
+    '0', '1', '2', '3', '4', '5', '6', '7',
+    '8', '9', 'a', 'b', 'c', 'd', 'e', 'f',
+];
+
+// ─── Base64 API ─────────────────────────────────────────────────────────────
+
+/// Base64-encode arbitrary bytes.
+pub fn base64_encode(data: &[u8]) -> String {
+    let mut buf = vec![0u8; data.len() * 4 / 3 + 8];
+    let len = unsafe {
+        _api_base64_encode(
+            data.as_ptr() as u32, data.len() as u32,
+            buf.as_mut_ptr() as u32, buf.len() as u32,
+        )
+    };
+    String::from_utf8_lossy(&buf[..len as usize]).to_string()
+}
+
+/// Decode a base64-encoded string back to bytes.
+pub fn base64_decode(encoded: &str) -> Vec<u8> {
+    let mut buf = vec![0u8; encoded.len()];
+    let len = unsafe {
+        _api_base64_decode(
+            encoded.as_ptr() as u32, encoded.len() as u32,
+            buf.as_mut_ptr() as u32, buf.len() as u32,
+        )
+    };
+    buf[..len as usize].to_vec()
 }

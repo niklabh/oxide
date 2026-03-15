@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use eframe::egui;
@@ -14,6 +15,8 @@ pub struct OxideApp {
     tokio_rt: tokio::runtime::Runtime,
     run_tx: std::sync::mpsc::Sender<RunRequest>,
     run_rx: Arc<Mutex<std::sync::mpsc::Receiver<RunResult>>>,
+    image_textures: HashMap<usize, egui::TextureHandle>,
+    canvas_generation: u64,
 }
 
 enum RunRequest {
@@ -66,6 +69,8 @@ impl OxideApp {
             tokio_rt,
             run_tx: req_tx,
             run_rx: Arc::new(Mutex::new(res_rx)),
+            image_textures: HashMap::new(),
+            canvas_generation: 0,
         }
     }
 
@@ -93,7 +98,6 @@ impl OxideApp {
 
 impl eframe::App for OxideApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Drain any background results (check for errors).
         if let Ok(rx) = self.run_rx.lock() {
             while let Ok(result) = rx.try_recv() {
                 if let Some(err) = result.error {
@@ -102,7 +106,6 @@ impl eframe::App for OxideApp {
             }
         }
 
-        // Request continuous repainting for animations.
         ctx.request_repaint();
 
         self.render_toolbar(ctx);
@@ -157,11 +160,41 @@ impl OxideApp {
         });
     }
 
-    fn render_canvas(&self, ctx: &egui::Context) {
-        egui::CentralPanel::default().show(ctx, |ui| {
+    fn render_canvas(&mut self, ctx: &egui::Context) {
+        // Phase 1: Update texture cache from decoded images.
+        {
             let canvas = self.host_state.canvas.lock().unwrap();
+            if canvas.generation != self.canvas_generation {
+                self.image_textures.clear();
+                self.canvas_generation = canvas.generation;
+            }
+            for (i, decoded) in canvas.images.iter().enumerate() {
+                if !self.image_textures.contains_key(&i) {
+                    let color_image = egui::ColorImage::from_rgba_unmultiplied(
+                        [decoded.width as usize, decoded.height as usize],
+                        &decoded.pixels,
+                    );
+                    let handle = ctx.load_texture(
+                        format!("oxide_img_{i}"),
+                        color_image,
+                        egui::TextureOptions::LINEAR,
+                    );
+                    self.image_textures.insert(i, handle);
+                }
+            }
+        }
 
-            if canvas.commands.is_empty() {
+        // Phase 2: Clone commands (cheap) and collect texture IDs.
+        let commands = self.host_state.canvas.lock().unwrap().commands.clone();
+        let tex_ids: HashMap<usize, egui::TextureId> = self
+            .image_textures
+            .iter()
+            .map(|(k, v)| (*k, v.id()))
+            .collect();
+
+        // Phase 3: Render.
+        egui::CentralPanel::default().show(ctx, |ui| {
+            if commands.is_empty() {
                 ui.vertical_centered(|ui| {
                     ui.add_space(ui.available_height() / 3.0);
                     ui.heading(
@@ -188,7 +221,7 @@ impl OxideApp {
                 ui.allocate_painter(available, egui::Sense::hover());
             let rect = response.rect;
 
-            for cmd in &canvas.commands {
+            for cmd in &commands {
                 match cmd {
                     DrawCommand::Clear { r, g, b, a } => {
                         painter.rect_filled(rect, 0.0, egui::Color32::from_rgba_unmultiplied(*r, *g, *b, *a));
@@ -219,6 +252,19 @@ impl OxideApp {
                             [p1, p2],
                             egui::Stroke::new(*thickness, egui::Color32::from_rgb(*r, *g, *b)),
                         );
+                    }
+                    DrawCommand::Image { x, y, w, h, image_id } => {
+                        if let Some(tex_id) = tex_ids.get(image_id) {
+                            let img_rect = egui::Rect::from_min_size(
+                                rect.min + egui::vec2(*x, *y),
+                                egui::vec2(*w, *h),
+                            );
+                            let uv = egui::Rect::from_min_max(
+                                egui::pos2(0.0, 0.0),
+                                egui::pos2(1.0, 1.0),
+                            );
+                            painter.image(*tex_id, img_rect, uv, egui::Color32::WHITE);
+                        }
                     }
                 }
             }

@@ -26,7 +26,9 @@ The browser provides a set of **capability APIs** that guest modules can import 
 │  ┌────────────────────▼───────────────────────┐ │
 │  │          Capability Provider                │ │
 │  │  "oxide" import module                      │ │
-│  │  (canvas, console, storage, clipboard, ...) │ │
+│  │  canvas, console, storage, clipboard,       │ │
+│  │  fetch, images, crypto, base64, protobuf,   │ │
+│  │  dynamic module loading                     │ │
 │  └────────────────────┬───────────────────────┘ │
 │                       │                         │
 │  ┌────────────────────▼───────────────────────┐ │
@@ -282,6 +284,147 @@ let probability = random_f64();
 notify("Download Complete", "Your file has been saved.");
 ```
 
+### HTTP Fetch
+
+The fetch API lets guest modules make HTTP requests. The host mediates all network access — the guest never opens raw sockets. **Protocol Buffers is the native data format** — use `fetch_post_proto` for the idiomatic path.
+
+| Function | Signature | Description |
+|---|---|---|
+| `fetch` | `fn fetch(method, url, content_type, body) -> Result<FetchResponse, i64>` | Full HTTP request |
+| `fetch_get` | `fn fetch_get(url: &str) -> Result<FetchResponse, i64>` | HTTP GET |
+| `fetch_post` | `fn fetch_post(url, content_type, body) -> Result<FetchResponse, i64>` | HTTP POST |
+| `fetch_post_proto` | `fn fetch_post_proto(url, msg: &ProtoEncoder) -> Result<FetchResponse, i64>` | POST with protobuf body |
+| `fetch_put` | `fn fetch_put(url, content_type, body) -> Result<FetchResponse, i64>` | HTTP PUT |
+| `fetch_delete` | `fn fetch_delete(url: &str) -> Result<FetchResponse, i64>` | HTTP DELETE |
+
+The `FetchResponse` struct:
+```rust
+pub struct FetchResponse {
+    pub status: u32,        // HTTP status code
+    pub body: Vec<u8>,      // response body bytes
+}
+impl FetchResponse {
+    pub fn text(&self) -> String;  // body as UTF-8
+}
+```
+
+```rust
+// Simple GET
+let resp = fetch_get("https://api.example.com/data").unwrap();
+log(&format!("Status: {}, Body: {}", resp.status, resp.text()));
+
+// POST with protobuf (native format)
+use oxide_sdk::proto::ProtoEncoder;
+let msg = ProtoEncoder::new()
+    .string(1, "alice")
+    .uint64(2, 42);
+let resp = fetch_post_proto("https://api.example.com/users", &msg).unwrap();
+
+// POST with JSON
+let json = r#"{"name":"alice"}"#;
+let resp = fetch_post("https://api.example.com/users", "application/json", json.as_bytes()).unwrap();
+```
+
+### Dynamic Module Loading
+
+Guest modules can fetch and execute other `.wasm` modules at runtime — analogous to a `<script src="...">` tag in traditional browsers. The child module shares the same canvas, console, and storage context.
+
+| Function | Signature | Description |
+|---|---|---|
+| `load_module` | `fn load_module(url: &str) -> i32` | Fetch and run another .wasm module (0 = success) |
+
+```rust
+let result = load_module("https://cdn.example.com/widget.wasm");
+if result != 0 {
+    error(&format!("Failed to load module: error code {}", result));
+}
+```
+
+### Canvas Image
+
+Display decoded images (PNG, JPEG, GIF, WebP) on the canvas. Image bytes can come from `fetch`, `upload_file`, or be embedded in the binary.
+
+| Function | Signature | Description |
+|---|---|---|
+| `canvas_image` | `fn canvas_image(x, y, w, h: f32, data: &[u8])` | Draw a decoded image at position/size |
+
+```rust
+// Fetch an image from a URL and display it
+let resp = fetch_get("https://example.com/logo.png").unwrap();
+canvas_image(20.0, 100.0, 200.0, 150.0, &resp.body);
+
+// Display an uploaded file as an image
+if let Some(file) = upload_file() {
+    canvas_image(0.0, 0.0, 400.0, 300.0, &file.data);
+}
+```
+
+### Protobuf (Native Data Format)
+
+Oxide uses Protocol Buffers wire format as its native serialisation layer. The `oxide_sdk::proto` module provides a zero-dependency encoder/decoder that produces bytes compatible with any protobuf implementation.
+
+```rust
+use oxide_sdk::proto::{ProtoEncoder, ProtoDecoder};
+
+// Encode a message
+let msg = ProtoEncoder::new()
+    .string(1, "alice")           // field 1: string
+    .uint64(2, 42)                // field 2: varint
+    .bool(3, true)                // field 3: bool
+    .double(4, 3.14)              // field 4: double
+    .bytes(5, &[0xCA, 0xFE]);    // field 5: raw bytes
+let data = msg.finish();
+
+// Decode a message
+let mut decoder = ProtoDecoder::new(&data);
+while let Some(field) = decoder.next() {
+    match field.number {
+        1 => log(&format!("name  = {}", field.as_str())),
+        2 => log(&format!("age   = {}", field.as_u64())),
+        3 => log(&format!("admin = {}", field.as_bool())),
+        4 => log(&format!("score = {}", field.as_f64())),
+        5 => log(&format!("blob  = {:?}", field.as_bytes())),
+        _ => {}
+    }
+}
+
+// Nested messages
+let address = ProtoEncoder::new()
+    .string(1, "123 Main St")
+    .string(2, "Springfield");
+let user = ProtoEncoder::new()
+    .string(1, "alice")
+    .message(2, &address);   // embed sub-message
+```
+
+The encoder supports all protobuf wire types: `uint32`, `uint64`, `int32`, `int64`, `sint32`, `sint64`, `bool`, `string`, `bytes`, `float`, `double`, `fixed32`, `fixed64`, `sfixed32`, `sfixed64`, and nested `message`.
+
+### SHA-256 Hashing
+
+| Function | Signature | Description |
+|---|---|---|
+| `hash_sha256` | `fn hash_sha256(data: &[u8]) -> [u8; 32]` | SHA-256 hash (raw bytes) |
+| `hash_sha256_hex` | `fn hash_sha256_hex(data: &[u8]) -> String` | SHA-256 hash (hex string) |
+
+```rust
+let hash = hash_sha256(b"hello world");
+let hex = hash_sha256_hex(b"hello world");
+log(&format!("SHA-256: {}", hex));
+```
+
+### Base64
+
+| Function | Signature | Description |
+|---|---|---|
+| `base64_encode` | `fn base64_encode(data: &[u8]) -> String` | Encode bytes to base64 |
+| `base64_decode` | `fn base64_decode(encoded: &str) -> Vec<u8>` | Decode base64 to bytes |
+
+```rust
+let encoded = base64_encode(b"Hello, Oxide!");
+let decoded = base64_decode(&encoded);
+assert_eq!(decoded, b"Hello, Oxide!");
+```
+
 ---
 
 ## Security Model
@@ -305,9 +448,13 @@ Every guest `.wasm` module runs under strict constraints:
 3. **Fuel metering**: Each WebAssembly instruction consumes fuel. When fuel runs out, execution halts with a clear error message.
 4. **Capability-based access**: The only way a guest can interact with the outside world is through the explicitly provided `oxide::*` host functions.
 
-### The file upload exception
+### Mediated I/O
 
-`upload_file()` opens a native OS file picker — this is intentional. The guest never gets filesystem access; instead, the *host* mediates the interaction and only passes the selected file's name and content bytes to the guest.
+Several APIs grant controlled access to external resources while maintaining the sandbox:
+
+- **File upload**: `upload_file()` opens a native OS file picker. The guest never gets filesystem access; the *host* mediates the interaction and only passes the selected file's name and content bytes.
+- **HTTP fetch**: `fetch()` lets the guest make HTTP requests, but all network access is proxied through the host. The guest cannot open raw sockets. The host can enforce allowlists, rate limits, or other policies.
+- **Dynamic loading**: `load_module()` fetches and runs another `.wasm` module. The child inherits the same canvas/console/storage but gets its own memory and fuel budget, preventing escape from the sandbox.
 
 ---
 
@@ -328,7 +475,8 @@ oxide/
 ├── oxide-sdk/                    # Guest SDK
 │   ├── Cargo.toml
 │   └── src/
-│       └── lib.rs                # Safe wrappers around host FFI imports
+│       ├── lib.rs                # Safe wrappers around host FFI imports
+│       └── proto.rs              # Protobuf wire-format encoder/decoder
 └── examples/
     └── hello-oxide/              # Example guest application
         ├── Cargo.toml

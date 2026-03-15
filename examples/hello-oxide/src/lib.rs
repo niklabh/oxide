@@ -1,4 +1,5 @@
 use oxide_sdk::*;
+use oxide_sdk::proto::ProtoEncoder;
 
 #[no_mangle]
 pub extern "C" fn start_app() {
@@ -7,54 +8,88 @@ pub extern "C" fn start_app() {
     let (width, height) = canvas_dimensions();
     log(&format!("Canvas size: {}x{}", width, height));
 
-    // Dark background
     canvas_clear(30, 30, 46, 255);
 
     // Title bar
     canvas_rect(0.0, 0.0, width as f32, 60.0, 50, 40, 80, 255);
     canvas_text(20.0, 18.0, 24.0, 220, 200, 255, "Hello, Oxide!");
 
-    // Decorative circles
-    canvas_circle(400.0, 300.0, 80.0, 180, 120, 255, 200);
-    canvas_circle(350.0, 260.0, 40.0, 255, 180, 100, 180);
-    canvas_circle(460.0, 280.0, 50.0, 100, 220, 180, 180);
-
     // Info text
-    canvas_text(20.0, 100.0, 16.0, 200, 200, 200, "This app is running as a .wasm module inside the Oxide browser.");
-    canvas_text(20.0, 130.0, 16.0, 200, 200, 200, "It has zero access to the host filesystem or network.");
+    canvas_text(20.0, 80.0, 16.0, 200, 200, 200,
+        "This app is running as a .wasm module inside the Oxide browser.");
+    canvas_text(20.0, 105.0, 16.0, 200, 200, 200,
+        "It has zero access to the host filesystem or network sockets.");
 
-    // Demonstrate geolocation API
+    // ── Protobuf Demo ────────────────────────────────────────────────
+    canvas_text(20.0, 150.0, 18.0, 180, 140, 255, "Protobuf (native wire format)");
+
+    let msg = ProtoEncoder::new()
+        .string(1, "alice")
+        .uint64(2, 42)
+        .bool(3, true)
+        .double(4, 3.14159);
+    let encoded = msg.finish();
+
+    canvas_text(30.0, 175.0, 14.0, 160, 220, 160,
+        &format!("Encoded {} bytes: {:02X?}", encoded.len(), &encoded));
+    log(&format!("Proto encoded: {} bytes", encoded.len()));
+
+    let mut decoder = proto::ProtoDecoder::new(&encoded);
+    let mut decoded_parts = Vec::new();
+    while let Some(field) = decoder.next() {
+        let desc = match field.number {
+            1 => format!("name={}", field.as_str()),
+            2 => format!("age={}", field.as_u64()),
+            3 => format!("active={}", field.as_bool()),
+            4 => format!("pi={:.5}", field.as_f64()),
+            _ => format!("?{}", field.number),
+        };
+        decoded_parts.push(desc);
+    }
+    canvas_text(30.0, 195.0, 14.0, 160, 220, 160,
+        &format!("Decoded: {}", decoded_parts.join(", ")));
+    log(&format!("Proto decoded: {}", decoded_parts.join(", ")));
+
+    // ── Crypto / Hash Demo ───────────────────────────────────────────
+    canvas_text(20.0, 230.0, 18.0, 180, 140, 255, "SHA-256 & Base64");
+
+    let hash_hex = hash_sha256_hex(b"Hello, Oxide!");
+    canvas_text(30.0, 255.0, 14.0, 160, 220, 160,
+        &format!("sha256(\"Hello, Oxide!\") = {}...", &hash_hex[..32]));
+    log(&format!("SHA-256: {}", hash_hex));
+
+    let b64 = base64_encode(b"Oxide Browser v0.1");
+    canvas_text(30.0, 275.0, 14.0, 160, 220, 160,
+        &format!("base64 encode = {}", b64));
+    let roundtrip = base64_decode(&b64);
+    canvas_text(30.0, 295.0, 14.0, 160, 220, 160,
+        &format!("base64 decode = {}", String::from_utf8_lossy(&roundtrip)));
+
+    // ── Existing API demos ───────────────────────────────────────────
+    canvas_text(20.0, 330.0, 18.0, 180, 140, 255, "Platform APIs");
+
     let location = get_location();
-    canvas_text(20.0, 180.0, 14.0, 160, 220, 160, &format!("Mock location: {}", location));
-    log(&format!("Geolocation: {}", location));
+    canvas_text(30.0, 355.0, 14.0, 160, 220, 160,
+        &format!("Geolocation: {}", location));
 
-    // Demonstrate storage API
     storage_set("visit_count", "1");
     let count = storage_get("visit_count");
-    canvas_text(20.0, 210.0, 14.0, 160, 220, 160, &format!("Storage test: visit_count = {}", count));
-    log(&format!("Storage: visit_count = {}", count));
+    canvas_text(30.0, 375.0, 14.0, 160, 220, 160,
+        &format!("Storage: visit_count = {}", count));
 
-    // Demonstrate time API
     let now = time_now_ms();
-    canvas_text(20.0, 240.0, 14.0, 160, 220, 160, &format!("Current time: {} ms since epoch", now));
+    canvas_text(30.0, 395.0, 14.0, 160, 220, 160,
+        &format!("Time: {} ms since epoch", now));
 
-    // Demonstrate random API
     let rand_val = random_f64();
-    canvas_text(20.0, 270.0, 14.0, 160, 220, 160, &format!("Random value: {:.6}", rand_val));
+    canvas_text(30.0, 415.0, 14.0, 160, 220, 160,
+        &format!("Random: {:.6}", rand_val));
 
-    // Grid lines
-    let grid_y = 320.0;
-    for i in 0..8 {
-        let x = 20.0 + (i as f32) * 90.0;
-        canvas_line(x, grid_y, x, grid_y + 100.0, 80, 80, 100, 1.0);
-    }
-    for i in 0..4 {
-        let y = grid_y + (i as f32) * 33.0;
-        canvas_line(20.0, y, 650.0, y, 80, 80, 100, 1.0);
-    }
+    // Decorative circles
+    canvas_circle(width as f32 - 120.0, 300.0, 60.0, 180, 120, 255, 150);
+    canvas_circle(width as f32 - 160.0, 260.0, 30.0, 255, 180, 100, 130);
+    canvas_circle(width as f32 - 80.0,  280.0, 40.0, 100, 220, 180, 130);
 
-    // Notification
     notify("Oxide App", "Guest application loaded successfully!");
-
     log("start_app() completed.");
 }

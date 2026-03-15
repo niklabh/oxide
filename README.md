@@ -2,6 +2,8 @@
 
 Oxide is a proof-of-concept browser that fetches and executes `.wasm` (WebAssembly) modules instead of HTML/JavaScript. Guest applications run in a secure, sandboxed environment with capability-based access to host APIs.
 
+![oxide](screens/oxide.png)
+
 ## Quick Start
 
 ```bash
