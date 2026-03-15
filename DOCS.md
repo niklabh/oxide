@@ -1,0 +1,460 @@
+# Oxide Browser — Developer Documentation
+
+## What is Oxide?
+
+Oxide is a **binary-first browser** that fetches and executes `.wasm` (WebAssembly) modules instead of HTML/JavaScript. Guest applications run in a secure, sandboxed environment with zero access to the host filesystem, environment variables, or arbitrary network sockets.
+
+The browser provides a set of **capability APIs** that guest modules can import to interact with the host — drawing on a canvas, reading/writing local storage, accessing the clipboard, and more.
+
+---
+
+## Architecture
+
+```
+┌──────────────────────────────────────────────────┐
+│                   Oxide Browser                  │
+│  ┌──────────┐  ┌────────────┐  ┌──────────────┐ │
+│  │  URL Bar  │  │   Canvas   │  │   Console    │ │
+│  └────┬─────┘  └──────┬─────┘  └──────┬───────┘ │
+│       │               │               │         │
+│  ┌────▼───────────────▼───────────────▼───────┐ │
+│  │              Host Runtime                   │ │
+│  │  wasmtime engine + sandbox policy           │ │
+│  │  fuel limit: 500M  │  memory: 16MB max      │ │
+│  └────────────────────┬───────────────────────┘ │
+│                       │                         │
+│  ┌────────────────────▼───────────────────────┐ │
+│  │          Capability Provider                │ │
+│  │  "oxide" import module                      │ │
+│  │  (canvas, console, storage, clipboard, ...) │ │
+│  └────────────────────┬───────────────────────┘ │
+│                       │                         │
+│  ┌────────────────────▼───────────────────────┐ │
+│  │           Guest .wasm Module                │ │
+│  │  exports: start_app()                       │ │
+│  │  imports: oxide::*                          │ │
+│  └────────────────────────────────────────────┘ │
+└──────────────────────────────────────────────────┘
+```
+
+---
+
+## Building & Running the Browser
+
+### Prerequisites
+
+- Rust toolchain (1.75+): https://rustup.rs
+- The `wasm32-unknown-unknown` target (for building guest apps):
+
+```bash
+rustup target add wasm32-unknown-unknown
+```
+
+### Build the browser
+
+```bash
+cd oxide
+cargo build --release -p oxide-browser
+```
+
+### Run the browser
+
+```bash
+cargo run -p oxide-browser
+```
+
+This opens the Oxide browser window with a URL bar, canvas area, and console panel.
+
+---
+
+## Creating a Guest Application (WASM Website)
+
+Guest applications are Rust libraries compiled to `wasm32-unknown-unknown` that export a single entry point: `start_app()`.
+
+### Step 1: Create a new project
+
+```bash
+cargo new --lib my-oxide-app
+cd my-oxide-app
+```
+
+### Step 2: Configure Cargo.toml
+
+```toml
+[package]
+name = "my-oxide-app"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+oxide-sdk = { path = "../oxide/oxide-sdk" }
+# Or, if published:
+# oxide-sdk = "0.1"
+```
+
+The `crate-type = ["cdylib"]` is essential — it tells Cargo to produce a `.wasm` file suitable for dynamic loading.
+
+### Step 3: Write your app
+
+```rust
+// src/lib.rs
+use oxide_sdk::*;
+
+#[no_mangle]
+pub extern "C" fn start_app() {
+    log("App started!");
+
+    // Clear the canvas with a dark background
+    canvas_clear(30, 30, 46, 255);
+
+    // Draw a title
+    canvas_text(20.0, 30.0, 28.0, 255, 255, 255, "My Oxide App");
+
+    // Draw some shapes
+    canvas_rect(20.0, 80.0, 200.0, 100.0, 80, 120, 200, 255);
+    canvas_circle(400.0, 300.0, 60.0, 200, 100, 150, 255);
+    canvas_line(20.0, 200.0, 600.0, 200.0, 100, 100, 100, 2.0);
+
+    log("Rendering complete.");
+}
+```
+
+### Step 4: Build
+
+```bash
+cargo build --target wasm32-unknown-unknown --release
+```
+
+The output `.wasm` file will be at:
+```
+target/wasm32-unknown-unknown/release/my_oxide_app.wasm
+```
+
+### Step 5: Run in Oxide
+
+- Open the Oxide browser
+- Click **"Open File"** and select your `.wasm` file, OR
+- Serve it over HTTP and enter the URL in the address bar
+
+---
+
+## Browser API Reference
+
+All APIs are available through the `oxide-sdk` crate. Import them with `use oxide_sdk::*;`.
+
+### Console
+
+| Function | Signature | Description |
+|---|---|---|
+| `log` | `fn log(msg: &str)` | Print a message to the browser console |
+| `warn` | `fn warn(msg: &str)` | Print a warning (yellow) to the console |
+| `error` | `fn error(msg: &str)` | Print an error (red) to the console |
+
+```rust
+log("This is informational");
+warn("This is a warning");
+error("Something went wrong!");
+```
+
+### Canvas
+
+The canvas is the main rendering surface. Coordinates start at (0, 0) in the top-left.
+
+| Function | Signature | Description |
+|---|---|---|
+| `canvas_clear` | `fn canvas_clear(r: u8, g: u8, b: u8, a: u8)` | Clear canvas with solid color |
+| `canvas_rect` | `fn canvas_rect(x, y, w, h: f32, r, g, b, a: u8)` | Draw filled rectangle |
+| `canvas_circle` | `fn canvas_circle(cx, cy, radius: f32, r, g, b, a: u8)` | Draw filled circle |
+| `canvas_text` | `fn canvas_text(x, y, size: f32, r, g, b: u8, text: &str)` | Draw text |
+| `canvas_line` | `fn canvas_line(x1, y1, x2, y2: f32, r, g, b: u8, thickness: f32)` | Draw a line |
+| `canvas_dimensions` | `fn canvas_dimensions() -> (u32, u32)` | Get canvas (width, height) |
+
+```rust
+canvas_clear(0, 0, 0, 255);                                // black background
+canvas_rect(10.0, 10.0, 100.0, 50.0, 255, 0, 0, 255);     // red rectangle
+canvas_circle(200.0, 200.0, 30.0, 0, 255, 0, 255);         // green circle
+canvas_text(10.0, 80.0, 16.0, 255, 255, 255, "Hello!");    // white text
+canvas_line(0.0, 0.0, 100.0, 100.0, 255, 255, 0, 2.0);    // yellow diagonal line
+
+let (w, h) = canvas_dimensions();
+log(&format!("Canvas is {}x{}", w, h));
+```
+
+### Geolocation
+
+| Function | Signature | Description |
+|---|---|---|
+| `get_location` | `fn get_location() -> String` | Returns mock GPS coordinates as `"lat,lon"` |
+
+```rust
+let coords = get_location();  // "37.7749,-122.4194"
+let parts: Vec<&str> = coords.split(',').collect();
+let lat = parts[0];
+let lon = parts[1];
+```
+
+> **Note:** This returns mock data in the PoC. A production version would request real GPS permission.
+
+### File Upload
+
+| Function | Signature | Description |
+|---|---|---|
+| `upload_file` | `fn upload_file() -> Option<UploadedFile>` | Opens native file picker, returns file content |
+
+The `UploadedFile` struct:
+```rust
+pub struct UploadedFile {
+    pub name: String,      // filename
+    pub data: Vec<u8>,     // raw file bytes (max 1MB)
+}
+```
+
+```rust
+if let Some(file) = upload_file() {
+    log(&format!("Selected: {} ({} bytes)", file.name, file.data.len()));
+}
+```
+
+### Local Storage
+
+Key-value storage scoped to the current session. Data does not persist across browser restarts in the PoC.
+
+| Function | Signature | Description |
+|---|---|---|
+| `storage_set` | `fn storage_set(key: &str, value: &str)` | Store a value |
+| `storage_get` | `fn storage_get(key: &str) -> String` | Retrieve a value (empty if missing) |
+| `storage_remove` | `fn storage_remove(key: &str)` | Delete a key |
+
+```rust
+storage_set("username", "alice");
+let name = storage_get("username");  // "alice"
+storage_remove("username");
+let name = storage_get("username");  // ""
+```
+
+### Clipboard
+
+| Function | Signature | Description |
+|---|---|---|
+| `clipboard_write` | `fn clipboard_write(text: &str)` | Copy text to system clipboard |
+| `clipboard_read` | `fn clipboard_read() -> String` | Read text from system clipboard |
+
+```rust
+clipboard_write("Copied from Oxide!");
+let text = clipboard_read();
+```
+
+### Time
+
+| Function | Signature | Description |
+|---|---|---|
+| `time_now_ms` | `fn time_now_ms() -> u64` | Current time in ms since UNIX epoch |
+
+```rust
+let start = time_now_ms();
+// ... do work ...
+let elapsed = time_now_ms() - start;
+log(&format!("Took {}ms", elapsed));
+```
+
+### Random
+
+| Function | Signature | Description |
+|---|---|---|
+| `random_u64` | `fn random_u64() -> u64` | Random 64-bit unsigned integer |
+| `random_f64` | `fn random_f64() -> f64` | Random float in [0.0, 1.0) |
+
+```rust
+let dice = (random_u64() % 6) + 1;
+let probability = random_f64();
+```
+
+### Notifications
+
+| Function | Signature | Description |
+|---|---|---|
+| `notify` | `fn notify(title: &str, body: &str)` | Display a notification in the console |
+
+```rust
+notify("Download Complete", "Your file has been saved.");
+```
+
+---
+
+## Security Model
+
+### Sandbox Guarantees
+
+Every guest `.wasm` module runs under strict constraints:
+
+| Constraint | Value | Purpose |
+|---|---|---|
+| **Filesystem access** | None | Guest cannot read/write host files |
+| **Environment variables** | None | Guest cannot read host env vars |
+| **Network sockets** | None | Guest cannot open arbitrary connections |
+| **Memory limit** | 16 MB (256 pages) | Prevents memory exhaustion attacks |
+| **Fuel limit** | 500M instructions | Prevents infinite loops / DoS |
+
+### How it works
+
+1. **No WASI**: The runtime does *not* link WASI modules. The guest has zero implicit access to system resources.
+2. **Bounded memory**: Linear memory is created with a hard upper bound. Any allocation beyond this causes a trap.
+3. **Fuel metering**: Each WebAssembly instruction consumes fuel. When fuel runs out, execution halts with a clear error message.
+4. **Capability-based access**: The only way a guest can interact with the outside world is through the explicitly provided `oxide::*` host functions.
+
+### The file upload exception
+
+`upload_file()` opens a native OS file picker — this is intentional. The guest never gets filesystem access; instead, the *host* mediates the interaction and only passes the selected file's name and content bytes to the guest.
+
+---
+
+## Project Structure
+
+```
+oxide/
+├── Cargo.toml                    # Workspace root
+├── DOCS.md                       # This file
+├── oxide-browser/                # The host browser application
+│   ├── Cargo.toml
+│   └── src/
+│       ├── main.rs               # Entry point, sets up GUI
+│       ├── engine.rs             # WasmEngine, SandboxPolicy, fuel/memory
+│       ├── runtime.rs            # BrowserHost, fetch_and_run, module execution
+│       ├── capabilities.rs       # Host functions (the "oxide" import module)
+│       └── ui.rs                 # egui-based UI (URL bar, canvas, console)
+├── oxide-sdk/                    # Guest SDK
+│   ├── Cargo.toml
+│   └── src/
+│       └── lib.rs                # Safe wrappers around host FFI imports
+└── examples/
+    └── hello-oxide/              # Example guest application
+        ├── Cargo.toml
+        └── src/
+            └── lib.rs
+```
+
+---
+
+## Building the Example Guest App
+
+```bash
+# From the workspace root
+cargo build --target wasm32-unknown-unknown --release -p hello-oxide
+
+# The output .wasm file:
+ls target/wasm32-unknown-unknown/release/hello_oxide.wasm
+```
+
+Then open it in the browser:
+```bash
+cargo run -p oxide-browser
+# Click "Open File" → select hello_oxide.wasm
+```
+
+---
+
+## Serving WASM Files Over HTTP
+
+To test URL-based loading, serve your `.wasm` file over HTTP:
+
+```bash
+# Using Python's built-in server
+cd target/wasm32-unknown-unknown/release/
+python3 -m http.server 8080
+
+# Then in Oxide, navigate to:
+# http://localhost:8080/hello_oxide.wasm
+```
+
+Or use any static file server (nginx, caddy, etc.).
+
+---
+
+## Extending the Browser
+
+### Adding a new host function
+
+1. **Define it in `capabilities.rs`**: Add a `linker.func_wrap(...)` call in `register_host_functions`.
+2. **Add the FFI declaration in `oxide-sdk/src/lib.rs`**: Add the raw `extern "C"` import and a safe wrapper function.
+3. **Document it**: Update this file with the new API.
+
+### Example: Adding a `api_set_title` capability
+
+In `capabilities.rs`:
+```rust
+linker.func_wrap(
+    "oxide",
+    "api_set_title",
+    |caller: Caller<'_, HostState>, ptr: u32, len: u32| {
+        let mem = caller.data().memory.expect("memory not set");
+        let title = read_guest_string(&mem, &caller, ptr, len)
+            .unwrap_or_default();
+        // Store the title somewhere accessible to the UI...
+    },
+)?;
+```
+
+In `oxide-sdk/src/lib.rs`:
+```rust
+#[link(wasm_import_module = "oxide")]
+extern "C" {
+    #[link_name = "api_set_title"]
+    fn _api_set_title(ptr: u32, len: u32);
+}
+
+pub fn set_title(title: &str) {
+    unsafe { _api_set_title(title.as_ptr() as u32, title.len() as u32) }
+}
+```
+
+---
+
+## Guest Module Contract
+
+Every `.wasm` module loaded by Oxide must satisfy:
+
+1. **Export `start_app`**: A function with signature `extern "C" fn()`. This is the entry point called by the browser.
+2. **Import from `"oxide"` module**: All host capabilities are provided under the `"oxide"` import namespace.
+3. **Use host-provided memory**: The browser provides a `Memory` export under `oxide::memory`. The SDK handles this transparently.
+
+### Minimal valid guest (without the SDK)
+
+If you don't want to use the SDK, you can write raw imports:
+
+```rust
+#[link(wasm_import_module = "oxide")]
+extern "C" {
+    fn api_log(ptr: u32, len: u32);
+    fn api_canvas_clear(r: u32, g: u32, b: u32, a: u32);
+}
+
+#[no_mangle]
+pub extern "C" fn start_app() {
+    let msg = "Hello from raw WASM!";
+    unsafe {
+        api_log(msg.as_ptr() as u32, msg.len() as u32);
+        api_canvas_clear(20, 20, 40, 255);
+    }
+}
+```
+
+Compile with:
+```bash
+cargo build --target wasm32-unknown-unknown --release
+```
+
+---
+
+## Troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| "module must export `start_app`" | Missing entry point | Add `#[no_mangle] pub extern "C" fn start_app()` |
+| "fuel limit exceeded" | Infinite loop or very long computation | Optimize your code or reduce work per frame |
+| "failed to compile wasm module" | Invalid `.wasm` binary | Ensure you compiled with `--target wasm32-unknown-unknown` |
+| "guest string out of bounds" | Buffer too small for host data | Increase buffer sizes in your guest code |
+| "network request failed" | URL unreachable or CORS | Ensure the server is running and accessible |
+| Blank canvas | No draw commands issued | Call `canvas_clear()` and draw something in `start_app()` |

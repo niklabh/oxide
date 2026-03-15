@@ -1,0 +1,3 @@
+[workspace]
+members = ["oxide-browser", "oxide-sdk", "examples/hello-oxide"]
+resolver = "2"

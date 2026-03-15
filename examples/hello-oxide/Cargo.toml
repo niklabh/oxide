@@ -1,0 +1,11 @@
+[package]
+name = "hello-oxide"
+version = "0.1.0"
+edition = "2021"
+description = "Example guest application for the Oxide browser"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+oxide-sdk = { path = "../../oxide-sdk" }

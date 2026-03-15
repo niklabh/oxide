@@ -1,0 +1,22 @@
+[package]
+name = "oxide-browser"
+version = "0.1.0"
+edition = "2021"
+description = "A binary-first browser that fetches and runs .wasm modules in a secure sandbox"
+
+[[bin]]
+name = "oxide"
+path = "src/main.rs"
+
+[dependencies]
+wasmtime = "29"
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", features = ["rustls-tls"], default-features = false }
+eframe = "0.31"
+egui = "0.31"
+rfd = "0.15"
+arboard = "3"
+anyhow = "1"
+tracing = "0.1"
+tracing-subscriber = "0.3"
+chrono = "0.4"

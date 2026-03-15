@@ -1,0 +1,8 @@
+[package]
+name = "oxide-sdk"
+version = "0.1.0"
+edition = "2021"
+description = "Guest SDK for building .wasm applications that run inside the Oxide browser"
+
+[lib]
+crate-type = ["rlib"]
