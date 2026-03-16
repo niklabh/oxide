@@ -158,6 +158,9 @@ impl BrowserHost {
     }
 }
 
+/// Maximum size of a `.wasm` module that can be fetched over the network.
+const MAX_WASM_MODULE_SIZE: u64 = 50 * 1024 * 1024; // 50 MB
+
 async fn fetch_wasm(url: &str) -> Result<Vec<u8>> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
@@ -175,10 +178,36 @@ async fn fetch_wasm(url: &str) -> Result<Vec<u8>> {
         anyhow::bail!("server returned HTTP {} for {}", response.status(), url);
     }
 
+    // Reject responses with an obviously wrong Content-Type.
+    if let Some(ct) = response.headers().get("content-type") {
+        let ct_str = ct.to_str().unwrap_or("");
+        if !ct_str.is_empty()
+            && !ct_str.contains("application/wasm")
+            && !ct_str.contains("application/octet-stream")
+        {
+            anyhow::bail!("unexpected Content-Type for .wasm module: {ct_str}");
+        }
+    }
+
+    // Enforce size limit early via Content-Length when available.
+    if let Some(len) = response.content_length() {
+        anyhow::ensure!(
+            len <= MAX_WASM_MODULE_SIZE,
+            "module too large ({len} bytes, limit is {MAX_WASM_MODULE_SIZE})"
+        );
+    }
+
     let bytes = response
         .bytes()
         .await
         .context("failed to read response body")?;
+
+    // Content-Length can be absent or spoofed, so check actual size too.
+    anyhow::ensure!(
+        (bytes.len() as u64) <= MAX_WASM_MODULE_SIZE,
+        "module body exceeds size limit ({} bytes)",
+        bytes.len()
+    );
 
     Ok(bytes.to_vec())
 }
