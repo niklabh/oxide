@@ -155,7 +155,13 @@ impl eframe::App for OxideApp {
             }
         }
 
-        ctx.request_repaint();
+        {
+            let status = self.status.lock().unwrap();
+            match &*status {
+                PageStatus::Loading(_) | PageStatus::Running(_) => ctx.request_repaint(),
+                _ => ctx.request_repaint_after(std::time::Duration::from_millis(200)),
+            }
+        }
 
         self.render_toolbar(ctx);
         self.render_canvas(ctx);
@@ -184,8 +190,10 @@ impl OxideApp {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 6.0;
 
-                let can_back = self.host_state.navigation.lock().unwrap().can_go_back();
-                let can_fwd = self.host_state.navigation.lock().unwrap().can_go_forward();
+                let (can_back, can_fwd) = {
+                    let nav = self.host_state.navigation.lock().unwrap();
+                    (nav.can_go_back(), nav.can_go_forward())
+                };
 
                 let back_btn = ui.add_enabled(
                     can_back,
