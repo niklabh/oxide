@@ -4,6 +4,7 @@ use wasmtime::*;
 const MAX_MEMORY_PAGES: u32 = 256; // 256 * 64KB = 16MB
 const FUEL_LIMIT: u64 = 500_000_000; // ~500M instructions before forced halt
 
+#[allow(dead_code)]
 #[derive(Clone)]
 pub struct SandboxPolicy {
     pub max_memory_pages: u32,
@@ -50,6 +51,7 @@ impl WasmEngine {
         &self.engine
     }
 
+    #[allow(dead_code)]
     pub fn policy(&self) -> &SandboxPolicy {
         &self.policy
     }

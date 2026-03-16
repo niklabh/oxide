@@ -39,9 +39,11 @@ impl BrowserHost {
         let kv_db = sled::open(&kv_path)
             .with_context(|| format!("failed to open KV store at {}", kv_path.display()))?;
 
-        let mut host_state = HostState::default();
-        host_state.module_loader = Some(loader);
-        host_state.kv_db = Some(Arc::new(kv_db));
+        let host_state = HostState {
+            module_loader: Some(loader),
+            kv_db: Some(Arc::new(kv_db)),
+            ..Default::default()
+        };
 
         Ok(Self {
             wasm_engine,

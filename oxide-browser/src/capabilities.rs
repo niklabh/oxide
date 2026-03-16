@@ -14,6 +14,7 @@ pub struct HostState {
     pub console: Arc<Mutex<Vec<ConsoleEntry>>>,
     pub canvas: Arc<Mutex<CanvasState>>,
     pub storage: Arc<Mutex<HashMap<String, String>>>,
+    #[allow(dead_code)]
     pub timers: Arc<Mutex<Vec<TimerEntry>>>,
     pub clipboard: Arc<Mutex<String>>,
     pub kv_db: Option<Arc<sled::Db>>,
@@ -112,6 +113,7 @@ pub enum DrawCommand {
     },
 }
 
+#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct TimerEntry {
     pub id: u32,

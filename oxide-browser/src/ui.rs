@@ -12,8 +12,6 @@ pub struct OxideApp {
     host_state: HostState,
     status: Arc<Mutex<PageStatus>>,
     show_console: bool,
-    console_scroll_to_bottom: bool,
-    tokio_rt: tokio::runtime::Runtime,
     run_tx: std::sync::mpsc::Sender<RunRequest>,
     run_rx: Arc<Mutex<std::sync::mpsc::Receiver<RunResult>>>,
     image_textures: HashMap<usize, egui::TextureHandle>,
@@ -25,7 +23,7 @@ pub struct OxideApp {
 }
 
 enum RunRequest {
-    FetchAndRun { url: String, push_history: bool },
+    FetchAndRun { url: String },
     LoadLocal(Vec<u8>),
 }
 
@@ -35,7 +33,6 @@ struct RunResult {
 
 impl OxideApp {
     pub fn new(host_state: HostState, status: Arc<Mutex<PageStatus>>) -> Self {
-        let tokio_rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
         let (req_tx, req_rx) = std::sync::mpsc::channel::<RunRequest>();
         let (res_tx, res_rx) = std::sync::mpsc::channel::<RunResult>();
 
@@ -44,22 +41,17 @@ impl OxideApp {
 
         std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
-            loop {
-                match req_rx.recv() {
-                    Ok(request) => {
-                        let mut host =
-                            crate::runtime::BrowserHost::recreate(hs.clone(), st.clone());
-                        let result = match request {
-                            RunRequest::FetchAndRun { url, .. } => {
-                                rt.block_on(host.fetch_and_run(&url))
-                            }
-                            RunRequest::LoadLocal(bytes) => host.run_bytes(&bytes),
-                        };
-                        let error = result.err().map(|e| e.to_string());
-                        let _ = res_tx.send(RunResult { error });
+            while let Ok(request) = req_rx.recv() {
+                let mut host =
+                    crate::runtime::BrowserHost::recreate(hs.clone(), st.clone());
+                let result = match request {
+                    RunRequest::FetchAndRun { url } => {
+                        rt.block_on(host.fetch_and_run(&url))
                     }
-                    Err(_) => break,
-                }
+                    RunRequest::LoadLocal(bytes) => host.run_bytes(&bytes),
+                };
+                let error = result.err().map(|e| e.to_string());
+                let _ = res_tx.send(RunResult { error });
             }
         });
 
@@ -68,8 +60,6 @@ impl OxideApp {
             host_state,
             status,
             show_console: true,
-            console_scroll_to_bottom: true,
-            tokio_rt,
             run_tx: req_tx,
             run_rx: Arc::new(Mutex::new(res_rx)),
             image_textures: HashMap::new(),
@@ -85,10 +75,7 @@ impl OxideApp {
             return;
         }
         self.pending_history_url = Some(url.clone());
-        let _ = self.run_tx.send(RunRequest::FetchAndRun {
-            url,
-            push_history: true,
-        });
+        let _ = self.run_tx.send(RunRequest::FetchAndRun { url });
     }
 
     fn navigate_to(&mut self, url: String, push_history: bool) {
@@ -96,9 +83,7 @@ impl OxideApp {
         if push_history {
             self.pending_history_url = Some(url.clone());
         }
-        let _ = self
-            .run_tx
-            .send(RunRequest::FetchAndRun { url, push_history });
+        let _ = self.run_tx.send(RunRequest::FetchAndRun { url });
     }
 
     fn go_back(&mut self) {
@@ -109,10 +94,9 @@ impl OxideApp {
         if let Some(entry) = entry {
             self.url_input = entry.url.clone();
             *self.host_state.current_url.lock().unwrap() = entry.url.clone();
-            let _ = self.run_tx.send(RunRequest::FetchAndRun {
-                url: entry.url,
-                push_history: false,
-            });
+            let _ = self
+                .run_tx
+                .send(RunRequest::FetchAndRun { url: entry.url });
         }
     }
 
@@ -124,10 +108,9 @@ impl OxideApp {
         if let Some(entry) = entry {
             self.url_input = entry.url.clone();
             *self.host_state.current_url.lock().unwrap() = entry.url.clone();
-            let _ = self.run_tx.send(RunRequest::FetchAndRun {
-                url: entry.url,
-                push_history: false,
-            });
+            let _ = self
+                .run_tx
+                .send(RunRequest::FetchAndRun { url: entry.url });
         }
     }
 
@@ -290,18 +273,17 @@ impl OxideApp {
                 self.canvas_generation = canvas.generation;
             }
             for (i, decoded) in canvas.images.iter().enumerate() {
-                if !self.image_textures.contains_key(&i) {
+                self.image_textures.entry(i).or_insert_with(|| {
                     let color_image = egui::ColorImage::from_rgba_unmultiplied(
                         [decoded.width as usize, decoded.height as usize],
                         &decoded.pixels,
                     );
-                    let handle = ctx.load_texture(
+                    ctx.load_texture(
                         format!("oxide_img_{i}"),
                         color_image,
                         egui::TextureOptions::LINEAR,
-                    );
-                    self.image_textures.insert(i, handle);
-                }
+                    )
+                });
             }
         }
 

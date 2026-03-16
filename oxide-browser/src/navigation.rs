@@ -18,6 +18,7 @@ pub struct HistoryEntry {
     /// `replace_state`.  The guest can read this back on re-entry.
     pub state: Vec<u8>,
     /// Milliseconds since the UNIX epoch when this entry was created.
+    #[allow(dead_code)]
     pub timestamp_ms: u64,
 }
 
@@ -80,6 +81,7 @@ impl NavigationStack {
 
     /// Mutate selected fields of the current entry (used by guest
     /// `push_state` / `replace_state` when only updating metadata).
+    #[allow(dead_code)]
     pub fn update_current(
         &mut self,
         title: Option<&str>,
@@ -135,6 +137,7 @@ impl NavigationStack {
         }
     }
 
+    #[allow(dead_code)]
     pub fn current_mut(&mut self) -> Option<&mut HistoryEntry> {
         if self.index >= 0 && (self.index as usize) < self.entries.len() {
             Some(&mut self.entries[self.index as usize])
@@ -147,14 +150,17 @@ impl NavigationStack {
         self.entries.len()
     }
 
+    #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
 
+    #[allow(dead_code)]
     pub fn current_index(&self) -> isize {
         self.index
     }
 
+    #[allow(dead_code)]
     pub fn entries(&self) -> &[HistoryEntry] {
         &self.entries
     }

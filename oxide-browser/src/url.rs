@@ -38,6 +38,7 @@ impl fmt::Display for UrlError {
 
 impl std::error::Error for UrlError {}
 
+#[allow(dead_code)]
 impl OxideUrl {
     /// Parse a user-supplied URL string.
     ///
