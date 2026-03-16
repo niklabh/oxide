@@ -22,6 +22,9 @@ rust-project.json
 *.swo
 *~
 
+# Claude
+.claude/
+
 # macOS
 .DS_Store
 .AppleDouble
