@@ -1,0 +1,13 @@
+[package]
+name = "fullstack-notes-backend"
+version = "0.1.0"
+edition = "2021"
+description = "Backend server for the fullstack-notes Oxide example"
+
+[[bin]]
+name = "notes-server"
+path = "src/main.rs"
+
+[dependencies]
+axum = "0.8"
+tokio = { version = "1", features = ["full"] }

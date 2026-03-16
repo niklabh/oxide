@@ -1,3 +1,9 @@
 [workspace]
-members = ["oxide-browser", "oxide-sdk", "examples/hello-oxide"]
+members = [
+    "oxide-browser",
+    "oxide-sdk",
+    "examples/hello-oxide",
+    "examples/fullstack-notes/frontend",
+    "examples/fullstack-notes/backend",
+]
 resolver = "2"

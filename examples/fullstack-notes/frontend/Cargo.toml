@@ -1,0 +1,11 @@
+[package]
+name = "fullstack-notes-frontend"
+version = "0.1.0"
+edition = "2021"
+description = "WASM frontend for the fullstack-notes Oxide example"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+oxide-sdk = { path = "../../../oxide-sdk" }
