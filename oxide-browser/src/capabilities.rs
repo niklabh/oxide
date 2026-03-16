@@ -17,6 +17,7 @@ pub struct HostState {
     #[allow(dead_code)]
     pub timers: Arc<Mutex<Vec<TimerEntry>>>,
     pub clipboard: Arc<Mutex<String>>,
+    pub clipboard_allowed: Arc<Mutex<bool>>,
     pub kv_db: Option<Arc<sled::Db>>,
     pub memory: Option<Memory>,
     pub module_loader: Option<Arc<ModuleLoader>>,
@@ -146,6 +147,7 @@ impl Default for HostState {
             storage: Arc::new(Mutex::new(HashMap::new())),
             timers: Arc::new(Mutex::new(Vec::new())),
             clipboard: Arc::new(Mutex::new(String::new())),
+            clipboard_allowed: Arc::new(Mutex::new(false)),
             kv_db: None,
             memory: None,
             module_loader: None,
@@ -545,6 +547,15 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
         "oxide",
         "api_clipboard_write",
         |caller: Caller<'_, HostState>, ptr: u32, len: u32| {
+            let allowed = *caller.data().clipboard_allowed.lock().unwrap();
+            if !allowed {
+                console_log(
+                    &caller.data().console,
+                    ConsoleLevel::Warn,
+                    "[CLIPBOARD] Write blocked — clipboard access not permitted".into(),
+                );
+                return;
+            }
             let mem = caller.data().memory.expect("memory not set");
             let text = read_guest_string(&mem, &caller, ptr, len).unwrap_or_default();
             *caller.data().clipboard.lock().unwrap() = text.clone();
@@ -917,10 +928,7 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
             let val = read_guest_bytes(&mem, &caller, val_ptr, val_len).unwrap_or_default();
             match &caller.data().kv_db {
                 Some(db) => match db.insert(key.as_bytes(), val) {
-                    Ok(_) => {
-                        let _ = db.flush();
-                        0
-                    }
+                    Ok(_) => 0,
                     Err(e) => {
                         console_log(
                             &caller.data().console,
@@ -984,10 +992,7 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
             let key = read_guest_string(&mem, &caller, key_ptr, key_len).unwrap_or_default();
             match &caller.data().kv_db {
                 Some(db) => match db.remove(key.as_bytes()) {
-                    Ok(_) => {
-                        let _ = db.flush();
-                        0
-                    }
+                    Ok(_) => 0,
                     Err(e) => {
                         console_log(
                             &caller.data().console,

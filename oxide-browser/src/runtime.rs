@@ -119,14 +119,13 @@ impl BrowserHost {
         let mut linker = Linker::new(self.wasm_engine.engine());
         register_host_functions(&mut linker)?;
 
-        let mut host_state = self.host_state.clone();
-        let mut store = self.wasm_engine.create_store(host_state.clone())?;
+        let host_state = self.host_state.clone();
+        let mut store = self.wasm_engine.create_store(host_state)?;
 
         let memory = self.wasm_engine.create_bounded_memory(&mut store)?;
         linker.define(&store, "oxide", "memory", memory)?;
 
-        host_state.memory = Some(memory);
-        *store.data_mut() = host_state;
+        store.data_mut().memory = Some(memory);
 
         let instance = linker
             .instantiate(&mut store, &module)
