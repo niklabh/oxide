@@ -42,12 +42,9 @@ impl OxideApp {
         std::thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
             while let Ok(request) = req_rx.recv() {
-                let mut host =
-                    crate::runtime::BrowserHost::recreate(hs.clone(), st.clone());
+                let mut host = crate::runtime::BrowserHost::recreate(hs.clone(), st.clone());
                 let result = match request {
-                    RunRequest::FetchAndRun { url } => {
-                        rt.block_on(host.fetch_and_run(&url))
-                    }
+                    RunRequest::FetchAndRun { url } => rt.block_on(host.fetch_and_run(&url)),
                     RunRequest::LoadLocal(bytes) => host.run_bytes(&bytes),
                 };
                 let error = result.err().map(|e| e.to_string());
@@ -94,9 +91,7 @@ impl OxideApp {
         if let Some(entry) = entry {
             self.url_input = entry.url.clone();
             *self.host_state.current_url.lock().unwrap() = entry.url.clone();
-            let _ = self
-                .run_tx
-                .send(RunRequest::FetchAndRun { url: entry.url });
+            let _ = self.run_tx.send(RunRequest::FetchAndRun { url: entry.url });
         }
     }
 
@@ -108,9 +103,7 @@ impl OxideApp {
         if let Some(entry) = entry {
             self.url_input = entry.url.clone();
             *self.host_state.current_url.lock().unwrap() = entry.url.clone();
-            let _ = self
-                .run_tx
-                .send(RunRequest::FetchAndRun { url: entry.url });
+            let _ = self.run_tx.send(RunRequest::FetchAndRun { url: entry.url });
         }
     }
 
