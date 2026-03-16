@@ -6,6 +6,8 @@ use anyhow::{Context, Result};
 use wasmtime::*;
 
 use crate::engine::ModuleLoader;
+use crate::navigation::NavigationStack;
+use crate::url as oxide_url;
 
 #[derive(Clone)]
 pub struct HostState {
@@ -14,8 +16,15 @@ pub struct HostState {
     pub storage: Arc<Mutex<HashMap<String, String>>>,
     pub timers: Arc<Mutex<Vec<TimerEntry>>>,
     pub clipboard: Arc<Mutex<String>>,
+    pub kv_db: Option<Arc<sled::Db>>,
     pub memory: Option<Memory>,
     pub module_loader: Option<Arc<ModuleLoader>>,
+    pub navigation: Arc<Mutex<NavigationStack>>,
+    pub hyperlinks: Arc<Mutex<Vec<Hyperlink>>>,
+    /// Set by guest `api_navigate` — consumed by the UI after module returns.
+    pub pending_navigation: Arc<Mutex<Option<String>>>,
+    /// The URL of the currently loaded module (set by the host before execution).
+    pub current_url: Arc<Mutex<String>>,
 }
 
 #[derive(Clone, Debug)]
@@ -66,6 +75,16 @@ pub struct TimerEntry {
     pub callback_id: u32,
 }
 
+/// A clickable rectangular region on the canvas that acts as a hyperlink.
+#[derive(Clone, Debug)]
+pub struct Hyperlink {
+    pub x: f32,
+    pub y: f32,
+    pub w: f32,
+    pub h: f32,
+    pub url: String,
+}
+
 impl Default for HostState {
     fn default() -> Self {
         Self {
@@ -80,8 +99,13 @@ impl Default for HostState {
             storage: Arc::new(Mutex::new(HashMap::new())),
             timers: Arc::new(Mutex::new(Vec::new())),
             clipboard: Arc::new(Mutex::new(String::new())),
+            kv_db: None,
             memory: None,
             module_loader: None,
+            navigation: Arc::new(Mutex::new(NavigationStack::new())),
+            hyperlinks: Arc::new(Mutex::new(Vec::new())),
+            pending_navigation: Arc::new(Mutex::new(None)),
+            current_url: Arc::new(Mutex::new(String::new())),
         }
     }
 }
@@ -656,6 +680,389 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
                 }
                 Err(_) => 0,
             }
+        },
+    )?;
+
+    // ── Persistent Key-Value Store ───────────────────────────────────
+    // Backed by a sled embedded database on the host's filesystem.
+    // The guest has no direct access to the .db files.
+
+    linker.func_wrap(
+        "oxide",
+        "api_kv_store_set",
+        |caller: Caller<'_, HostState>, key_ptr: u32, key_len: u32, val_ptr: u32, val_len: u32| -> i32 {
+            let mem = caller.data().memory.expect("memory not set");
+            let key = read_guest_string(&mem, &caller, key_ptr, key_len).unwrap_or_default();
+            let val = read_guest_bytes(&mem, &caller, val_ptr, val_len).unwrap_or_default();
+            match &caller.data().kv_db {
+                Some(db) => match db.insert(key.as_bytes(), val) {
+                    Ok(_) => {
+                        let _ = db.flush();
+                        0
+                    }
+                    Err(e) => {
+                        console_log(
+                            &caller.data().console,
+                            ConsoleLevel::Error,
+                            format!("[KV] set failed: {e}"),
+                        );
+                        -1
+                    }
+                },
+                None => {
+                    console_log(
+                        &caller.data().console,
+                        ConsoleLevel::Error,
+                        "[KV] store not initialised".into(),
+                    );
+                    -1
+                }
+            }
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_kv_store_get",
+        |mut caller: Caller<'_, HostState>, key_ptr: u32, key_len: u32, out_ptr: u32, out_cap: u32| -> i32 {
+            let mem = caller.data().memory.expect("memory not set");
+            let key = read_guest_string(&mem, &caller, key_ptr, key_len).unwrap_or_default();
+            match &caller.data().kv_db {
+                Some(db) => match db.get(key.as_bytes()) {
+                    Ok(Some(val)) => {
+                        let bytes = val.as_ref();
+                        let write_len = bytes.len().min(out_cap as usize);
+                        write_guest_bytes(&mem, &mut caller, out_ptr, &bytes[..write_len]).ok();
+                        write_len as i32
+                    }
+                    Ok(None) => -1,
+                    Err(e) => {
+                        console_log(
+                            &caller.data().console,
+                            ConsoleLevel::Error,
+                            format!("[KV] get failed: {e}"),
+                        );
+                        -2
+                    }
+                },
+                None => -2,
+            }
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_kv_store_delete",
+        |caller: Caller<'_, HostState>, key_ptr: u32, key_len: u32| -> i32 {
+            let mem = caller.data().memory.expect("memory not set");
+            let key = read_guest_string(&mem, &caller, key_ptr, key_len).unwrap_or_default();
+            match &caller.data().kv_db {
+                Some(db) => match db.remove(key.as_bytes()) {
+                    Ok(_) => {
+                        let _ = db.flush();
+                        0
+                    }
+                    Err(e) => {
+                        console_log(
+                            &caller.data().console,
+                            ConsoleLevel::Error,
+                            format!("[KV] delete failed: {e}"),
+                        );
+                        -1
+                    }
+                },
+                None => -1,
+            }
+        },
+    )?;
+
+    // ── Navigation ──────────────────────────────────────────────────
+
+    linker.func_wrap(
+        "oxide",
+        "api_navigate",
+        |caller: Caller<'_, HostState>, url_ptr: u32, url_len: u32| -> i32 {
+            let mem = caller.data().memory.expect("memory not set");
+            let raw_url = read_guest_string(&mem, &caller, url_ptr, url_len).unwrap_or_default();
+
+            let resolved = {
+                let cur = caller.data().current_url.lock().unwrap();
+                if cur.is_empty() {
+                    raw_url.clone()
+                } else if let Ok(base) = oxide_url::OxideUrl::parse(&cur) {
+                    base.join(&raw_url)
+                        .map(|u| u.as_str().to_string())
+                        .unwrap_or(raw_url.clone())
+                } else {
+                    raw_url.clone()
+                }
+            };
+
+            if oxide_url::OxideUrl::parse(&resolved).is_err() {
+                console_log(
+                    &caller.data().console,
+                    ConsoleLevel::Error,
+                    format!("[NAV] invalid URL: {resolved}"),
+                );
+                return -1;
+            }
+
+            console_log(
+                &caller.data().console,
+                ConsoleLevel::Log,
+                format!("[NAV] navigate → {resolved}"),
+            );
+            *caller.data().pending_navigation.lock().unwrap() = Some(resolved);
+            0
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_push_state",
+        |caller: Caller<'_, HostState>,
+         state_ptr: u32, state_len: u32,
+         title_ptr: u32, title_len: u32,
+         url_ptr: u32, url_len: u32| {
+            let mem = caller.data().memory.expect("memory not set");
+            let state = read_guest_bytes(&mem, &caller, state_ptr, state_len).unwrap_or_default();
+            let title = read_guest_string(&mem, &caller, title_ptr, title_len).unwrap_or_default();
+            let url_arg = read_guest_string(&mem, &caller, url_ptr, url_len).unwrap_or_default();
+
+            let resolved_url = if url_arg.is_empty() {
+                caller.data().current_url.lock().unwrap().clone()
+            } else {
+                let cur = caller.data().current_url.lock().unwrap();
+                if cur.is_empty() {
+                    url_arg
+                } else if let Ok(base) = oxide_url::OxideUrl::parse(&cur) {
+                    base.join(&url_arg)
+                        .map(|u| u.as_str().to_string())
+                        .unwrap_or(url_arg)
+                } else {
+                    url_arg
+                }
+            };
+
+            let entry = crate::navigation::HistoryEntry::new(&resolved_url)
+                .with_title(title)
+                .with_state(state);
+            caller.data().navigation.lock().unwrap().push(entry);
+            *caller.data().current_url.lock().unwrap() = resolved_url;
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_replace_state",
+        |caller: Caller<'_, HostState>,
+         state_ptr: u32, state_len: u32,
+         title_ptr: u32, title_len: u32,
+         url_ptr: u32, url_len: u32| {
+            let mem = caller.data().memory.expect("memory not set");
+            let state = read_guest_bytes(&mem, &caller, state_ptr, state_len).unwrap_or_default();
+            let title = read_guest_string(&mem, &caller, title_ptr, title_len).unwrap_or_default();
+            let url_arg = read_guest_string(&mem, &caller, url_ptr, url_len).unwrap_or_default();
+
+            let resolved_url = if url_arg.is_empty() {
+                caller.data().current_url.lock().unwrap().clone()
+            } else {
+                let cur = caller.data().current_url.lock().unwrap();
+                if cur.is_empty() {
+                    url_arg
+                } else if let Ok(base) = oxide_url::OxideUrl::parse(&cur) {
+                    base.join(&url_arg)
+                        .map(|u| u.as_str().to_string())
+                        .unwrap_or(url_arg)
+                } else {
+                    url_arg
+                }
+            };
+
+            let entry = crate::navigation::HistoryEntry::new(&resolved_url)
+                .with_title(title)
+                .with_state(state);
+            caller.data().navigation.lock().unwrap().replace_current(entry);
+            *caller.data().current_url.lock().unwrap() = resolved_url;
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_get_url",
+        |mut caller: Caller<'_, HostState>, out_ptr: u32, out_cap: u32| -> u32 {
+            let url = caller.data().current_url.lock().unwrap().clone();
+            let bytes = url.as_bytes();
+            let write_len = bytes.len().min(out_cap as usize);
+            let mem = caller.data().memory.expect("memory not set");
+            write_guest_bytes(&mem, &mut caller, out_ptr, &bytes[..write_len]).ok();
+            write_len as u32
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_get_state",
+        |mut caller: Caller<'_, HostState>, out_ptr: u32, out_cap: u32| -> i32 {
+            let state_bytes = {
+                let nav = caller.data().navigation.lock().unwrap();
+                match nav.current() {
+                    Some(entry) if !entry.state.is_empty() => Some(entry.state.clone()),
+                    _ => None,
+                }
+            };
+            match state_bytes {
+                Some(bytes) => {
+                    let write_len = bytes.len().min(out_cap as usize);
+                    let mem = caller.data().memory.expect("memory not set");
+                    write_guest_bytes(&mem, &mut caller, out_ptr, &bytes[..write_len]).ok();
+                    write_len as i32
+                }
+                None => -1,
+            }
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_history_length",
+        |caller: Caller<'_, HostState>| -> u32 {
+            caller.data().navigation.lock().unwrap().len() as u32
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_history_back",
+        |caller: Caller<'_, HostState>| -> i32 {
+            let mut nav = caller.data().navigation.lock().unwrap();
+            match nav.go_back() {
+                Some(entry) => {
+                    let url = entry.url.clone();
+                    *caller.data().current_url.lock().unwrap() = url.clone();
+                    *caller.data().pending_navigation.lock().unwrap() = Some(url);
+                    1
+                }
+                None => 0,
+            }
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_history_forward",
+        |caller: Caller<'_, HostState>| -> i32 {
+            let mut nav = caller.data().navigation.lock().unwrap();
+            match nav.go_forward() {
+                Some(entry) => {
+                    let url = entry.url.clone();
+                    *caller.data().current_url.lock().unwrap() = url.clone();
+                    *caller.data().pending_navigation.lock().unwrap() = Some(url);
+                    1
+                }
+                None => 0,
+            }
+        },
+    )?;
+
+    // ── Hyperlinks ──────────────────────────────────────────────────
+
+    linker.func_wrap(
+        "oxide",
+        "api_register_hyperlink",
+        |caller: Caller<'_, HostState>,
+         x: f32, y: f32, w: f32, h: f32,
+         url_ptr: u32, url_len: u32| -> i32 {
+            let mem = caller.data().memory.expect("memory not set");
+            let raw_url = read_guest_string(&mem, &caller, url_ptr, url_len).unwrap_or_default();
+
+            let resolved = {
+                let cur = caller.data().current_url.lock().unwrap();
+                if cur.is_empty() {
+                    raw_url.clone()
+                } else if let Ok(base) = oxide_url::OxideUrl::parse(&cur) {
+                    base.join(&raw_url)
+                        .map(|u| u.as_str().to_string())
+                        .unwrap_or(raw_url.clone())
+                } else {
+                    raw_url.clone()
+                }
+            };
+
+            caller.data().hyperlinks.lock().unwrap().push(Hyperlink {
+                x, y, w, h,
+                url: resolved,
+            });
+            0
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_clear_hyperlinks",
+        |caller: Caller<'_, HostState>| {
+            caller.data().hyperlinks.lock().unwrap().clear();
+        },
+    )?;
+
+    // ── URL Utilities ───────────────────────────────────────────────
+
+    linker.func_wrap(
+        "oxide",
+        "api_url_resolve",
+        |mut caller: Caller<'_, HostState>,
+         base_ptr: u32, base_len: u32,
+         rel_ptr: u32, rel_len: u32,
+         out_ptr: u32, out_cap: u32| -> i32 {
+            let mem = caller.data().memory.expect("memory not set");
+            let base_str = read_guest_string(&mem, &caller, base_ptr, base_len).unwrap_or_default();
+            let rel_str = read_guest_string(&mem, &caller, rel_ptr, rel_len).unwrap_or_default();
+
+            let base = match oxide_url::OxideUrl::parse(&base_str) {
+                Ok(u) => u,
+                Err(_) => return -1,
+            };
+            let resolved = match base.join(&rel_str) {
+                Ok(u) => u,
+                Err(_) => return -2,
+            };
+
+            let bytes = resolved.as_str().as_bytes();
+            let write_len = bytes.len().min(out_cap as usize);
+            write_guest_bytes(&mem, &mut caller, out_ptr, &bytes[..write_len]).ok();
+            write_len as i32
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_url_encode",
+        |mut caller: Caller<'_, HostState>,
+         input_ptr: u32, input_len: u32,
+         out_ptr: u32, out_cap: u32| -> u32 {
+            let mem = caller.data().memory.expect("memory not set");
+            let input = read_guest_string(&mem, &caller, input_ptr, input_len).unwrap_or_default();
+            let encoded = oxide_url::percent_encode(&input);
+            let bytes = encoded.as_bytes();
+            let write_len = bytes.len().min(out_cap as usize);
+            write_guest_bytes(&mem, &mut caller, out_ptr, &bytes[..write_len]).ok();
+            write_len as u32
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_url_decode",
+        |mut caller: Caller<'_, HostState>,
+         input_ptr: u32, input_len: u32,
+         out_ptr: u32, out_cap: u32| -> u32 {
+            let mem = caller.data().memory.expect("memory not set");
+            let input = read_guest_string(&mem, &caller, input_ptr, input_len).unwrap_or_default();
+            let decoded = oxide_url::percent_decode(&input);
+            let bytes = decoded.as_bytes();
+            let write_len = bytes.len().min(out_cap as usize);
+            write_guest_bytes(&mem, &mut caller, out_ptr, &bytes[..write_len]).ok();
+            write_len as u32
         },
     )?;
 

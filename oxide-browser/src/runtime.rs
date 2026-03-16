@@ -5,6 +5,7 @@ use wasmtime::*;
 
 use crate::capabilities::{register_host_functions, HostState};
 use crate::engine::{ModuleLoader, SandboxPolicy, WasmEngine};
+use crate::url::OxideUrl;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum PageStatus {
@@ -31,8 +32,16 @@ impl BrowserHost {
             fuel_limit: policy.fuel_limit,
         });
 
+        let kv_path = dirs::data_dir()
+            .unwrap_or_else(|| std::path::PathBuf::from("."))
+            .join("oxide")
+            .join("kv_store.db");
+        let kv_db = sled::open(&kv_path)
+            .with_context(|| format!("failed to open KV store at {}", kv_path.display()))?;
+
         let mut host_state = HostState::default();
         host_state.module_loader = Some(loader);
+        host_state.kv_db = Some(Arc::new(kv_db));
 
         Ok(Self {
             wasm_engine,
@@ -61,13 +70,31 @@ impl BrowserHost {
         }
     }
 
-    /// Fetch a .wasm binary from a URL, compile it, and run its `start_app` entry point.
+    /// Fetch a .wasm binary from a URL, compile it, and run its `start_app`
+    /// entry point.  Supports http(s) and file:// URLs via WHATWG parsing.
     pub async fn fetch_and_run(&mut self, url: &str) -> Result<()> {
         *self.status.lock().unwrap() = PageStatus::Loading(url.to_string());
         self.host_state.canvas.lock().unwrap().commands.clear();
         self.host_state.console.lock().unwrap().clear();
+        self.host_state.hyperlinks.lock().unwrap().clear();
+        *self.host_state.current_url.lock().unwrap() = url.to_string();
 
-        let wasm_bytes = fetch_wasm(url).await?;
+        let parsed = OxideUrl::parse(url)
+            .map_err(|e| anyhow::anyhow!("{e}"))?;
+
+        let wasm_bytes = if parsed.is_fetchable() {
+            fetch_wasm(parsed.as_str()).await?
+        } else if parsed.is_local_file() {
+            let path = parsed
+                .to_file_path()
+                .ok_or_else(|| anyhow::anyhow!("cannot convert file URL to path: {url}"))?;
+            std::fs::read(&path)
+                .with_context(|| format!("failed to read local file: {}", path.display()))?
+        } else if parsed.is_internal() {
+            anyhow::bail!("oxide:// internal pages are not yet implemented");
+        } else {
+            anyhow::bail!("unsupported URL scheme: {}", parsed.scheme());
+        };
 
         *self.status.lock().unwrap() = PageStatus::Running(url.to_string());
 
@@ -80,6 +107,7 @@ impl BrowserHost {
     pub fn run_bytes(&mut self, wasm_bytes: &[u8]) -> Result<()> {
         self.host_state.canvas.lock().unwrap().commands.clear();
         self.host_state.console.lock().unwrap().clear();
+        self.host_state.hyperlinks.lock().unwrap().clear();
         *self.status.lock().unwrap() = PageStatus::Running("(local)".to_string());
         self.run_module(wasm_bytes)
     }

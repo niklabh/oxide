@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 use eframe::egui;
 
 use crate::capabilities::{ConsoleLevel, DrawCommand, HostState};
+use crate::navigation::HistoryEntry;
 use crate::runtime::PageStatus;
 
 pub struct OxideApp {
@@ -17,10 +18,14 @@ pub struct OxideApp {
     run_rx: Arc<Mutex<std::sync::mpsc::Receiver<RunResult>>>,
     image_textures: HashMap<usize, egui::TextureHandle>,
     canvas_generation: u64,
+    /// When true the next successful result will push to the history stack.
+    pending_history_url: Option<String>,
+    /// Tooltip shown in the status area when hovering a hyperlink.
+    hovered_link_url: Option<String>,
 }
 
 enum RunRequest {
-    FetchAndRun(String),
+    FetchAndRun { url: String, push_history: bool },
     LoadLocal(Vec<u8>),
 }
 
@@ -47,7 +52,7 @@ impl OxideApp {
                     Ok(request) => {
                         let mut host = crate::runtime::BrowserHost::recreate(hs.clone(), st.clone());
                         let result = match request {
-                            RunRequest::FetchAndRun(url) => {
+                            RunRequest::FetchAndRun { url, .. } => {
                                 rt.block_on(host.fetch_and_run(&url))
                             }
                             RunRequest::LoadLocal(bytes) => host.run_bytes(&bytes),
@@ -71,6 +76,8 @@ impl OxideApp {
             run_rx: Arc::new(Mutex::new(res_rx)),
             image_textures: HashMap::new(),
             canvas_generation: 0,
+            pending_history_url: None,
+            hovered_link_url: None,
         }
     }
 
@@ -79,7 +86,52 @@ impl OxideApp {
         if url.is_empty() {
             return;
         }
-        let _ = self.run_tx.send(RunRequest::FetchAndRun(url));
+        self.pending_history_url = Some(url.clone());
+        let _ = self.run_tx.send(RunRequest::FetchAndRun {
+            url,
+            push_history: true,
+        });
+    }
+
+    fn navigate_to(&mut self, url: String, push_history: bool) {
+        self.url_input = url.clone();
+        if push_history {
+            self.pending_history_url = Some(url.clone());
+        }
+        let _ = self.run_tx.send(RunRequest::FetchAndRun {
+            url,
+            push_history,
+        });
+    }
+
+    fn go_back(&mut self) {
+        let entry = {
+            let mut nav = self.host_state.navigation.lock().unwrap();
+            nav.go_back().cloned()
+        };
+        if let Some(entry) = entry {
+            self.url_input = entry.url.clone();
+            *self.host_state.current_url.lock().unwrap() = entry.url.clone();
+            let _ = self.run_tx.send(RunRequest::FetchAndRun {
+                url: entry.url,
+                push_history: false,
+            });
+        }
+    }
+
+    fn go_forward(&mut self) {
+        let entry = {
+            let mut nav = self.host_state.navigation.lock().unwrap();
+            nav.go_forward().cloned()
+        };
+        if let Some(entry) = entry {
+            self.url_input = entry.url.clone();
+            *self.host_state.current_url.lock().unwrap() = entry.url.clone();
+            let _ = self.run_tx.send(RunRequest::FetchAndRun {
+                url: entry.url,
+                push_history: false,
+            });
+        }
     }
 
     fn load_local_file(&mut self) {
@@ -89,7 +141,9 @@ impl OxideApp {
             .pick_file()
         {
             if let Ok(bytes) = std::fs::read(&path) {
-                self.url_input = format!("file://{}", path.display());
+                let file_url = format!("file://{}", path.display());
+                self.url_input = file_url.clone();
+                self.pending_history_url = Some(file_url);
                 let _ = self.run_tx.send(RunRequest::LoadLocal(bytes));
             }
         }
@@ -98,10 +152,32 @@ impl OxideApp {
 
 impl eframe::App for OxideApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Drain results from the background worker.
         if let Ok(rx) = self.run_rx.lock() {
             while let Ok(result) = rx.try_recv() {
                 if let Some(err) = result.error {
                     *self.status.lock().unwrap() = PageStatus::Error(err);
+                    self.pending_history_url = None;
+                } else if let Some(url) = self.pending_history_url.take() {
+                    let mut nav = self.host_state.navigation.lock().unwrap();
+                    nav.push(HistoryEntry::new(&url));
+                }
+            }
+        }
+
+        // Check for guest-initiated navigations.
+        let pending = self.host_state.pending_navigation.lock().unwrap().take();
+        if let Some(url) = pending {
+            self.navigate_to(url, true);
+        }
+
+        // Sync address bar with current URL (may have changed via push_state).
+        {
+            let cur = self.host_state.current_url.lock().unwrap().clone();
+            if !cur.is_empty() && cur != self.url_input {
+                let status = self.status.lock().unwrap().clone();
+                if matches!(status, PageStatus::Running(_)) {
+                    self.url_input = cur;
                 }
             }
         }
@@ -113,6 +189,19 @@ impl eframe::App for OxideApp {
         if self.show_console {
             self.render_console(ctx);
         }
+
+        if let Some(ref link_url) = self.hovered_link_url.clone() {
+            egui::TopBottomPanel::bottom("link_status")
+                .default_height(18.0)
+                .show(ctx, |ui| {
+                    ui.label(
+                        egui::RichText::new(link_url)
+                            .monospace()
+                            .size(11.0)
+                            .color(egui::Color32::from_rgb(140, 140, 180)),
+                    );
+                });
+        }
     }
 }
 
@@ -122,11 +211,40 @@ impl OxideApp {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 6.0;
 
+                let can_back = self.host_state.navigation.lock().unwrap().can_go_back();
+                let can_fwd = self.host_state.navigation.lock().unwrap().can_go_forward();
+
+                let back_btn = ui.add_enabled(
+                    can_back,
+                    egui::Button::new(
+                        egui::RichText::new("\u{2190}").size(16.0),
+                    ),
+                );
+                if back_btn.clicked() {
+                    self.go_back();
+                }
+                if back_btn.hovered() && can_back {
+                    back_btn.on_hover_text("Back");
+                }
+
+                let fwd_btn = ui.add_enabled(
+                    can_fwd,
+                    egui::Button::new(
+                        egui::RichText::new("\u{2192}").size(16.0),
+                    ),
+                );
+                if fwd_btn.clicked() {
+                    self.go_forward();
+                }
+                if fwd_btn.hovered() && can_fwd {
+                    fwd_btn.on_hover_text("Forward");
+                }
+
                 let status_icon = match &*self.status.lock().unwrap() {
-                    PageStatus::Idle => "⚪",
-                    PageStatus::Loading(_) => "🔄",
-                    PageStatus::Running(_) => "🟢",
-                    PageStatus::Error(_) => "🔴",
+                    PageStatus::Idle => "\u{26AA}",
+                    PageStatus::Loading(_) => "\u{1F504}",
+                    PageStatus::Running(_) => "\u{1F7E2}",
+                    PageStatus::Error(_) => "\u{1F534}",
                 };
                 ui.label(egui::RichText::new(status_icon).size(16.0));
 
@@ -184,8 +302,9 @@ impl OxideApp {
             }
         }
 
-        // Phase 2: Clone commands (cheap) and collect texture IDs.
+        // Phase 2: Clone commands and hyperlinks.
         let commands = self.host_state.canvas.lock().unwrap().commands.clone();
+        let hyperlinks = self.host_state.hyperlinks.lock().unwrap().clone();
         let tex_ids: HashMap<usize, egui::TextureId> = self
             .image_textures
             .iter()
@@ -193,6 +312,8 @@ impl OxideApp {
             .collect();
 
         // Phase 3: Render.
+        self.hovered_link_url = None;
+
         egui::CentralPanel::default().show(ctx, |ui| {
             if commands.is_empty() {
                 ui.vertical_centered(|ui| {
@@ -218,7 +339,7 @@ impl OxideApp {
 
             let available = ui.available_size();
             let (response, painter) =
-                ui.allocate_painter(available, egui::Sense::hover());
+                ui.allocate_painter(available, egui::Sense::click());
             let rect = response.rect;
 
             for cmd in &commands {
@@ -265,6 +386,45 @@ impl OxideApp {
                             );
                             painter.image(*tex_id, img_rect, uv, egui::Color32::WHITE);
                         }
+                    }
+                }
+            }
+
+            // Draw subtle underlines for hyperlink regions.
+            for link in &hyperlinks {
+                let link_rect = egui::Rect::from_min_size(
+                    rect.min + egui::vec2(link.x, link.y),
+                    egui::vec2(link.w, link.h),
+                );
+                painter.line_segment(
+                    [link_rect.left_bottom(), link_rect.right_bottom()],
+                    egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(120, 140, 255, 80)),
+                );
+            }
+
+            // Hyperlink hover / click detection.
+            if let Some(pointer_pos) = response.hover_pos() {
+                for link in &hyperlinks {
+                    let link_rect = egui::Rect::from_min_size(
+                        rect.min + egui::vec2(link.x, link.y),
+                        egui::vec2(link.w, link.h),
+                    );
+                    if link_rect.contains(pointer_pos) {
+                        ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
+                        self.hovered_link_url = Some(link.url.clone());
+
+                        // Highlight on hover.
+                        painter.rect_filled(
+                            link_rect,
+                            0.0,
+                            egui::Color32::from_rgba_unmultiplied(120, 140, 255, 30),
+                        );
+
+                        if response.clicked() {
+                            let url = link.url.clone();
+                            self.navigate_to(url, true);
+                        }
+                        break;
                     }
                 }
             }

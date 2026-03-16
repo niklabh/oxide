@@ -108,6 +108,81 @@ extern "C" {
 
     #[link_name = "api_base64_decode"]
     fn _api_base64_decode(data_ptr: u32, data_len: u32, out_ptr: u32, out_cap: u32) -> u32;
+
+    #[link_name = "api_kv_store_set"]
+    fn _api_kv_store_set(key_ptr: u32, key_len: u32, val_ptr: u32, val_len: u32) -> i32;
+
+    #[link_name = "api_kv_store_get"]
+    fn _api_kv_store_get(key_ptr: u32, key_len: u32, out_ptr: u32, out_cap: u32) -> i32;
+
+    #[link_name = "api_kv_store_delete"]
+    fn _api_kv_store_delete(key_ptr: u32, key_len: u32) -> i32;
+
+    // ── Navigation ──────────────────────────────────────────────────
+
+    #[link_name = "api_navigate"]
+    fn _api_navigate(url_ptr: u32, url_len: u32) -> i32;
+
+    #[link_name = "api_push_state"]
+    fn _api_push_state(
+        state_ptr: u32, state_len: u32,
+        title_ptr: u32, title_len: u32,
+        url_ptr: u32, url_len: u32,
+    );
+
+    #[link_name = "api_replace_state"]
+    fn _api_replace_state(
+        state_ptr: u32, state_len: u32,
+        title_ptr: u32, title_len: u32,
+        url_ptr: u32, url_len: u32,
+    );
+
+    #[link_name = "api_get_url"]
+    fn _api_get_url(out_ptr: u32, out_cap: u32) -> u32;
+
+    #[link_name = "api_get_state"]
+    fn _api_get_state(out_ptr: u32, out_cap: u32) -> i32;
+
+    #[link_name = "api_history_length"]
+    fn _api_history_length() -> u32;
+
+    #[link_name = "api_history_back"]
+    fn _api_history_back() -> i32;
+
+    #[link_name = "api_history_forward"]
+    fn _api_history_forward() -> i32;
+
+    // ── Hyperlinks ──────────────────────────────────────────────────
+
+    #[link_name = "api_register_hyperlink"]
+    fn _api_register_hyperlink(
+        x: f32, y: f32, w: f32, h: f32,
+        url_ptr: u32, url_len: u32,
+    ) -> i32;
+
+    #[link_name = "api_clear_hyperlinks"]
+    fn _api_clear_hyperlinks();
+
+    // ── URL Utilities ───────────────────────────────────────────────
+
+    #[link_name = "api_url_resolve"]
+    fn _api_url_resolve(
+        base_ptr: u32, base_len: u32,
+        rel_ptr: u32, rel_len: u32,
+        out_ptr: u32, out_cap: u32,
+    ) -> i32;
+
+    #[link_name = "api_url_encode"]
+    fn _api_url_encode(
+        input_ptr: u32, input_len: u32,
+        out_ptr: u32, out_cap: u32,
+    ) -> u32;
+
+    #[link_name = "api_url_decode"]
+    fn _api_url_decode(
+        input_ptr: u32, input_len: u32,
+        out_ptr: u32, out_cap: u32,
+    ) -> u32;
 }
 
 // ─── Console API ────────────────────────────────────────────────────────────
@@ -421,4 +496,185 @@ pub fn base64_decode(encoded: &str) -> Vec<u8> {
         )
     };
     buf[..len as usize].to_vec()
+}
+
+// ─── Persistent Key-Value Store API ─────────────────────────────────────────
+
+/// Store a key-value pair in the persistent on-disk KV store.
+/// Returns `true` on success.
+pub fn kv_store_set(key: &str, value: &[u8]) -> bool {
+    let rc = unsafe {
+        _api_kv_store_set(
+            key.as_ptr() as u32, key.len() as u32,
+            value.as_ptr() as u32, value.len() as u32,
+        )
+    };
+    rc == 0
+}
+
+/// Convenience wrapper: store a UTF-8 string value.
+pub fn kv_store_set_str(key: &str, value: &str) -> bool {
+    kv_store_set(key, value.as_bytes())
+}
+
+/// Retrieve a value from the persistent KV store.
+/// Returns `None` if the key does not exist.
+pub fn kv_store_get(key: &str) -> Option<Vec<u8>> {
+    let mut buf = vec![0u8; 64 * 1024]; // 64 KB read buffer
+    let rc = unsafe {
+        _api_kv_store_get(
+            key.as_ptr() as u32, key.len() as u32,
+            buf.as_mut_ptr() as u32, buf.len() as u32,
+        )
+    };
+    if rc < 0 {
+        return None;
+    }
+    Some(buf[..rc as usize].to_vec())
+}
+
+/// Convenience wrapper: retrieve a UTF-8 string value.
+pub fn kv_store_get_str(key: &str) -> Option<String> {
+    kv_store_get(key).map(|v| String::from_utf8_lossy(&v).into_owned())
+}
+
+/// Delete a key from the persistent KV store. Returns `true` on success.
+pub fn kv_store_delete(key: &str) -> bool {
+    let rc = unsafe { _api_kv_store_delete(key.as_ptr() as u32, key.len() as u32) };
+    rc == 0
+}
+
+// ─── Navigation API ─────────────────────────────────────────────────────────
+
+/// Navigate to a new URL.  The URL can be absolute or relative to the current
+/// page.  Navigation happens asynchronously after the current `start_app`
+/// returns.  Returns 0 on success, negative on invalid URL.
+pub fn navigate(url: &str) -> i32 {
+    unsafe { _api_navigate(url.as_ptr() as u32, url.len() as u32) }
+}
+
+/// Push a new entry onto the browser's history stack without triggering a
+/// module reload.  This is analogous to `history.pushState()` in web browsers.
+///
+/// - `state`:  Opaque binary data retrievable later via [`get_state`].
+/// - `title`:  Human-readable title for the history entry.
+/// - `url`:    The URL to display in the address bar (relative or absolute).
+///             Pass `""` to keep the current URL.
+pub fn push_state(state: &[u8], title: &str, url: &str) {
+    unsafe {
+        _api_push_state(
+            state.as_ptr() as u32, state.len() as u32,
+            title.as_ptr() as u32, title.len() as u32,
+            url.as_ptr() as u32, url.len() as u32,
+        )
+    }
+}
+
+/// Replace the current history entry (no new entry is pushed).
+/// Analogous to `history.replaceState()`.
+pub fn replace_state(state: &[u8], title: &str, url: &str) {
+    unsafe {
+        _api_replace_state(
+            state.as_ptr() as u32, state.len() as u32,
+            title.as_ptr() as u32, title.len() as u32,
+            url.as_ptr() as u32, url.len() as u32,
+        )
+    }
+}
+
+/// Get the URL of the currently loaded page.
+pub fn get_url() -> String {
+    let mut buf = [0u8; 4096];
+    let len = unsafe { _api_get_url(buf.as_mut_ptr() as u32, buf.len() as u32) };
+    String::from_utf8_lossy(&buf[..len as usize]).to_string()
+}
+
+/// Retrieve the opaque state bytes attached to the current history entry.
+/// Returns `None` if no state has been set.
+pub fn get_state() -> Option<Vec<u8>> {
+    let mut buf = vec![0u8; 64 * 1024]; // 64 KB
+    let rc = unsafe { _api_get_state(buf.as_mut_ptr() as u32, buf.len() as u32) };
+    if rc < 0 {
+        return None;
+    }
+    Some(buf[..rc as usize].to_vec())
+}
+
+/// Return the total number of entries in the history stack.
+pub fn history_length() -> u32 {
+    unsafe { _api_history_length() }
+}
+
+/// Navigate backward in history.  Returns `true` if a navigation was queued.
+pub fn history_back() -> bool {
+    unsafe { _api_history_back() == 1 }
+}
+
+/// Navigate forward in history.  Returns `true` if a navigation was queued.
+pub fn history_forward() -> bool {
+    unsafe { _api_history_forward() == 1 }
+}
+
+// ─── Hyperlink API ──────────────────────────────────────────────────────────
+
+/// Register a rectangular region on the canvas as a clickable hyperlink.
+///
+/// When the user clicks inside the rectangle the browser navigates to `url`.
+/// Coordinates are in the same canvas-local space used by the drawing APIs.
+/// Returns 0 on success.
+pub fn register_hyperlink(x: f32, y: f32, w: f32, h: f32, url: &str) -> i32 {
+    unsafe {
+        _api_register_hyperlink(
+            x, y, w, h,
+            url.as_ptr() as u32, url.len() as u32,
+        )
+    }
+}
+
+/// Remove all previously registered hyperlinks.
+pub fn clear_hyperlinks() {
+    unsafe { _api_clear_hyperlinks() }
+}
+
+// ─── URL Utility API ────────────────────────────────────────────────────────
+
+/// Resolve a relative URL against a base URL (WHATWG algorithm).
+/// Returns `None` if either URL is invalid.
+pub fn url_resolve(base: &str, relative: &str) -> Option<String> {
+    let mut buf = [0u8; 4096];
+    let rc = unsafe {
+        _api_url_resolve(
+            base.as_ptr() as u32, base.len() as u32,
+            relative.as_ptr() as u32, relative.len() as u32,
+            buf.as_mut_ptr() as u32, buf.len() as u32,
+        )
+    };
+    if rc < 0 {
+        return None;
+    }
+    Some(String::from_utf8_lossy(&buf[..rc as usize]).to_string())
+}
+
+/// Percent-encode a string for safe inclusion in URL components.
+pub fn url_encode(input: &str) -> String {
+    let mut buf = vec![0u8; input.len() * 3 + 4];
+    let len = unsafe {
+        _api_url_encode(
+            input.as_ptr() as u32, input.len() as u32,
+            buf.as_mut_ptr() as u32, buf.len() as u32,
+        )
+    };
+    String::from_utf8_lossy(&buf[..len as usize]).to_string()
+}
+
+/// Decode a percent-encoded string.
+pub fn url_decode(input: &str) -> String {
+    let mut buf = vec![0u8; input.len() + 4];
+    let len = unsafe {
+        _api_url_decode(
+            input.as_ptr() as u32, input.len() as u32,
+            buf.as_mut_ptr() as u32, buf.len() as u32,
+        )
+    };
+    String::from_utf8_lossy(&buf[..len as usize]).to_string()
 }

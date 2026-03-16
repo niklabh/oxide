@@ -22,14 +22,14 @@ cargo build --target wasm32-unknown-unknown --release -p hello-oxide
 
 ## Core Stack
 
-| Component | Crate | Purpose |
-|---|---|---|
-| Runtime | `wasmtime` | WASM execution with fuel metering and memory limits |
-| Networking | `reqwest` | Fetch `.wasm` binaries from URLs |
-| Async | `tokio` | Async runtime for network operations |
-| UI | `egui` / `eframe` | URL bar, canvas renderer, console panel |
-| File Picker | `rfd` | Native OS file dialogs |
-| Clipboard | `arboard` | System clipboard access |
+| Component   | Crate      | Purpose |
+|-------------|------------|---------|
+| Runtime     | `wasmtime` | WASM execution with fuel metering and memory limits |
+| Networking  | `reqwest`  | Fetch `.wasm` binaries from URLs |
+| Async       | `tokio`    | Async runtime for network operations |
+| UI          | `egui` / `eframe` | URL bar, canvas renderer, console panel |
+| File Picker | `rfd`      | Native OS file dialogs |
+| Clipboard   | `arboard`  | System clipboard access |
 
 ## Security
 

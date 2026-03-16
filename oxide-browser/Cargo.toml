@@ -23,3 +23,7 @@ chrono = "0.4"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 sha2 = "0.10"
 base64 = "0.22"
+sled = "0.34"
+dirs = "5"
+url = "2"
+percent-encoding = "2"

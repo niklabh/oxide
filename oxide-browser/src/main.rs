@@ -1,7 +1,9 @@
 mod capabilities;
 mod engine;
+mod navigation;
 mod runtime;
 mod ui;
+mod url;
 
 use anyhow::Result;
 

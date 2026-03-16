@@ -13,29 +13,29 @@ The browser provides a set of **capability APIs** that guest modules can import 
 ```
 ┌──────────────────────────────────────────────────┐
 │                   Oxide Browser                  │
-│  ┌──────────┐  ┌────────────┐  ┌──────────────┐ │
-│  │  URL Bar  │  │   Canvas   │  │   Console    │ │
-│  └────┬─────┘  └──────┬─────┘  └──────┬───────┘ │
-│       │               │               │         │
-│  ┌────▼───────────────▼───────────────▼───────┐ │
-│  │              Host Runtime                   │ │
-│  │  wasmtime engine + sandbox policy           │ │
-│  │  fuel limit: 500M  │  memory: 16MB max      │ │
-│  └────────────────────┬───────────────────────┘ │
-│                       │                         │
-│  ┌────────────────────▼───────────────────────┐ │
-│  │          Capability Provider                │ │
-│  │  "oxide" import module                      │ │
-│  │  canvas, console, storage, clipboard,       │ │
-│  │  fetch, images, crypto, base64, protobuf,   │ │
-│  │  dynamic module loading                     │ │
-│  └────────────────────┬───────────────────────┘ │
-│                       │                         │
-│  ┌────────────────────▼───────────────────────┐ │
-│  │           Guest .wasm Module                │ │
-│  │  exports: start_app()                       │ │
-│  │  imports: oxide::*                          │ │
-│  └────────────────────────────────────────────┘ │
+│  ┌──────────┐  ┌────────────┐  ┌──────────────┐  │
+│  │  URL Bar │  │   Canvas   │  │   Console    │  │
+│  └────┬─────┘  └──────┬─────┘  └──────┬───────┘  │
+│       │               │               │          │
+│  ┌────▼───────────────▼───────────────▼───────┐  │
+│  │              Host Runtime                  │  │
+│  │  wasmtime engine + sandbox policy          │  │
+│  │  fuel limit: 500M  │  memory: 16MB max     │  │
+│  └────────────────────┬───────────────────────┘  │
+│                       │                          │
+│  ┌────────────────────▼───────────────────────┐  │
+│  │          Capability Provider               │  │
+│  │  "oxide" import module                     │  │
+│  │  canvas, console, storage, clipboard,      │  │
+│  │  fetch, images, crypto, base64, protobuf,  │  │
+│  │  dynamic module loading                    │  │
+│  └────────────────────┬───────────────────────┘  │
+│                       │                          │
+│  ┌────────────────────▼───────────────────────┐  │
+│  │           Guest .wasm Module               │  │
+│  │  exports: start_app()                      │  │
+│  │  imports: oxide::*                         │  │
+│  └────────────────────────────────────────────┘  │
 └──────────────────────────────────────────────────┘
 ```
 
