@@ -163,9 +163,13 @@ fn read_guest_string(
     ptr: u32,
     len: u32,
 ) -> Result<String> {
+    let start = ptr as usize;
+    let end = start
+        .checked_add(len as usize)
+        .context("guest string pointer arithmetic overflow")?;
     let data = memory
         .data(store)
-        .get(ptr as usize..(ptr + len) as usize)
+        .get(start..end)
         .context("guest string out of bounds")?;
     String::from_utf8(data.to_vec()).context("guest string is not valid utf-8")
 }
@@ -176,9 +180,13 @@ fn read_guest_bytes(
     ptr: u32,
     len: u32,
 ) -> Result<Vec<u8>> {
+    let start = ptr as usize;
+    let end = start
+        .checked_add(len as usize)
+        .context("guest buffer pointer arithmetic overflow")?;
     let data = memory
         .data(store)
-        .get(ptr as usize..(ptr + len) as usize)
+        .get(start..end)
         .context("guest buffer out of bounds")?;
     Ok(data.to_vec())
 }
@@ -189,9 +197,13 @@ fn write_guest_bytes(
     ptr: u32,
     bytes: &[u8],
 ) -> Result<()> {
+    let start = ptr as usize;
+    let end = start
+        .checked_add(bytes.len())
+        .context("guest write pointer arithmetic overflow")?;
     memory
         .data_mut(store)
-        .get_mut(ptr as usize..ptr as usize + bytes.len())
+        .get_mut(start..end)
         .context("guest buffer out of bounds")?
         .copy_from_slice(bytes);
     Ok(())
