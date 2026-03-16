@@ -213,7 +213,12 @@ impl OxideApp {
 
                 let back_btn = ui.add_enabled(
                     can_back,
-                    egui::Button::new(egui::RichText::new("\u{2190}").size(16.0)),
+                    egui::Button::new(
+                        egui::RichText::new("\u{25C0}").size(14.0),
+                    )
+                    .corner_radius(12.0)
+                    .min_size(egui::vec2(28.0, 28.0))
+                    .frame(false),
                 );
                 if back_btn.clicked() {
                     self.go_back();
@@ -224,7 +229,12 @@ impl OxideApp {
 
                 let fwd_btn = ui.add_enabled(
                     can_fwd,
-                    egui::Button::new(egui::RichText::new("\u{2192}").size(16.0)),
+                    egui::Button::new(
+                        egui::RichText::new("\u{25B6}").size(14.0),
+                    )
+                    .corner_radius(12.0)
+                    .min_size(egui::vec2(28.0, 28.0))
+                    .frame(false),
                 );
                 if fwd_btn.clicked() {
                     self.go_forward();
