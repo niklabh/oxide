@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
+use image::GenericImageView;
 use wasmtime::*;
 
 use crate::engine::ModuleLoader;
@@ -17,6 +18,7 @@ pub struct HostState {
     #[allow(dead_code)]
     pub timers: Arc<Mutex<Vec<TimerEntry>>>,
     pub clipboard: Arc<Mutex<String>>,
+    pub clipboard_allowed: Arc<Mutex<bool>>,
     pub kv_db: Option<Arc<sled::Db>>,
     pub memory: Option<Memory>,
     pub module_loader: Option<Arc<ModuleLoader>>,
@@ -146,6 +148,7 @@ impl Default for HostState {
             storage: Arc::new(Mutex::new(HashMap::new())),
             timers: Arc::new(Mutex::new(Vec::new())),
             clipboard: Arc::new(Mutex::new(String::new())),
+            clipboard_allowed: Arc::new(Mutex::new(false)),
             kv_db: None,
             memory: None,
             module_loader: None,
@@ -461,6 +464,18 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
             let raw = read_guest_bytes(&mem, &caller, data_ptr, data_len).unwrap_or_default();
             match image::load_from_memory(&raw) {
                 Ok(img) => {
+                    let (iw, ih) = img.dimensions();
+                    const MAX_IMAGE_PIXELS: u32 = 4096 * 4096; // ~16M pixels
+                    if iw.saturating_mul(ih) > MAX_IMAGE_PIXELS {
+                        console_log(
+                            &caller.data().console,
+                            ConsoleLevel::Error,
+                            format!(
+                                "[IMAGE] Rejected: {iw}x{ih} exceeds maximum of {MAX_IMAGE_PIXELS} pixels"
+                            ),
+                        );
+                        return;
+                    }
                     let rgba = img.to_rgba8();
                     let (iw, ih) = (rgba.width(), rgba.height());
                     let decoded = DecodedImage {
@@ -545,6 +560,15 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
         "oxide",
         "api_clipboard_write",
         |caller: Caller<'_, HostState>, ptr: u32, len: u32| {
+            let allowed = *caller.data().clipboard_allowed.lock().unwrap();
+            if !allowed {
+                console_log(
+                    &caller.data().console,
+                    ConsoleLevel::Warn,
+                    "[CLIPBOARD] Write blocked — clipboard access not permitted".into(),
+                );
+                return;
+            }
             let mem = caller.data().memory.expect("memory not set");
             let text = read_guest_string(&mem, &caller, ptr, len).unwrap_or_default();
             *caller.data().clipboard.lock().unwrap() = text.clone();
@@ -558,6 +582,15 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
         "oxide",
         "api_clipboard_read",
         |mut caller: Caller<'_, HostState>, out_ptr: u32, out_cap: u32| -> u32 {
+            let allowed = *caller.data().clipboard_allowed.lock().unwrap();
+            if !allowed {
+                console_log(
+                    &caller.data().console,
+                    ConsoleLevel::Warn,
+                    "[CLIPBOARD] Read blocked — clipboard access not permitted".into(),
+                );
+                return 0;
+            }
             let text = arboard::Clipboard::new()
                 .and_then(|mut ctx| ctx.get_text())
                 .unwrap_or_default();
