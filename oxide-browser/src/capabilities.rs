@@ -1325,12 +1325,5 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
 }
 
 fn getrandom(buf: &mut [u8]) {
-    use std::collections::hash_map::RandomState;
-    use std::hash::{BuildHasher, Hasher};
-    for chunk in buf.chunks_mut(8) {
-        let val = RandomState::new().build_hasher().finish().to_le_bytes();
-        for (dst, src) in chunk.iter_mut().zip(val.iter()) {
-            *dst = *src;
-        }
-    }
+    ::getrandom::getrandom(buf).expect("OS random number generator unavailable");
 }
