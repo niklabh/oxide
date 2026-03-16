@@ -915,8 +915,10 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
             let mem = caller.data().memory.expect("memory not set");
             let key = read_guest_string(&mem, &caller, key_ptr, key_len).unwrap_or_default();
             let val = read_guest_bytes(&mem, &caller, val_ptr, val_len).unwrap_or_default();
+            let origin = caller.data().current_url.lock().unwrap().clone();
+            let prefixed_key = format!("{origin}::{key}");
             match &caller.data().kv_db {
-                Some(db) => match db.insert(key.as_bytes(), val) {
+                Some(db) => match db.insert(prefixed_key.as_bytes(), val) {
                     Ok(_) => {
                         let _ = db.flush();
                         0
@@ -953,8 +955,10 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
          -> i32 {
             let mem = caller.data().memory.expect("memory not set");
             let key = read_guest_string(&mem, &caller, key_ptr, key_len).unwrap_or_default();
+            let origin = caller.data().current_url.lock().unwrap().clone();
+            let prefixed_key = format!("{origin}::{key}");
             match &caller.data().kv_db {
-                Some(db) => match db.get(key.as_bytes()) {
+                Some(db) => match db.get(prefixed_key.as_bytes()) {
                     Ok(Some(val)) => {
                         let bytes = val.as_ref();
                         let write_len = bytes.len().min(out_cap as usize);
@@ -982,8 +986,10 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
         |caller: Caller<'_, HostState>, key_ptr: u32, key_len: u32| -> i32 {
             let mem = caller.data().memory.expect("memory not set");
             let key = read_guest_string(&mem, &caller, key_ptr, key_len).unwrap_or_default();
+            let origin = caller.data().current_url.lock().unwrap().clone();
+            let prefixed_key = format!("{origin}::{key}");
             match &caller.data().kv_db {
-                Some(db) => match db.remove(key.as_bytes()) {
+                Some(db) => match db.remove(prefixed_key.as_bytes()) {
                     Ok(_) => {
                         let _ = db.flush();
                         0
