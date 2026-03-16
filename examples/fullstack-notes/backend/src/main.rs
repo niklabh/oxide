@@ -75,10 +75,7 @@ async fn list_notes(State(state): State<SharedState>) -> impl IntoResponse {
     proto_response(StatusCode::OK, enc.finish())
 }
 
-async fn create_note(
-    State(state): State<SharedState>,
-    body: Bytes,
-) -> impl IntoResponse {
+async fn create_note(State(state): State<SharedState>, body: Bytes) -> impl IntoResponse {
     let mut title = String::new();
     let mut decoder = ProtoDecoder::new(&body);
     while let Some(field) = decoder.next() {
@@ -111,10 +108,7 @@ async fn create_note(
     proto_response(StatusCode::CREATED, resp)
 }
 
-async fn toggle_note(
-    State(state): State<SharedState>,
-    Path(id): Path<u32>,
-) -> impl IntoResponse {
+async fn toggle_note(State(state): State<SharedState>, Path(id): Path<u32>) -> impl IntoResponse {
     let mut notes = state.notes.lock().unwrap();
     if let Some(note) = notes.iter_mut().find(|n| n.id == id) {
         note.done = !note.done;
@@ -125,10 +119,7 @@ async fn toggle_note(
     }
 }
 
-async fn delete_note(
-    State(state): State<SharedState>,
-    Path(id): Path<u32>,
-) -> impl IntoResponse {
+async fn delete_note(State(state): State<SharedState>, Path(id): Path<u32>) -> impl IntoResponse {
     let mut notes = state.notes.lock().unwrap();
     if let Some(pos) = notes.iter().position(|n| n.id == id) {
         let removed = notes.remove(pos);

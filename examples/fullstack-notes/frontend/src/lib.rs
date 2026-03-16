@@ -183,8 +183,11 @@ pub extern "C" fn start_app() {
         .string(1, "Explore the Oxide fetch API")
         .finish();
     let sent = body.len();
-    if let Ok(resp) = fetch_post(&format!("{API_BASE}/api/notes"), "application/protobuf", &body)
-    {
+    if let Ok(resp) = fetch_post(
+        &format!("{API_BASE}/api/notes"),
+        "application/protobuf",
+        &body,
+    ) {
         let note = decode_single_note(&resp.body);
         ops.push(Op {
             method: "POST",
@@ -198,11 +201,7 @@ pub extern "C" fn start_app() {
     }
 
     // ── Step 3: POST toggle note #2 ─────────────────────────────────
-    if let Ok(resp) = fetch_post(
-        &format!("{API_BASE}/api/notes/2/toggle"),
-        "",
-        &[],
-    ) {
+    if let Ok(resp) = fetch_post(&format!("{API_BASE}/api/notes/2/toggle"), "", &[]) {
         let note = decode_single_note(&resp.body);
         ops.push(Op {
             method: "POST",
@@ -404,12 +403,7 @@ fn render_offline(w: f32, err_code: i64) {
         ),
     );
     draw_text(20.0, 110.0, TEXT, "Start the backend server first:");
-    draw_text(
-        40.0,
-        135.0,
-        AMBER,
-        "cargo run -p fullstack-notes-backend",
-    );
+    draw_text(40.0, 135.0, AMBER, "cargo run -p fullstack-notes-backend");
     draw_text(
         20.0,
         170.0,
