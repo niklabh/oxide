@@ -50,9 +50,7 @@ impl OxideUrl {
             return Err(UrlError::Empty);
         }
 
-        if (trimmed.starts_with('/') || trimmed.starts_with('.'))
-            && !trimmed.starts_with("//")
-        {
+        if (trimmed.starts_with('/') || trimmed.starts_with('.')) && !trimmed.starts_with("//") {
             return Err(UrlError::RelativeRequiresBase);
         }
 
@@ -62,8 +60,7 @@ impl OxideUrl {
             format!("https://{trimmed}")
         };
 
-        let inner =
-            Url::parse(&normalized).map_err(|e| UrlError::Parse(e.to_string()))?;
+        let inner = Url::parse(&normalized).map_err(|e| UrlError::Parse(e.to_string()))?;
 
         if !SUPPORTED_SCHEMES.contains(&inner.scheme()) {
             return Err(UrlError::UnsupportedScheme(inner.scheme().to_string()));
@@ -173,11 +170,7 @@ impl fmt::Display for OxideUrl {
 
 /// Percent-encode a string (useful for building URL path/query components).
 pub fn percent_encode(input: &str) -> String {
-    percent_encoding::utf8_percent_encode(
-        input,
-        percent_encoding::NON_ALPHANUMERIC,
-    )
-    .to_string()
+    percent_encoding::utf8_percent_encode(input, percent_encoding::NON_ALPHANUMERIC).to_string()
 }
 
 /// Decode a percent-encoded string.
@@ -208,13 +201,9 @@ mod tests {
 
     #[test]
     fn resolve_relative() {
-        let base =
-            OxideUrl::parse("https://example.com/apps/v1/main.wasm").unwrap();
+        let base = OxideUrl::parse("https://example.com/apps/v1/main.wasm").unwrap();
         let resolved = base.join("../v2/new.wasm").unwrap();
-        assert_eq!(
-            resolved.as_str(),
-            "https://example.com/apps/v2/new.wasm"
-        );
+        assert_eq!(resolved.as_str(), "https://example.com/apps/v2/new.wasm");
     }
 
     #[test]
@@ -237,8 +226,7 @@ mod tests {
 
     #[test]
     fn query_and_fragment() {
-        let url =
-            OxideUrl::parse("https://example.com/app.wasm?v=1#section").unwrap();
+        let url = OxideUrl::parse("https://example.com/app.wasm?v=1#section").unwrap();
         assert_eq!(url.query(), Some("v=1"));
         assert_eq!(url.fragment(), Some("section"));
     }

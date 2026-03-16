@@ -93,7 +93,9 @@ impl ProtoEncoder {
     }
 
     pub fn with_capacity(cap: usize) -> Self {
-        Self { buf: Vec::with_capacity(cap) }
+        Self {
+            buf: Vec::with_capacity(cap),
+        }
     }
 
     fn tag(self, field: u32, wire: u32) -> Self {
@@ -347,7 +349,11 @@ impl<'a> ProtoDecoder<'a> {
             _ => return None, // unknown wire type — stop
         };
 
-        Some(ProtoField { number, wire_type, data })
+        Some(ProtoField {
+            number,
+            wire_type,
+            data,
+        })
     }
 
     /// Collect all fields into a `Vec` for random-access lookup.

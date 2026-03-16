@@ -222,10 +222,7 @@ mod tests {
     #[test]
     fn state_preserved_through_back_forward() {
         let mut stack = NavigationStack::new();
-        stack.push(
-            HistoryEntry::new("https://a.com")
-                .with_state(vec![10, 20]),
-        );
+        stack.push(HistoryEntry::new("https://a.com").with_state(vec![10, 20]));
         stack.push(HistoryEntry::new("https://b.com"));
 
         let entry = stack.go_back().unwrap();

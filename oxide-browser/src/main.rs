@@ -25,9 +25,7 @@ fn main() -> Result<()> {
     eframe::run_native(
         "Oxide Browser",
         native_options,
-        Box::new(move |_cc| {
-            Ok(Box::new(ui::OxideApp::new(host_state, status)))
-        }),
+        Box::new(move |_cc| Ok(Box::new(ui::OxideApp::new(host_state, status)))),
     )
     .map_err(|e| anyhow::anyhow!("eframe error: {e}"))?;
 

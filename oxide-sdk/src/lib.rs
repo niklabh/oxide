@@ -36,12 +36,7 @@ extern "C" {
     fn _api_get_location(out_ptr: u32, out_cap: u32) -> u32;
 
     #[link_name = "api_upload_file"]
-    fn _api_upload_file(
-        name_ptr: u32,
-        name_cap: u32,
-        data_ptr: u32,
-        data_cap: u32,
-    ) -> u64;
+    fn _api_upload_file(name_ptr: u32, name_cap: u32, data_ptr: u32, data_cap: u32) -> u64;
 
     #[link_name = "api_canvas_clear"]
     fn _api_canvas_clear(r: u32, g: u32, b: u32, a: u32);
@@ -90,11 +85,16 @@ extern "C" {
 
     #[link_name = "api_fetch"]
     fn _api_fetch(
-        method_ptr: u32, method_len: u32,
-        url_ptr: u32, url_len: u32,
-        ct_ptr: u32, ct_len: u32,
-        body_ptr: u32, body_len: u32,
-        out_ptr: u32, out_cap: u32,
+        method_ptr: u32,
+        method_len: u32,
+        url_ptr: u32,
+        url_len: u32,
+        ct_ptr: u32,
+        ct_len: u32,
+        body_ptr: u32,
+        body_len: u32,
+        out_ptr: u32,
+        out_cap: u32,
     ) -> i64;
 
     #[link_name = "api_load_module"]
@@ -125,16 +125,22 @@ extern "C" {
 
     #[link_name = "api_push_state"]
     fn _api_push_state(
-        state_ptr: u32, state_len: u32,
-        title_ptr: u32, title_len: u32,
-        url_ptr: u32, url_len: u32,
+        state_ptr: u32,
+        state_len: u32,
+        title_ptr: u32,
+        title_len: u32,
+        url_ptr: u32,
+        url_len: u32,
     );
 
     #[link_name = "api_replace_state"]
     fn _api_replace_state(
-        state_ptr: u32, state_len: u32,
-        title_ptr: u32, title_len: u32,
-        url_ptr: u32, url_len: u32,
+        state_ptr: u32,
+        state_len: u32,
+        title_ptr: u32,
+        title_len: u32,
+        url_ptr: u32,
+        url_len: u32,
     );
 
     #[link_name = "api_get_url"]
@@ -155,10 +161,7 @@ extern "C" {
     // ── Hyperlinks ──────────────────────────────────────────────────
 
     #[link_name = "api_register_hyperlink"]
-    fn _api_register_hyperlink(
-        x: f32, y: f32, w: f32, h: f32,
-        url_ptr: u32, url_len: u32,
-    ) -> i32;
+    fn _api_register_hyperlink(x: f32, y: f32, w: f32, h: f32, url_ptr: u32, url_len: u32) -> i32;
 
     #[link_name = "api_clear_hyperlinks"]
     fn _api_clear_hyperlinks();
@@ -167,22 +170,19 @@ extern "C" {
 
     #[link_name = "api_url_resolve"]
     fn _api_url_resolve(
-        base_ptr: u32, base_len: u32,
-        rel_ptr: u32, rel_len: u32,
-        out_ptr: u32, out_cap: u32,
+        base_ptr: u32,
+        base_len: u32,
+        rel_ptr: u32,
+        rel_len: u32,
+        out_ptr: u32,
+        out_cap: u32,
     ) -> i32;
 
     #[link_name = "api_url_encode"]
-    fn _api_url_encode(
-        input_ptr: u32, input_len: u32,
-        out_ptr: u32, out_cap: u32,
-    ) -> u32;
+    fn _api_url_encode(input_ptr: u32, input_len: u32, out_ptr: u32, out_cap: u32) -> u32;
 
     #[link_name = "api_url_decode"]
-    fn _api_url_decode(
-        input_ptr: u32, input_len: u32,
-        out_ptr: u32, out_cap: u32,
-    ) -> u32;
+    fn _api_url_decode(input_ptr: u32, input_len: u32, out_ptr: u32, out_cap: u32) -> u32;
 }
 
 // ─── Console API ────────────────────────────────────────────────────────────
@@ -268,8 +268,12 @@ pub fn canvas_circle(cx: f32, cy: f32, radius: f32, r: u8, g: u8, b: u8, a: u8) 
 pub fn canvas_text(x: f32, y: f32, size: f32, r: u8, g: u8, b: u8, text: &str) {
     unsafe {
         _api_canvas_text(
-            x, y, size,
-            r as u32, g as u32, b as u32,
+            x,
+            y,
+            size,
+            r as u32,
+            g as u32,
+            b as u32,
             text.as_ptr() as u32,
             text.len() as u32,
         )
@@ -290,9 +294,7 @@ pub fn canvas_dimensions() -> (u32, u32) {
 /// Draw an image on the canvas from encoded image bytes (PNG, JPEG, GIF, WebP).
 /// The browser decodes the image and renders it at the given rectangle.
 pub fn canvas_image(x: f32, y: f32, w: f32, h: f32, data: &[u8]) {
-    unsafe {
-        _api_canvas_image(x, y, w, h, data.as_ptr() as u32, data.len() as u32)
-    }
+    unsafe { _api_canvas_image(x, y, w, h, data.as_ptr() as u32, data.len() as u32) }
 }
 
 // ─── Local Storage API ──────────────────────────────────────────────────────
@@ -301,8 +303,10 @@ pub fn canvas_image(x: f32, y: f32, w: f32, h: f32, data: &[u8]) {
 pub fn storage_set(key: &str, value: &str) {
     unsafe {
         _api_storage_set(
-            key.as_ptr() as u32, key.len() as u32,
-            value.as_ptr() as u32, value.len() as u32,
+            key.as_ptr() as u32,
+            key.len() as u32,
+            value.as_ptr() as u32,
+            value.len() as u32,
         )
     }
 }
@@ -312,8 +316,10 @@ pub fn storage_get(key: &str) -> String {
     let mut buf = [0u8; 4096];
     let len = unsafe {
         _api_storage_get(
-            key.as_ptr() as u32, key.len() as u32,
-            buf.as_mut_ptr() as u32, buf.len() as u32,
+            key.as_ptr() as u32,
+            key.len() as u32,
+            buf.as_mut_ptr() as u32,
+            buf.len() as u32,
         )
     };
     String::from_utf8_lossy(&buf[..len as usize]).to_string()
@@ -363,8 +369,10 @@ pub fn random_f64() -> f64 {
 pub fn notify(title: &str, body: &str) {
     unsafe {
         _api_notify(
-            title.as_ptr() as u32, title.len() as u32,
-            body.as_ptr() as u32, body.len() as u32,
+            title.as_ptr() as u32,
+            title.len() as u32,
+            body.as_ptr() as u32,
+            body.len() as u32,
         )
     }
 }
@@ -389,15 +397,25 @@ impl FetchResponse {
 /// `content_type` sets the `Content-Type` header (pass `""` to omit).
 /// Protobuf is the native format — use `"application/protobuf"` for binary
 /// payloads.
-pub fn fetch(method: &str, url: &str, content_type: &str, body: &[u8]) -> Result<FetchResponse, i64> {
+pub fn fetch(
+    method: &str,
+    url: &str,
+    content_type: &str,
+    body: &[u8],
+) -> Result<FetchResponse, i64> {
     let mut out_buf = vec![0u8; 4 * 1024 * 1024]; // 4 MB response buffer
     let result = unsafe {
         _api_fetch(
-            method.as_ptr() as u32, method.len() as u32,
-            url.as_ptr() as u32, url.len() as u32,
-            content_type.as_ptr() as u32, content_type.len() as u32,
-            body.as_ptr() as u32, body.len() as u32,
-            out_buf.as_mut_ptr() as u32, out_buf.len() as u32,
+            method.as_ptr() as u32,
+            method.len() as u32,
+            url.as_ptr() as u32,
+            url.len() as u32,
+            content_type.as_ptr() as u32,
+            content_type.len() as u32,
+            body.as_ptr() as u32,
+            body.len() as u32,
+            out_buf.as_mut_ptr() as u32,
+            out_buf.len() as u32,
         )
     };
     if result < 0 {
@@ -451,7 +469,11 @@ pub fn load_module(url: &str) -> i32 {
 pub fn hash_sha256(data: &[u8]) -> [u8; 32] {
     let mut out = [0u8; 32];
     unsafe {
-        _api_hash_sha256(data.as_ptr() as u32, data.len() as u32, out.as_mut_ptr() as u32);
+        _api_hash_sha256(
+            data.as_ptr() as u32,
+            data.len() as u32,
+            out.as_mut_ptr() as u32,
+        );
     }
     out
 }
@@ -468,8 +490,7 @@ pub fn hash_sha256_hex(data: &[u8]) -> String {
 }
 
 const HEX_CHARS: [char; 16] = [
-    '0', '1', '2', '3', '4', '5', '6', '7',
-    '8', '9', 'a', 'b', 'c', 'd', 'e', 'f',
+    '0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f',
 ];
 
 // ─── Base64 API ─────────────────────────────────────────────────────────────
@@ -479,8 +500,10 @@ pub fn base64_encode(data: &[u8]) -> String {
     let mut buf = vec![0u8; data.len() * 4 / 3 + 8];
     let len = unsafe {
         _api_base64_encode(
-            data.as_ptr() as u32, data.len() as u32,
-            buf.as_mut_ptr() as u32, buf.len() as u32,
+            data.as_ptr() as u32,
+            data.len() as u32,
+            buf.as_mut_ptr() as u32,
+            buf.len() as u32,
         )
     };
     String::from_utf8_lossy(&buf[..len as usize]).to_string()
@@ -491,8 +514,10 @@ pub fn base64_decode(encoded: &str) -> Vec<u8> {
     let mut buf = vec![0u8; encoded.len()];
     let len = unsafe {
         _api_base64_decode(
-            encoded.as_ptr() as u32, encoded.len() as u32,
-            buf.as_mut_ptr() as u32, buf.len() as u32,
+            encoded.as_ptr() as u32,
+            encoded.len() as u32,
+            buf.as_mut_ptr() as u32,
+            buf.len() as u32,
         )
     };
     buf[..len as usize].to_vec()
@@ -505,8 +530,10 @@ pub fn base64_decode(encoded: &str) -> Vec<u8> {
 pub fn kv_store_set(key: &str, value: &[u8]) -> bool {
     let rc = unsafe {
         _api_kv_store_set(
-            key.as_ptr() as u32, key.len() as u32,
-            value.as_ptr() as u32, value.len() as u32,
+            key.as_ptr() as u32,
+            key.len() as u32,
+            value.as_ptr() as u32,
+            value.len() as u32,
         )
     };
     rc == 0
@@ -523,8 +550,10 @@ pub fn kv_store_get(key: &str) -> Option<Vec<u8>> {
     let mut buf = vec![0u8; 64 * 1024]; // 64 KB read buffer
     let rc = unsafe {
         _api_kv_store_get(
-            key.as_ptr() as u32, key.len() as u32,
-            buf.as_mut_ptr() as u32, buf.len() as u32,
+            key.as_ptr() as u32,
+            key.len() as u32,
+            buf.as_mut_ptr() as u32,
+            buf.len() as u32,
         )
     };
     if rc < 0 {
@@ -563,9 +592,12 @@ pub fn navigate(url: &str) -> i32 {
 pub fn push_state(state: &[u8], title: &str, url: &str) {
     unsafe {
         _api_push_state(
-            state.as_ptr() as u32, state.len() as u32,
-            title.as_ptr() as u32, title.len() as u32,
-            url.as_ptr() as u32, url.len() as u32,
+            state.as_ptr() as u32,
+            state.len() as u32,
+            title.as_ptr() as u32,
+            title.len() as u32,
+            url.as_ptr() as u32,
+            url.len() as u32,
         )
     }
 }
@@ -575,9 +607,12 @@ pub fn push_state(state: &[u8], title: &str, url: &str) {
 pub fn replace_state(state: &[u8], title: &str, url: &str) {
     unsafe {
         _api_replace_state(
-            state.as_ptr() as u32, state.len() as u32,
-            title.as_ptr() as u32, title.len() as u32,
-            url.as_ptr() as u32, url.len() as u32,
+            state.as_ptr() as u32,
+            state.len() as u32,
+            title.as_ptr() as u32,
+            title.len() as u32,
+            url.as_ptr() as u32,
+            url.len() as u32,
         )
     }
 }
@@ -623,12 +658,7 @@ pub fn history_forward() -> bool {
 /// Coordinates are in the same canvas-local space used by the drawing APIs.
 /// Returns 0 on success.
 pub fn register_hyperlink(x: f32, y: f32, w: f32, h: f32, url: &str) -> i32 {
-    unsafe {
-        _api_register_hyperlink(
-            x, y, w, h,
-            url.as_ptr() as u32, url.len() as u32,
-        )
-    }
+    unsafe { _api_register_hyperlink(x, y, w, h, url.as_ptr() as u32, url.len() as u32) }
 }
 
 /// Remove all previously registered hyperlinks.
@@ -644,9 +674,12 @@ pub fn url_resolve(base: &str, relative: &str) -> Option<String> {
     let mut buf = [0u8; 4096];
     let rc = unsafe {
         _api_url_resolve(
-            base.as_ptr() as u32, base.len() as u32,
-            relative.as_ptr() as u32, relative.len() as u32,
-            buf.as_mut_ptr() as u32, buf.len() as u32,
+            base.as_ptr() as u32,
+            base.len() as u32,
+            relative.as_ptr() as u32,
+            relative.len() as u32,
+            buf.as_mut_ptr() as u32,
+            buf.len() as u32,
         )
     };
     if rc < 0 {
@@ -660,8 +693,10 @@ pub fn url_encode(input: &str) -> String {
     let mut buf = vec![0u8; input.len() * 3 + 4];
     let len = unsafe {
         _api_url_encode(
-            input.as_ptr() as u32, input.len() as u32,
-            buf.as_mut_ptr() as u32, buf.len() as u32,
+            input.as_ptr() as u32,
+            input.len() as u32,
+            buf.as_mut_ptr() as u32,
+            buf.len() as u32,
         )
     };
     String::from_utf8_lossy(&buf[..len as usize]).to_string()
@@ -672,8 +707,10 @@ pub fn url_decode(input: &str) -> String {
     let mut buf = vec![0u8; input.len() + 4];
     let len = unsafe {
         _api_url_decode(
-            input.as_ptr() as u32, input.len() as u32,
-            buf.as_mut_ptr() as u32, buf.len() as u32,
+            input.as_ptr() as u32,
+            input.len() as u32,
+            buf.as_mut_ptr() as u32,
+            buf.len() as u32,
         )
     };
     String::from_utf8_lossy(&buf[..len as usize]).to_string()

@@ -79,8 +79,7 @@ impl BrowserHost {
         self.host_state.hyperlinks.lock().unwrap().clear();
         *self.host_state.current_url.lock().unwrap() = url.to_string();
 
-        let parsed = OxideUrl::parse(url)
-            .map_err(|e| anyhow::anyhow!("{e}"))?;
+        let parsed = OxideUrl::parse(url).map_err(|e| anyhow::anyhow!("{e}"))?;
 
         let wasm_bytes = if parsed.is_fetchable() {
             fetch_wasm(parsed.as_str()).await?
@@ -171,11 +170,7 @@ async fn fetch_wasm(url: &str) -> Result<Vec<u8>> {
         .context("network request failed")?;
 
     if !response.status().is_success() {
-        anyhow::bail!(
-            "server returned HTTP {} for {}",
-            response.status(),
-            url
-        );
+        anyhow::bail!("server returned HTTP {} for {}", response.status(), url);
     }
 
     let bytes = response

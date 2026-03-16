@@ -59,12 +59,57 @@ pub struct DecodedImage {
 
 #[derive(Clone, Debug)]
 pub enum DrawCommand {
-    Clear { r: u8, g: u8, b: u8, a: u8 },
-    Rect { x: f32, y: f32, w: f32, h: f32, r: u8, g: u8, b: u8, a: u8 },
-    Circle { cx: f32, cy: f32, radius: f32, r: u8, g: u8, b: u8, a: u8 },
-    Text { x: f32, y: f32, size: f32, r: u8, g: u8, b: u8, text: String },
-    Line { x1: f32, y1: f32, x2: f32, y2: f32, r: u8, g: u8, b: u8, thickness: f32 },
-    Image { x: f32, y: f32, w: f32, h: f32, image_id: usize },
+    Clear {
+        r: u8,
+        g: u8,
+        b: u8,
+        a: u8,
+    },
+    Rect {
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        r: u8,
+        g: u8,
+        b: u8,
+        a: u8,
+    },
+    Circle {
+        cx: f32,
+        cy: f32,
+        radius: f32,
+        r: u8,
+        g: u8,
+        b: u8,
+        a: u8,
+    },
+    Text {
+        x: f32,
+        y: f32,
+        size: f32,
+        r: u8,
+        g: u8,
+        b: u8,
+        text: String,
+    },
+    Line {
+        x1: f32,
+        y1: f32,
+        x2: f32,
+        y2: f32,
+        r: u8,
+        g: u8,
+        b: u8,
+        thickness: f32,
+    },
+    Image {
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        image_id: usize,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -110,7 +155,12 @@ impl Default for HostState {
     }
 }
 
-fn read_guest_string(memory: &Memory, store: &impl AsContext, ptr: u32, len: u32) -> Result<String> {
+fn read_guest_string(
+    memory: &Memory,
+    store: &impl AsContext,
+    ptr: u32,
+    len: u32,
+) -> Result<String> {
     let data = memory
         .data(store)
         .get(ptr as usize..(ptr + len) as usize)
@@ -118,7 +168,12 @@ fn read_guest_string(memory: &Memory, store: &impl AsContext, ptr: u32, len: u32
     String::from_utf8(data.to_vec()).context("guest string is not valid utf-8")
 }
 
-fn read_guest_bytes(memory: &Memory, store: &impl AsContext, ptr: u32, len: u32) -> Result<Vec<u8>> {
+fn read_guest_bytes(
+    memory: &Memory,
+    store: &impl AsContext,
+    ptr: u32,
+    len: u32,
+) -> Result<Vec<u8>> {
     let data = memory
         .data(store)
         .get(ptr as usize..(ptr + len) as usize)
@@ -126,7 +181,12 @@ fn read_guest_bytes(memory: &Memory, store: &impl AsContext, ptr: u32, len: u32)
     Ok(data.to_vec())
 }
 
-fn write_guest_bytes(memory: &Memory, store: &mut impl AsContextMut, ptr: u32, bytes: &[u8]) -> Result<()> {
+fn write_guest_bytes(
+    memory: &Memory,
+    store: &mut impl AsContextMut,
+    ptr: u32,
+    bytes: &[u8],
+) -> Result<()> {
     memory
         .data_mut(store)
         .get_mut(ptr as usize..ptr as usize + bytes.len())
@@ -197,7 +257,12 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
     linker.func_wrap(
         "oxide",
         "api_upload_file",
-        |mut caller: Caller<'_, HostState>, name_ptr: u32, name_cap: u32, data_ptr: u32, data_cap: u32| -> u64 {
+        |mut caller: Caller<'_, HostState>,
+         name_ptr: u32,
+         name_cap: u32,
+         data_ptr: u32,
+         data_cap: u32|
+         -> u64 {
             let dialog = rfd::FileDialog::new()
                 .set_title("Oxide: Select a file to upload")
                 .pick_file();
@@ -214,7 +279,8 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
 
                     let name_bytes = file_name.as_bytes();
                     let name_written = name_bytes.len().min(name_cap as usize);
-                    write_guest_bytes(&mem, &mut caller, name_ptr, &name_bytes[..name_written]).ok();
+                    write_guest_bytes(&mem, &mut caller, name_ptr, &name_bytes[..name_written])
+                        .ok();
 
                     let data_written = file_data.len().min(data_cap as usize);
                     write_guest_bytes(&mem, &mut caller, data_ptr, &file_data[..data_written]).ok();
@@ -237,7 +303,10 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
             canvas.images.clear();
             canvas.generation += 1;
             canvas.commands.push(DrawCommand::Clear {
-                r: r as u8, g: g as u8, b: b as u8, a: a as u8,
+                r: r as u8,
+                g: g as u8,
+                b: b as u8,
+                a: a as u8,
             });
         },
     )?;
@@ -245,48 +314,123 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
     linker.func_wrap(
         "oxide",
         "api_canvas_rect",
-        |caller: Caller<'_, HostState>, x: f32, y: f32, w: f32, h: f32, r: u32, g: u32, b: u32, a: u32| {
-            caller.data().canvas.lock().unwrap().commands.push(DrawCommand::Rect {
-                x, y, w, h,
-                r: r as u8, g: g as u8, b: b as u8, a: a as u8,
-            });
+        |caller: Caller<'_, HostState>,
+         x: f32,
+         y: f32,
+         w: f32,
+         h: f32,
+         r: u32,
+         g: u32,
+         b: u32,
+         a: u32| {
+            caller
+                .data()
+                .canvas
+                .lock()
+                .unwrap()
+                .commands
+                .push(DrawCommand::Rect {
+                    x,
+                    y,
+                    w,
+                    h,
+                    r: r as u8,
+                    g: g as u8,
+                    b: b as u8,
+                    a: a as u8,
+                });
         },
     )?;
 
     linker.func_wrap(
         "oxide",
         "api_canvas_circle",
-        |caller: Caller<'_, HostState>, cx: f32, cy: f32, radius: f32, r: u32, g: u32, b: u32, a: u32| {
-            caller.data().canvas.lock().unwrap().commands.push(DrawCommand::Circle {
-                cx, cy, radius,
-                r: r as u8, g: g as u8, b: b as u8, a: a as u8,
-            });
+        |caller: Caller<'_, HostState>,
+         cx: f32,
+         cy: f32,
+         radius: f32,
+         r: u32,
+         g: u32,
+         b: u32,
+         a: u32| {
+            caller
+                .data()
+                .canvas
+                .lock()
+                .unwrap()
+                .commands
+                .push(DrawCommand::Circle {
+                    cx,
+                    cy,
+                    radius,
+                    r: r as u8,
+                    g: g as u8,
+                    b: b as u8,
+                    a: a as u8,
+                });
         },
     )?;
 
     linker.func_wrap(
         "oxide",
         "api_canvas_text",
-        |caller: Caller<'_, HostState>, x: f32, y: f32, size: f32, r: u32, g: u32, b: u32, txt_ptr: u32, txt_len: u32| {
+        |caller: Caller<'_, HostState>,
+         x: f32,
+         y: f32,
+         size: f32,
+         r: u32,
+         g: u32,
+         b: u32,
+         txt_ptr: u32,
+         txt_len: u32| {
             let mem = caller.data().memory.expect("memory not set");
             let text = read_guest_string(&mem, &caller, txt_ptr, txt_len).unwrap_or_default();
-            caller.data().canvas.lock().unwrap().commands.push(DrawCommand::Text {
-                x, y, size,
-                r: r as u8, g: g as u8, b: b as u8,
-                text,
-            });
+            caller
+                .data()
+                .canvas
+                .lock()
+                .unwrap()
+                .commands
+                .push(DrawCommand::Text {
+                    x,
+                    y,
+                    size,
+                    r: r as u8,
+                    g: g as u8,
+                    b: b as u8,
+                    text,
+                });
         },
     )?;
 
     linker.func_wrap(
         "oxide",
         "api_canvas_line",
-        |caller: Caller<'_, HostState>, x1: f32, y1: f32, x2: f32, y2: f32, r: u32, g: u32, b: u32, thickness: f32| {
-            caller.data().canvas.lock().unwrap().commands.push(DrawCommand::Line {
-                x1, y1, x2, y2,
-                r: r as u8, g: g as u8, b: b as u8,
-                thickness,
-            });
+        |caller: Caller<'_, HostState>,
+         x1: f32,
+         y1: f32,
+         x2: f32,
+         y2: f32,
+         r: u32,
+         g: u32,
+         b: u32,
+         thickness: f32| {
+            caller
+                .data()
+                .canvas
+                .lock()
+                .unwrap()
+                .commands
+                .push(DrawCommand::Line {
+                    x1,
+                    y1,
+                    x2,
+                    y2,
+                    r: r as u8,
+                    g: g as u8,
+                    b: b as u8,
+                    thickness,
+                });
         },
     )?;
 
@@ -304,7 +448,13 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
     linker.func_wrap(
         "oxide",
         "api_canvas_image",
-        |caller: Caller<'_, HostState>, x: f32, y: f32, w: f32, h: f32, data_ptr: u32, data_len: u32| {
+        |caller: Caller<'_, HostState>,
+         x: f32,
+         y: f32,
+         w: f32,
+         h: f32,
+         data_ptr: u32,
+         data_len: u32| {
             let mem = caller.data().memory.expect("memory not set");
             let raw = read_guest_bytes(&mem, &caller, data_ptr, data_len).unwrap_or_default();
             match image::load_from_memory(&raw) {
@@ -319,7 +469,13 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
                     let mut canvas = caller.data().canvas.lock().unwrap();
                     let image_id = canvas.images.len();
                     canvas.images.push(decoded);
-                    canvas.commands.push(DrawCommand::Image { x, y, w, h, image_id });
+                    canvas.commands.push(DrawCommand::Image {
+                        x,
+                        y,
+                        w,
+                        h,
+                        image_id,
+                    });
                 }
                 Err(e) => {
                     console_log(
@@ -348,7 +504,12 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
     linker.func_wrap(
         "oxide",
         "api_storage_get",
-        |mut caller: Caller<'_, HostState>, key_ptr: u32, key_len: u32, out_ptr: u32, out_cap: u32| -> u32 {
+        |mut caller: Caller<'_, HostState>,
+         key_ptr: u32,
+         key_len: u32,
+         out_ptr: u32,
+         out_cap: u32|
+         -> u32 {
             let mem = caller.data().memory.expect("memory not set");
             let key = read_guest_string(&mem, &caller, key_ptr, key_len).unwrap_or_default();
             let val = caller
@@ -408,27 +569,39 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
 
     // ── Timers (simplified: returns epoch millis) ────────────────────
 
-    linker.func_wrap("oxide", "api_time_now_ms", |_caller: Caller<'_, HostState>| -> u64 {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_millis() as u64
-    })?;
+    linker.func_wrap(
+        "oxide",
+        "api_time_now_ms",
+        |_caller: Caller<'_, HostState>| -> u64 {
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64
+        },
+    )?;
 
     // ── Random ───────────────────────────────────────────────────────
 
-    linker.func_wrap("oxide", "api_random", |_caller: Caller<'_, HostState>| -> u64 {
-        let mut buf = [0u8; 8];
-        getrandom(&mut buf);
-        u64::from_le_bytes(buf)
-    })?;
+    linker.func_wrap(
+        "oxide",
+        "api_random",
+        |_caller: Caller<'_, HostState>| -> u64 {
+            let mut buf = [0u8; 8];
+            getrandom(&mut buf);
+            u64::from_le_bytes(buf)
+        },
+    )?;
 
     // ── Notification (writes to console as a "notification") ─────────
 
     linker.func_wrap(
         "oxide",
         "api_notify",
-        |caller: Caller<'_, HostState>, title_ptr: u32, title_len: u32, body_ptr: u32, body_len: u32| {
+        |caller: Caller<'_, HostState>,
+         title_ptr: u32,
+         title_len: u32,
+         body_ptr: u32,
+         body_len: u32| {
             let mem = caller.data().memory.expect("memory not set");
             let title = read_guest_string(&mem, &caller, title_ptr, title_len).unwrap_or_default();
             let body = read_guest_string(&mem, &caller, body_ptr, body_len).unwrap_or_default();
@@ -449,13 +622,20 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
         "oxide",
         "api_fetch",
         |mut caller: Caller<'_, HostState>,
-         method_ptr: u32, method_len: u32,
-         url_ptr: u32, url_len: u32,
-         ct_ptr: u32, ct_len: u32,
-         body_ptr: u32, body_len: u32,
-         out_ptr: u32, out_cap: u32| -> i64 {
+         method_ptr: u32,
+         method_len: u32,
+         url_ptr: u32,
+         url_len: u32,
+         ct_ptr: u32,
+         ct_len: u32,
+         body_ptr: u32,
+         body_len: u32,
+         out_ptr: u32,
+         out_cap: u32|
+         -> i64 {
             let mem = caller.data().memory.expect("memory not set");
-            let method = read_guest_string(&mem, &caller, method_ptr, method_len).unwrap_or_default();
+            let method =
+                read_guest_string(&mem, &caller, method_ptr, method_len).unwrap_or_default();
             let url = read_guest_string(&mem, &caller, url_ptr, url_len).unwrap_or_default();
             let content_type = read_guest_string(&mem, &caller, ct_ptr, ct_len).unwrap_or_default();
             let body = if body_len > 0 {
@@ -470,7 +650,8 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
                 format!("[FETCH] {method} {url}"),
             );
 
-            let (resp_tx, resp_rx) = std::sync::mpsc::sync_channel::<Result<(u16, Vec<u8>), String>>(1);
+            let (resp_tx, resp_rx) =
+                std::sync::mpsc::sync_channel::<Result<(u16, Vec<u8>), String>>(1);
 
             std::thread::spawn(move || {
                 let result = (|| -> Result<(u16, Vec<u8>), String> {
@@ -533,7 +714,11 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
             child_state.memory = None;
             let console = caller.data().console.clone();
 
-            console_log(&console, ConsoleLevel::Log, format!("[LOAD] Fetching module: {url}"));
+            console_log(
+                &console,
+                ConsoleLevel::Log,
+                format!("[LOAD] Fetching module: {url}"),
+            );
 
             let (tx, rx) = std::sync::mpsc::sync_channel::<Result<Vec<u8>, String>>(1);
             let fetch_url = url.clone();
@@ -568,7 +753,11 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
             let module = match Module::new(&loader.engine, &wasm_bytes) {
                 Ok(m) => m,
                 Err(e) => {
-                    console_log(&console, ConsoleLevel::Error, format!("[LOAD ERROR] Compile: {e}"));
+                    console_log(
+                        &console,
+                        ConsoleLevel::Error,
+                        format!("[LOAD ERROR] Compile: {e}"),
+                    );
                     return -2;
                 }
             };
@@ -589,7 +778,10 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
                 Err(_) => return -4,
             };
 
-            if child_linker.define(&store, "oxide", "memory", memory).is_err() {
+            if child_linker
+                .define(&store, "oxide", "memory", memory)
+                .is_err()
+            {
                 return -5;
             }
             store.data_mut().memory = Some(memory);
@@ -597,7 +789,11 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
             let instance = match child_linker.instantiate(&mut store, &module) {
                 Ok(i) => i,
                 Err(e) => {
-                    console_log(&console, ConsoleLevel::Error, format!("[LOAD ERROR] Instantiate: {e}"));
+                    console_log(
+                        &console,
+                        ConsoleLevel::Error,
+                        format!("[LOAD ERROR] Instantiate: {e}"),
+                    );
                     return -6;
                 }
             };
@@ -610,14 +806,22 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
             let start_fn = match instance.get_typed_func::<(), ()>(&mut store, "start_app") {
                 Ok(f) => f,
                 Err(_) => {
-                    console_log(&console, ConsoleLevel::Error, "[LOAD ERROR] Module missing start_app".into());
+                    console_log(
+                        &console,
+                        ConsoleLevel::Error,
+                        "[LOAD ERROR] Module missing start_app".into(),
+                    );
                     return -7;
                 }
             };
 
             match start_fn.call(&mut store, ()) {
                 Ok(()) => {
-                    console_log(&console, ConsoleLevel::Log, format!("[LOAD] Module {url} executed successfully"));
+                    console_log(
+                        &console,
+                        ConsoleLevel::Log,
+                        format!("[LOAD] Module {url} executed successfully"),
+                    );
                     0
                 }
                 Err(e) => {
@@ -639,7 +843,7 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
         "oxide",
         "api_hash_sha256",
         |mut caller: Caller<'_, HostState>, data_ptr: u32, data_len: u32, out_ptr: u32| -> u32 {
-            use sha2::{Sha256, Digest};
+            use sha2::{Digest, Sha256};
             let mem = caller.data().memory.expect("memory not set");
             let data = read_guest_bytes(&mem, &caller, data_ptr, data_len).unwrap_or_default();
             let hash = Sha256::digest(&data);
@@ -653,7 +857,12 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
     linker.func_wrap(
         "oxide",
         "api_base64_encode",
-        |mut caller: Caller<'_, HostState>, data_ptr: u32, data_len: u32, out_ptr: u32, out_cap: u32| -> u32 {
+        |mut caller: Caller<'_, HostState>,
+         data_ptr: u32,
+         data_len: u32,
+         out_ptr: u32,
+         out_cap: u32|
+         -> u32 {
             use base64::Engine;
             let mem = caller.data().memory.expect("memory not set");
             let data = read_guest_bytes(&mem, &caller, data_ptr, data_len).unwrap_or_default();
@@ -668,7 +877,12 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
     linker.func_wrap(
         "oxide",
         "api_base64_decode",
-        |mut caller: Caller<'_, HostState>, data_ptr: u32, data_len: u32, out_ptr: u32, out_cap: u32| -> u32 {
+        |mut caller: Caller<'_, HostState>,
+         data_ptr: u32,
+         data_len: u32,
+         out_ptr: u32,
+         out_cap: u32|
+         -> u32 {
             use base64::Engine;
             let mem = caller.data().memory.expect("memory not set");
             let encoded = read_guest_string(&mem, &caller, data_ptr, data_len).unwrap_or_default();
@@ -690,7 +904,12 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
     linker.func_wrap(
         "oxide",
         "api_kv_store_set",
-        |caller: Caller<'_, HostState>, key_ptr: u32, key_len: u32, val_ptr: u32, val_len: u32| -> i32 {
+        |caller: Caller<'_, HostState>,
+         key_ptr: u32,
+         key_len: u32,
+         val_ptr: u32,
+         val_len: u32|
+         -> i32 {
             let mem = caller.data().memory.expect("memory not set");
             let key = read_guest_string(&mem, &caller, key_ptr, key_len).unwrap_or_default();
             let val = read_guest_bytes(&mem, &caller, val_ptr, val_len).unwrap_or_default();
@@ -724,7 +943,12 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
     linker.func_wrap(
         "oxide",
         "api_kv_store_get",
-        |mut caller: Caller<'_, HostState>, key_ptr: u32, key_len: u32, out_ptr: u32, out_cap: u32| -> i32 {
+        |mut caller: Caller<'_, HostState>,
+         key_ptr: u32,
+         key_len: u32,
+         out_ptr: u32,
+         out_cap: u32|
+         -> i32 {
             let mem = caller.data().memory.expect("memory not set");
             let key = read_guest_string(&mem, &caller, key_ptr, key_len).unwrap_or_default();
             match &caller.data().kv_db {
@@ -821,9 +1045,12 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
         "oxide",
         "api_push_state",
         |caller: Caller<'_, HostState>,
-         state_ptr: u32, state_len: u32,
-         title_ptr: u32, title_len: u32,
-         url_ptr: u32, url_len: u32| {
+         state_ptr: u32,
+         state_len: u32,
+         title_ptr: u32,
+         title_len: u32,
+         url_ptr: u32,
+         url_len: u32| {
             let mem = caller.data().memory.expect("memory not set");
             let state = read_guest_bytes(&mem, &caller, state_ptr, state_len).unwrap_or_default();
             let title = read_guest_string(&mem, &caller, title_ptr, title_len).unwrap_or_default();
@@ -856,9 +1083,12 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
         "oxide",
         "api_replace_state",
         |caller: Caller<'_, HostState>,
-         state_ptr: u32, state_len: u32,
-         title_ptr: u32, title_len: u32,
-         url_ptr: u32, url_len: u32| {
+         state_ptr: u32,
+         state_len: u32,
+         title_ptr: u32,
+         title_len: u32,
+         url_ptr: u32,
+         url_len: u32| {
             let mem = caller.data().memory.expect("memory not set");
             let state = read_guest_bytes(&mem, &caller, state_ptr, state_len).unwrap_or_default();
             let title = read_guest_string(&mem, &caller, title_ptr, title_len).unwrap_or_default();
@@ -882,7 +1112,12 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
             let entry = crate::navigation::HistoryEntry::new(&resolved_url)
                 .with_title(title)
                 .with_state(state);
-            caller.data().navigation.lock().unwrap().replace_current(entry);
+            caller
+                .data()
+                .navigation
+                .lock()
+                .unwrap()
+                .replace_current(entry);
             *caller.data().current_url.lock().unwrap() = resolved_url;
         },
     )?;
@@ -971,8 +1206,13 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
         "oxide",
         "api_register_hyperlink",
         |caller: Caller<'_, HostState>,
-         x: f32, y: f32, w: f32, h: f32,
-         url_ptr: u32, url_len: u32| -> i32 {
+         x: f32,
+         y: f32,
+         w: f32,
+         h: f32,
+         url_ptr: u32,
+         url_len: u32|
+         -> i32 {
             let mem = caller.data().memory.expect("memory not set");
             let raw_url = read_guest_string(&mem, &caller, url_ptr, url_len).unwrap_or_default();
 
@@ -990,7 +1230,10 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
             };
 
             caller.data().hyperlinks.lock().unwrap().push(Hyperlink {
-                x, y, w, h,
+                x,
+                y,
+                w,
+                h,
                 url: resolved,
             });
             0
@@ -1011,9 +1254,13 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
         "oxide",
         "api_url_resolve",
         |mut caller: Caller<'_, HostState>,
-         base_ptr: u32, base_len: u32,
-         rel_ptr: u32, rel_len: u32,
-         out_ptr: u32, out_cap: u32| -> i32 {
+         base_ptr: u32,
+         base_len: u32,
+         rel_ptr: u32,
+         rel_len: u32,
+         out_ptr: u32,
+         out_cap: u32|
+         -> i32 {
             let mem = caller.data().memory.expect("memory not set");
             let base_str = read_guest_string(&mem, &caller, base_ptr, base_len).unwrap_or_default();
             let rel_str = read_guest_string(&mem, &caller, rel_ptr, rel_len).unwrap_or_default();
@@ -1038,8 +1285,11 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
         "oxide",
         "api_url_encode",
         |mut caller: Caller<'_, HostState>,
-         input_ptr: u32, input_len: u32,
-         out_ptr: u32, out_cap: u32| -> u32 {
+         input_ptr: u32,
+         input_len: u32,
+         out_ptr: u32,
+         out_cap: u32|
+         -> u32 {
             let mem = caller.data().memory.expect("memory not set");
             let input = read_guest_string(&mem, &caller, input_ptr, input_len).unwrap_or_default();
             let encoded = oxide_url::percent_encode(&input);
@@ -1054,8 +1304,11 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
         "oxide",
         "api_url_decode",
         |mut caller: Caller<'_, HostState>,
-         input_ptr: u32, input_len: u32,
-         out_ptr: u32, out_cap: u32| -> u32 {
+         input_ptr: u32,
+         input_len: u32,
+         out_ptr: u32,
+         out_cap: u32|
+         -> u32 {
             let mem = caller.data().memory.expect("memory not set");
             let input = read_guest_string(&mem, &caller, input_ptr, input_len).unwrap_or_default();
             let decoded = oxide_url::percent_decode(&input);

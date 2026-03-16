@@ -34,10 +34,7 @@ struct RunResult {
 }
 
 impl OxideApp {
-    pub fn new(
-        host_state: HostState,
-        status: Arc<Mutex<PageStatus>>,
-    ) -> Self {
+    pub fn new(host_state: HostState, status: Arc<Mutex<PageStatus>>) -> Self {
         let tokio_rt = tokio::runtime::Runtime::new().expect("failed to create tokio runtime");
         let (req_tx, req_rx) = std::sync::mpsc::channel::<RunRequest>();
         let (res_tx, res_rx) = std::sync::mpsc::channel::<RunResult>();
@@ -50,7 +47,8 @@ impl OxideApp {
             loop {
                 match req_rx.recv() {
                     Ok(request) => {
-                        let mut host = crate::runtime::BrowserHost::recreate(hs.clone(), st.clone());
+                        let mut host =
+                            crate::runtime::BrowserHost::recreate(hs.clone(), st.clone());
                         let result = match request {
                             RunRequest::FetchAndRun { url, .. } => {
                                 rt.block_on(host.fetch_and_run(&url))
@@ -98,10 +96,9 @@ impl OxideApp {
         if push_history {
             self.pending_history_url = Some(url.clone());
         }
-        let _ = self.run_tx.send(RunRequest::FetchAndRun {
-            url,
-            push_history,
-        });
+        let _ = self
+            .run_tx
+            .send(RunRequest::FetchAndRun { url, push_history });
     }
 
     fn go_back(&mut self) {
@@ -216,9 +213,7 @@ impl OxideApp {
 
                 let back_btn = ui.add_enabled(
                     can_back,
-                    egui::Button::new(
-                        egui::RichText::new("\u{2190}").size(16.0),
-                    ),
+                    egui::Button::new(egui::RichText::new("\u{2190}").size(16.0)),
                 );
                 if back_btn.clicked() {
                     self.go_back();
@@ -229,9 +224,7 @@ impl OxideApp {
 
                 let fwd_btn = ui.add_enabled(
                     can_fwd,
-                    egui::Button::new(
-                        egui::RichText::new("\u{2192}").size(16.0),
-                    ),
+                    egui::Button::new(egui::RichText::new("\u{2192}").size(16.0)),
                 );
                 if fwd_btn.clicked() {
                     self.go_forward();
@@ -265,7 +258,11 @@ impl OxideApp {
                     self.load_local_file();
                 }
 
-                let console_label = if self.show_console { "Hide Console" } else { "Show Console" };
+                let console_label = if self.show_console {
+                    "Hide Console"
+                } else {
+                    "Show Console"
+                };
                 if ui.button(console_label).clicked() {
                     self.show_console = !self.show_console;
                 }
@@ -330,33 +327,71 @@ impl OxideApp {
                     );
                     ui.add_space(8.0);
                     ui.label(
-                        egui::RichText::new("Enter a .wasm URL above or open a local file to get started.")
-                            .color(egui::Color32::from_rgb(140, 140, 140)),
+                        egui::RichText::new(
+                            "Enter a .wasm URL above or open a local file to get started.",
+                        )
+                        .color(egui::Color32::from_rgb(140, 140, 140)),
                     );
                 });
                 return;
             }
 
             let available = ui.available_size();
-            let (response, painter) =
-                ui.allocate_painter(available, egui::Sense::click());
+            let (response, painter) = ui.allocate_painter(available, egui::Sense::click());
             let rect = response.rect;
 
             for cmd in &commands {
                 match cmd {
                     DrawCommand::Clear { r, g, b, a } => {
-                        painter.rect_filled(rect, 0.0, egui::Color32::from_rgba_unmultiplied(*r, *g, *b, *a));
+                        painter.rect_filled(
+                            rect,
+                            0.0,
+                            egui::Color32::from_rgba_unmultiplied(*r, *g, *b, *a),
+                        );
                     }
-                    DrawCommand::Rect { x, y, w, h, r, g, b, a } => {
+                    DrawCommand::Rect {
+                        x,
+                        y,
+                        w,
+                        h,
+                        r,
+                        g,
+                        b,
+                        a,
+                    } => {
                         let min = rect.min + egui::vec2(*x, *y);
                         let r2 = egui::Rect::from_min_size(min, egui::vec2(*w, *h));
-                        painter.rect_filled(r2, 0.0, egui::Color32::from_rgba_unmultiplied(*r, *g, *b, *a));
+                        painter.rect_filled(
+                            r2,
+                            0.0,
+                            egui::Color32::from_rgba_unmultiplied(*r, *g, *b, *a),
+                        );
                     }
-                    DrawCommand::Circle { cx, cy, radius, r, g, b, a } => {
+                    DrawCommand::Circle {
+                        cx,
+                        cy,
+                        radius,
+                        r,
+                        g,
+                        b,
+                        a,
+                    } => {
                         let center = rect.min + egui::vec2(*cx, *cy);
-                        painter.circle_filled(center, *radius, egui::Color32::from_rgba_unmultiplied(*r, *g, *b, *a));
+                        painter.circle_filled(
+                            center,
+                            *radius,
+                            egui::Color32::from_rgba_unmultiplied(*r, *g, *b, *a),
+                        );
                     }
-                    DrawCommand::Text { x, y, size, r, g, b, text } => {
+                    DrawCommand::Text {
+                        x,
+                        y,
+                        size,
+                        r,
+                        g,
+                        b,
+                        text,
+                    } => {
                         let pos = rect.min + egui::vec2(*x, *y);
                         painter.text(
                             pos,
@@ -366,7 +401,16 @@ impl OxideApp {
                             egui::Color32::from_rgb(*r, *g, *b),
                         );
                     }
-                    DrawCommand::Line { x1, y1, x2, y2, r, g, b, thickness } => {
+                    DrawCommand::Line {
+                        x1,
+                        y1,
+                        x2,
+                        y2,
+                        r,
+                        g,
+                        b,
+                        thickness,
+                    } => {
                         let p1 = rect.min + egui::vec2(*x1, *y1);
                         let p2 = rect.min + egui::vec2(*x2, *y2);
                         painter.line_segment(
@@ -374,7 +418,13 @@ impl OxideApp {
                             egui::Stroke::new(*thickness, egui::Color32::from_rgb(*r, *g, *b)),
                         );
                     }
-                    DrawCommand::Image { x, y, w, h, image_id } => {
+                    DrawCommand::Image {
+                        x,
+                        y,
+                        w,
+                        h,
+                        image_id,
+                    } => {
                         if let Some(tex_id) = tex_ids.get(image_id) {
                             let img_rect = egui::Rect::from_min_size(
                                 rect.min + egui::vec2(*x, *y),
@@ -398,7 +448,10 @@ impl OxideApp {
                 );
                 painter.line_segment(
                     [link_rect.left_bottom(), link_rect.right_bottom()],
-                    egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(120, 140, 255, 80)),
+                    egui::Stroke::new(
+                        1.0,
+                        egui::Color32::from_rgba_unmultiplied(120, 140, 255, 80),
+                    ),
                 );
             }
 
