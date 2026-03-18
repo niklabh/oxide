@@ -4,6 +4,10 @@ Oxide is a proof-of-concept browser that fetches and executes `.wasm` (WebAssemb
 
 ![oxide](screens/oxide.png)
 
+![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/niklabh/oxide/ci.yml?branch=main)
+![License](https://img.shields.io/github/license/niklabh/oxide)
+
+
 ## Quick Start
 
 ```bash
