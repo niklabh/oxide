@@ -163,13 +163,9 @@ impl BrowserHost {
         match start_app.call(&mut store, ()) {
             Ok(()) => {
                 // If the guest also exports on_frame, keep the instance alive for the frame loop.
-                if let Ok(on_frame_fn) =
-                    instance.get_typed_func::<u32, ()>(&mut store, "on_frame")
+                if let Ok(on_frame_fn) = instance.get_typed_func::<u32, ()>(&mut store, "on_frame")
                 {
-                    Ok(Some(LiveModule {
-                        store,
-                        on_frame_fn,
-                    }))
+                    Ok(Some(LiveModule { store, on_frame_fn }))
                 } else {
                     Ok(None)
                 }

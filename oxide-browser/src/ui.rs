@@ -4,9 +4,7 @@ use std::time::Instant;
 
 use eframe::egui;
 
-use crate::capabilities::{
-    ConsoleLevel, DrawCommand, HostState, WidgetCommand, WidgetValue,
-};
+use crate::capabilities::{ConsoleLevel, DrawCommand, HostState, WidgetCommand, WidgetValue};
 use crate::navigation::HistoryEntry;
 use crate::runtime::{LiveModule, PageStatus};
 
@@ -150,8 +148,7 @@ impl OxideApp {
 
             input.mouse_buttons_clicked[0] = i.pointer.primary_clicked();
             input.mouse_buttons_clicked[1] = i.pointer.secondary_clicked();
-            input.mouse_buttons_clicked[2] = i.pointer.middle_down()
-                && i.pointer.any_pressed();
+            input.mouse_buttons_clicked[2] = i.pointer.middle_down() && i.pointer.any_pressed();
 
             input.modifiers_shift = i.modifiers.shift;
             input.modifiers_ctrl = i.modifiers.ctrl;
@@ -163,12 +160,7 @@ impl OxideApp {
             input.keys_down.clear();
             input.keys_pressed.clear();
             for event in &i.events {
-                if let egui::Event::Key {
-                    key,
-                    pressed,
-                    ..
-                } = event
-                {
+                if let egui::Event::Key { key, pressed, .. } = event {
                     if let Some(code) = egui_key_to_oxide(key) {
                         if *pressed {
                             input.keys_pressed.push(code);
@@ -577,7 +569,14 @@ impl OxideApp {
                                 widget_states.insert(*id, WidgetValue::Bool(checked));
                             }
                         }
-                        WidgetCommand::Slider { id, x, y, w, min, max } => {
+                        WidgetCommand::Slider {
+                            id,
+                            x,
+                            y,
+                            w,
+                            min,
+                            max,
+                        } => {
                             let mut value = match widget_states.get(id) {
                                 Some(WidgetValue::Float(v)) => *v,
                                 _ => *min,

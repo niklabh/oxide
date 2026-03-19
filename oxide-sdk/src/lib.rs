@@ -213,15 +213,7 @@ extern "C" {
     ) -> u32;
 
     #[link_name = "api_ui_slider"]
-    fn _api_ui_slider(
-        id: u32,
-        x: f32,
-        y: f32,
-        w: f32,
-        min: f32,
-        max: f32,
-        initial: f32,
-    ) -> f32;
+    fn _api_ui_slider(id: u32, x: f32, y: f32, w: f32, min: f32, max: f32, initial: f32) -> f32;
 
     #[link_name = "api_ui_text_input"]
     fn _api_ui_text_input(
@@ -906,17 +898,7 @@ pub const KEY_PAGE_DOWN: u32 = 49;
 /// Must be called from `on_frame()` — widgets are only rendered for
 /// interactive applications that export a frame loop.
 pub fn ui_button(id: u32, x: f32, y: f32, w: f32, h: f32, label: &str) -> bool {
-    unsafe {
-        _api_ui_button(
-            id,
-            x,
-            y,
-            w,
-            h,
-            label.as_ptr() as u32,
-            label.len() as u32,
-        ) != 0
-    }
+    unsafe { _api_ui_button(id, x, y, w, h, label.as_ptr() as u32, label.len() as u32) != 0 }
 }
 
 /// Render a checkbox. Returns the current checked state.

@@ -87,15 +87,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
 
     let name = ui_text_input(30, 20.0, 380.0, 300.0, "");
     if !name.is_empty() {
-        canvas_text(
-            20.0,
-            415.0,
-            18.0,
-            160,
-            220,
-            160,
-            &format!("Hello, {name}!"),
-        );
+        canvas_text(20.0, 415.0, 18.0, 160, 220, 160, &format!("Hello, {name}!"));
     } else {
         canvas_text(20.0, 415.0, 14.0, 120, 120, 120, "Type your name above...");
     }

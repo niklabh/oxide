@@ -163,10 +163,34 @@ pub struct InputState {
 /// A widget the guest wants rendered this frame.
 #[derive(Clone, Debug)]
 pub enum WidgetCommand {
-    Button { id: u32, x: f32, y: f32, w: f32, h: f32, label: String },
-    Checkbox { id: u32, x: f32, y: f32, label: String },
-    Slider { id: u32, x: f32, y: f32, w: f32, min: f32, max: f32 },
-    TextInput { id: u32, x: f32, y: f32, w: f32 },
+    Button {
+        id: u32,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        label: String,
+    },
+    Checkbox {
+        id: u32,
+        x: f32,
+        y: f32,
+        label: String,
+    },
+    Slider {
+        id: u32,
+        x: f32,
+        y: f32,
+        w: f32,
+        min: f32,
+        max: f32,
+    },
+    TextInput {
+        id: u32,
+        x: f32,
+        y: f32,
+        w: f32,
+    },
 }
 
 /// Persistent widget state maintained by the host across frames.
@@ -1529,8 +1553,7 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
          label_len: u32|
          -> u32 {
             let mem = caller.data().memory.expect("memory not set");
-            let label =
-                read_guest_string(&mem, &caller, label_ptr, label_len).unwrap_or_default();
+            let label = read_guest_string(&mem, &caller, label_ptr, label_len).unwrap_or_default();
             caller
                 .data()
                 .widget_commands
@@ -1564,8 +1587,7 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
          initial: u32|
          -> u32 {
             let mem = caller.data().memory.expect("memory not set");
-            let label =
-                read_guest_string(&mem, &caller, label_ptr, label_len).unwrap_or_default();
+            let label = read_guest_string(&mem, &caller, label_ptr, label_len).unwrap_or_default();
             let mut states = caller.data().widget_states.lock().unwrap();
             let entry = states
                 .entry(id)
