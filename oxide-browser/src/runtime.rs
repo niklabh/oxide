@@ -15,6 +15,26 @@ pub enum PageStatus {
     Error(String),
 }
 
+const FRAME_FUEL_LIMIT: u64 = 50_000_000;
+
+/// A wasm instance kept alive across frames for interactive apps that export `on_frame`.
+pub struct LiveModule {
+    store: Store<HostState>,
+    on_frame_fn: TypedFunc<u32, ()>,
+}
+
+impl LiveModule {
+    pub fn tick(&mut self, dt_ms: u32) -> Result<()> {
+        self.store
+            .set_fuel(FRAME_FUEL_LIMIT)
+            .context("failed to set per-frame fuel")?;
+        self.on_frame_fn
+            .call(&mut self.store, dt_ms)
+            .context("on_frame trapped")?;
+        Ok(())
+    }
+}
+
 pub struct BrowserHost {
     wasm_engine: WasmEngine,
     pub status: Arc<Mutex<PageStatus>>,
@@ -74,7 +94,8 @@ impl BrowserHost {
 
     /// Fetch a .wasm binary from a URL, compile it, and run its `start_app`
     /// entry point.  Supports http(s) and file:// URLs via WHATWG parsing.
-    pub async fn fetch_and_run(&mut self, url: &str) -> Result<()> {
+    /// Returns a `LiveModule` if the guest exports `on_frame`.
+    pub async fn fetch_and_run(&mut self, url: &str) -> Result<Option<LiveModule>> {
         *self.status.lock().unwrap() = PageStatus::Loading(url.to_string());
         self.host_state.canvas.lock().unwrap().commands.clear();
         self.host_state.console.lock().unwrap().clear();
@@ -99,13 +120,12 @@ impl BrowserHost {
 
         *self.status.lock().unwrap() = PageStatus::Running(url.to_string());
 
-        self.run_module(&wasm_bytes)?;
-
-        Ok(())
+        self.run_module(&wasm_bytes)
     }
 
     /// Load a .wasm binary from raw bytes (useful for local files).
-    pub fn run_bytes(&mut self, wasm_bytes: &[u8]) -> Result<()> {
+    /// Returns a `LiveModule` if the guest exports `on_frame`.
+    pub fn run_bytes(&mut self, wasm_bytes: &[u8]) -> Result<Option<LiveModule>> {
         self.host_state.canvas.lock().unwrap().commands.clear();
         self.host_state.console.lock().unwrap().clear();
         self.host_state.hyperlinks.lock().unwrap().clear();
@@ -113,7 +133,7 @@ impl BrowserHost {
         self.run_module(wasm_bytes)
     }
 
-    fn run_module(&mut self, wasm_bytes: &[u8]) -> Result<()> {
+    fn run_module(&mut self, wasm_bytes: &[u8]) -> Result<Option<LiveModule>> {
         let module = self.wasm_engine.compile_module(wasm_bytes)?;
 
         let mut linker = Linker::new(self.wasm_engine.engine());
@@ -132,9 +152,6 @@ impl BrowserHost {
             .instantiate(&mut store, &module)
             .context("failed to instantiate wasm module")?;
 
-        // The guest module defines its own linear memory (memory 0) and
-        // exports it as "memory".  String pointers from the guest refer to
-        // THIS memory, not the oxide::memory we defined in the linker.
         if let Some(guest_mem) = instance.get_memory(&mut store, "memory") {
             store.data_mut().memory = Some(guest_mem);
         }
@@ -144,7 +161,15 @@ impl BrowserHost {
             .context("module must export `start_app` as extern \"C\" fn()")?;
 
         match start_app.call(&mut store, ()) {
-            Ok(()) => Ok(()),
+            Ok(()) => {
+                // If the guest also exports on_frame, keep the instance alive for the frame loop.
+                if let Ok(on_frame_fn) = instance.get_typed_func::<u32, ()>(&mut store, "on_frame")
+                {
+                    Ok(Some(LiveModule { store, on_frame_fn }))
+                } else {
+                    Ok(None)
+                }
+            }
             Err(e) => {
                 let msg = if e.to_string().contains("fuel") {
                     "Execution halted: fuel limit exceeded (possible infinite loop)".to_string()

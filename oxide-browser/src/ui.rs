@@ -1,11 +1,12 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 
 use eframe::egui;
 
-use crate::capabilities::{ConsoleLevel, DrawCommand, HostState};
+use crate::capabilities::{ConsoleLevel, DrawCommand, HostState, WidgetCommand, WidgetValue};
 use crate::navigation::HistoryEntry;
-use crate::runtime::PageStatus;
+use crate::runtime::{LiveModule, PageStatus};
 
 pub struct OxideApp {
     url_input: String,
@@ -16,10 +17,10 @@ pub struct OxideApp {
     run_rx: Arc<Mutex<std::sync::mpsc::Receiver<RunResult>>>,
     image_textures: HashMap<usize, egui::TextureHandle>,
     canvas_generation: u64,
-    /// When true the next successful result will push to the history stack.
     pending_history_url: Option<String>,
-    /// Tooltip shown in the status area when hovering a hyperlink.
     hovered_link_url: Option<String>,
+    live_module: Option<LiveModule>,
+    last_frame: Instant,
 }
 
 enum RunRequest {
@@ -29,7 +30,12 @@ enum RunRequest {
 
 struct RunResult {
     error: Option<String>,
+    live_module: Option<LiveModule>,
 }
+
+// Send is required to pass LiveModule through the channel.
+// Store<HostState> is Send because HostState fields are Arc<Mutex<>>.
+unsafe impl Send for RunResult {}
 
 impl OxideApp {
     pub fn new(host_state: HostState, status: Arc<Mutex<PageStatus>>) -> Self {
@@ -47,8 +53,11 @@ impl OxideApp {
                     RunRequest::FetchAndRun { url } => rt.block_on(host.fetch_and_run(&url)),
                     RunRequest::LoadLocal(bytes) => host.run_bytes(&bytes),
                 };
-                let error = result.err().map(|e| e.to_string());
-                let _ = res_tx.send(RunResult { error });
+                let (error, live_module) = match result {
+                    Ok(live) => (None, live),
+                    Err(e) => (Some(e.to_string()), None),
+                };
+                let _ = res_tx.send(RunResult { error, live_module });
             }
         });
 
@@ -63,6 +72,8 @@ impl OxideApp {
             canvas_generation: 0,
             pending_history_url: None,
             hovered_link_url: None,
+            live_module: None,
+            last_frame: Instant::now(),
         }
     }
 
@@ -121,6 +132,86 @@ impl OxideApp {
             }
         }
     }
+
+    fn capture_input(&self, ctx: &egui::Context) {
+        let mut input = self.host_state.input_state.lock().unwrap();
+
+        ctx.input(|i| {
+            if let Some(pos) = i.pointer.hover_pos() {
+                input.mouse_x = pos.x;
+                input.mouse_y = pos.y;
+            }
+
+            input.mouse_buttons_down[0] = i.pointer.primary_down();
+            input.mouse_buttons_down[1] = i.pointer.secondary_down();
+            input.mouse_buttons_down[2] = i.pointer.middle_down();
+
+            input.mouse_buttons_clicked[0] = i.pointer.primary_clicked();
+            input.mouse_buttons_clicked[1] = i.pointer.secondary_clicked();
+            input.mouse_buttons_clicked[2] = i.pointer.middle_down() && i.pointer.any_pressed();
+
+            input.modifiers_shift = i.modifiers.shift;
+            input.modifiers_ctrl = i.modifiers.ctrl;
+            input.modifiers_alt = i.modifiers.alt;
+
+            input.scroll_x = i.smooth_scroll_delta.x;
+            input.scroll_y = i.smooth_scroll_delta.y;
+
+            input.keys_down.clear();
+            input.keys_pressed.clear();
+            for event in &i.events {
+                if let egui::Event::Key { key, pressed, .. } = event {
+                    if let Some(code) = egui_key_to_oxide(key) {
+                        if *pressed {
+                            input.keys_pressed.push(code);
+                        }
+                        // For keys_down we'd need sustained state; approximate with pressed.
+                        if *pressed {
+                            input.keys_down.push(code);
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    fn tick_frame(&mut self) {
+        if self.live_module.is_none() {
+            return;
+        }
+
+        let now = Instant::now();
+        let dt = now - self.last_frame;
+        self.last_frame = now;
+        let dt_ms = dt.as_millis().min(100) as u32;
+
+        // Clear widget commands so on_frame fills them fresh.
+        self.host_state.widget_commands.lock().unwrap().clear();
+
+        if let Some(ref mut live) = self.live_module {
+            match live.tick(dt_ms) {
+                Ok(()) => {}
+                Err(e) => {
+                    let msg = if e.to_string().contains("fuel") {
+                        "on_frame halted: fuel limit exceeded".to_string()
+                    } else {
+                        format!("on_frame error: {e}")
+                    };
+                    crate::capabilities::console_log(
+                        &self.host_state.console,
+                        ConsoleLevel::Error,
+                        msg.clone(),
+                    );
+                    *self.status.lock().unwrap() = PageStatus::Error(msg);
+                    self.live_module = None;
+                    return;
+                }
+            }
+        }
+
+        // Clear clicked set after on_frame has read it, before next render adds new clicks.
+        self.host_state.widget_clicked.lock().unwrap().clear();
+    }
 }
 
 impl eframe::App for OxideApp {
@@ -131,9 +222,18 @@ impl eframe::App for OxideApp {
                 if let Some(err) = result.error {
                     *self.status.lock().unwrap() = PageStatus::Error(err);
                     self.pending_history_url = None;
-                } else if let Some(url) = self.pending_history_url.take() {
-                    let mut nav = self.host_state.navigation.lock().unwrap();
-                    nav.push(HistoryEntry::new(&url));
+                    self.live_module = None;
+                } else {
+                    if let Some(url) = self.pending_history_url.take() {
+                        let mut nav = self.host_state.navigation.lock().unwrap();
+                        nav.push(HistoryEntry::new(&url));
+                    }
+                    // Reset widget state for the new module.
+                    self.host_state.widget_states.lock().unwrap().clear();
+                    self.host_state.widget_clicked.lock().unwrap().clear();
+                    self.host_state.widget_commands.lock().unwrap().clear();
+                    self.live_module = result.live_module;
+                    self.last_frame = Instant::now();
                 }
             }
         }
@@ -156,6 +256,10 @@ impl eframe::App for OxideApp {
         }
 
         ctx.request_repaint();
+
+        // Capture input and run the guest frame loop before rendering.
+        self.capture_input(ctx);
+        self.tick_frame();
 
         self.render_toolbar(ctx);
         self.render_canvas(ctx);
@@ -283,6 +387,7 @@ impl OxideApp {
         // Phase 2: Clone commands and hyperlinks.
         let commands = self.host_state.canvas.lock().unwrap().commands.clone();
         let hyperlinks = self.host_state.hyperlinks.lock().unwrap().clone();
+        let widget_commands = self.host_state.widget_commands.lock().unwrap().clone();
         let tex_ids: HashMap<usize, egui::TextureId> = self
             .image_textures
             .iter()
@@ -293,7 +398,7 @@ impl OxideApp {
         self.hovered_link_url = None;
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            if commands.is_empty() {
+            if commands.is_empty() && widget_commands.is_empty() {
                 ui.vertical_centered(|ui| {
                     ui.add_space(ui.available_height() / 3.0);
                     ui.heading(
@@ -321,6 +426,10 @@ impl OxideApp {
             let (response, painter) = ui.allocate_painter(available, egui::Sense::click());
             let rect = response.rect;
 
+            // Store canvas offset so input coordinates can be canvas-relative.
+            *self.host_state.canvas_offset.lock().unwrap() = (rect.min.x, rect.min.y);
+
+            // ── Draw commands ───────────────────────────────────────
             for cmd in &commands {
                 match cmd {
                     DrawCommand::Clear { r, g, b, a } => {
@@ -421,7 +530,89 @@ impl OxideApp {
                 }
             }
 
-            // Draw subtle underlines for hyperlink regions.
+            // ── Interactive widgets ─────────────────────────────────
+            if !widget_commands.is_empty() {
+                let mut widget_states = self.host_state.widget_states.lock().unwrap();
+                let mut widget_clicked = self.host_state.widget_clicked.lock().unwrap();
+
+                for cmd in &widget_commands {
+                    match cmd {
+                        WidgetCommand::Button {
+                            id,
+                            x,
+                            y,
+                            w,
+                            h,
+                            label,
+                        } => {
+                            let wr = egui::Rect::from_min_size(
+                                rect.min + egui::vec2(*x, *y),
+                                egui::vec2(*w, *h),
+                            );
+                            if ui.put(wr, egui::Button::new(label.as_str())).clicked() {
+                                widget_clicked.insert(*id);
+                            }
+                        }
+                        WidgetCommand::Checkbox { id, x, y, label } => {
+                            let mut checked = match widget_states.get(id) {
+                                Some(WidgetValue::Bool(b)) => *b,
+                                _ => false,
+                            };
+                            let wr = egui::Rect::from_min_size(
+                                rect.min + egui::vec2(*x, *y),
+                                egui::vec2(250.0, 24.0),
+                            );
+                            if ui
+                                .put(wr, egui::Checkbox::new(&mut checked, label.as_str()))
+                                .changed()
+                            {
+                                widget_states.insert(*id, WidgetValue::Bool(checked));
+                            }
+                        }
+                        WidgetCommand::Slider {
+                            id,
+                            x,
+                            y,
+                            w,
+                            min,
+                            max,
+                        } => {
+                            let mut value = match widget_states.get(id) {
+                                Some(WidgetValue::Float(v)) => *v,
+                                _ => *min,
+                            };
+                            let wr = egui::Rect::from_min_size(
+                                rect.min + egui::vec2(*x, *y),
+                                egui::vec2(*w, 24.0),
+                            );
+                            if ui
+                                .put(wr, egui::Slider::new(&mut value, *min..=*max))
+                                .changed()
+                            {
+                                widget_states.insert(*id, WidgetValue::Float(value));
+                            }
+                        }
+                        WidgetCommand::TextInput { id, x, y, w } => {
+                            let mut text = match widget_states.get(id) {
+                                Some(WidgetValue::Text(t)) => t.clone(),
+                                _ => String::new(),
+                            };
+                            let wr = egui::Rect::from_min_size(
+                                rect.min + egui::vec2(*x, *y),
+                                egui::vec2(*w, 24.0),
+                            );
+                            let te = egui::TextEdit::singleline(&mut text)
+                                .desired_width(*w)
+                                .id(egui::Id::new(("oxide_text_input", *id)));
+                            if ui.put(wr, te).changed() {
+                                widget_states.insert(*id, WidgetValue::Text(text));
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ── Hyperlink underlines ────────────────────────────────
             for link in &hyperlinks {
                 let link_rect = egui::Rect::from_min_size(
                     rect.min + egui::vec2(link.x, link.y),
@@ -436,7 +627,7 @@ impl OxideApp {
                 );
             }
 
-            // Hyperlink hover / click detection.
+            // ── Hyperlink hover / click detection ───────────────────
             if let Some(pointer_pos) = response.hover_pos() {
                 for link in &hyperlinks {
                     let link_rect = egui::Rect::from_min_size(
@@ -447,7 +638,6 @@ impl OxideApp {
                         ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
                         self.hovered_link_url = Some(link.url.clone());
 
-                        // Highlight on hover.
                         painter.rect_filled(
                             link_rect,
                             0.0,
@@ -506,5 +696,64 @@ impl OxideApp {
                         }
                     });
             });
+    }
+}
+
+// ── Key mapping ─────────────────────────────────────────────────────────────
+
+fn egui_key_to_oxide(key: &egui::Key) -> Option<u32> {
+    use egui::Key::*;
+    match key {
+        A => Some(0),
+        B => Some(1),
+        C => Some(2),
+        D => Some(3),
+        E => Some(4),
+        F => Some(5),
+        G => Some(6),
+        H => Some(7),
+        I => Some(8),
+        J => Some(9),
+        K => Some(10),
+        L => Some(11),
+        M => Some(12),
+        N => Some(13),
+        O => Some(14),
+        P => Some(15),
+        Q => Some(16),
+        R => Some(17),
+        S => Some(18),
+        T => Some(19),
+        U => Some(20),
+        V => Some(21),
+        W => Some(22),
+        X => Some(23),
+        Y => Some(24),
+        Z => Some(25),
+        Num0 => Some(26),
+        Num1 => Some(27),
+        Num2 => Some(28),
+        Num3 => Some(29),
+        Num4 => Some(30),
+        Num5 => Some(31),
+        Num6 => Some(32),
+        Num7 => Some(33),
+        Num8 => Some(34),
+        Num9 => Some(35),
+        Enter => Some(36),
+        Escape => Some(37),
+        Tab => Some(38),
+        Backspace => Some(39),
+        Delete => Some(40),
+        Space => Some(41),
+        ArrowUp => Some(42),
+        ArrowDown => Some(43),
+        ArrowLeft => Some(44),
+        ArrowRight => Some(45),
+        Home => Some(46),
+        End => Some(47),
+        PageUp => Some(48),
+        PageDown => Some(49),
+        _ => None,
     }
 }

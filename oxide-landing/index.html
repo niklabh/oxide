@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Oxide — The World's First Decentralized Browser</title>
+    <meta name="description" content="Oxide is a binary-first browser that executes WebAssembly instead of HTML/JavaScript. Fully sandboxed. Fully decentralized. Built with Rust. The future of the web.">
+    <meta name="keywords" content="oxide, decentralized browser, wasm browser, webassembly, rust browser, web3, decentralized web, binary browser, sandbox, $OXIDE, solana token, crypto browser">
+    <meta name="author" content="Oxide Foundation">
+    <meta name="robots" content="index, follow">
+    <meta name="theme-color" content="#07080c">
+    <link rel="canonical" href="https://oxide.foundation/">
+
+    <!-- Open Graph -->
+    <meta property="og:site_name" content="Oxide Browser">
+    <meta property="og:title" content="Oxide — The World's First Decentralized Browser">
+    <meta property="og:description" content="A binary-first browser that executes WebAssembly instead of HTML/JavaScript. Sandboxed. Decentralized. Unstoppable. Built with Rust.">
+    <meta property="og:url" content="https://oxide.foundation/">
+    <meta property="og:type" content="website">
+    <meta property="og:image" content="https://oxide.foundation/og-image.png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:image:alt" content="Oxide — The World's First Decentralized Browser">
+    <meta property="og:locale" content="en_US">
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:site" content="@oxide_browser">
+    <meta name="twitter:creator" content="@oxide_browser">
+    <meta name="twitter:title" content="Oxide — The World's First Decentralized Browser">
+    <meta name="twitter:description" content="A binary-first browser that executes WebAssembly instead of HTML/JavaScript. Sandboxed. Decentralized. Unstoppable.">
+    <meta name="twitter:image" content="https://oxide.foundation/og-image.png">
+    <meta name="twitter:image:alt" content="Oxide — The World's First Decentralized Browser">
+
+    <!-- Favicon & Manifest -->
+    <link rel="icon" type="image/png" sizes="32x32" href="logo.png">
+    <link rel="apple-touch-icon" href="logo.png">
+    <link rel="manifest" href="site.webmanifest">
+
+    <!-- Structured Data -->
+    <script type="application/ld+json">
+    {
+        "@context": "https://schema.org",
+        "@type": "SoftwareApplication",
+        "name": "Oxide Browser",
+        "url": "https://oxide.foundation/",
+        "description": "The world's first decentralized browser. A binary-first browser that executes WebAssembly instead of HTML/JavaScript.",
+        "applicationCategory": "BrowserApplication",
+        "operatingSystem": "Windows, macOS, Linux",
+        "offers": {
+            "@type": "Offer",
+            "price": "0",
+            "priceCurrency": "USD"
+        },
+        "author": {
+            "@type": "Organization",
+            "name": "Oxide Foundation",
+            "url": "https://oxide.foundation/"
+        },
+        "sourceOrganization": {
+            "@type": "Organization",
+            "name": "Oxide Foundation",
+            "url": "https://oxide.foundation/"
+        }
+    }
+    </script>
+
+    <!-- Fonts & Styles -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <canvas id="particles-canvas"></canvas>
+
+    <nav class="navbar" id="navbar">
+        <div class="nav-container">
+            <a href="#" class="nav-logo">
+                <img src="logo.png" alt="Oxide" class="logo-img">
+                <span>OXIDE</span>
+            </a>
+            <div class="nav-links" id="nav-links">
+                <a href="#about">About</a>
+                <a href="#features">Features</a>
+                <a href="#token">Token</a>
+                <a href="#community">Community</a>
+                <a href="https://github.com/niklabh/oxide" target="_blank" rel="noopener">GitHub</a>
+            </div>
+            <div class="nav-actions">
+                <a href="https://pump.fun/coin/F9GohhDUsdcPCnARhrdrU68erD8ohfcW8pZZrjNPjHBQ" target="_blank" rel="noopener" class="btn btn-primary btn-sm">Buy $OXIDE</a>
+                <button class="mobile-toggle" id="mobile-toggle" aria-label="Toggle menu">
+                    <span></span><span></span><span></span>
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <section class="hero" id="hero">
+        <div class="hero-glow"></div>
+        <div class="hero-content">
+            <div class="hero-badge" data-animate="fade-up">
+                <span class="badge-dot"></span>
+                Built with Rust & WebAssembly
+            </div>
+            <h1 data-animate="fade-up" data-delay="100">
+                The World's First<br>
+                <span class="gradient-text">Decentralized Browser</span>
+            </h1>
+            <p class="hero-subtitle" data-animate="fade-up" data-delay="200">
+                Oxide is a binary-first browser that fetches and executes WebAssembly modules 
+                instead of HTML/JavaScript. Guest apps run in a secure, sandboxed environment 
+                with zero access to your system. No tracking. No censorship. Unstoppable.
+            </p>
+            <div class="hero-actions" data-animate="fade-up" data-delay="300">
+                <a href="https://pump.fun/coin/F9GohhDUsdcPCnARhrdrU68erD8ohfcW8pZZrjNPjHBQ" target="_blank" rel="noopener" class="btn btn-primary btn-lg">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 12h8M12 8v8"/></svg>
+                    Buy $OXIDE
+                </a>
+                <a href="https://github.com/niklabh/oxide" target="_blank" rel="noopener" class="btn btn-outline btn-lg">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+                    View on GitHub
+                </a>
+            </div>
+            <div class="hero-stats" data-animate="fade-up" data-delay="400">
+                <div class="stat">
+                    <span class="stat-value">0</span>
+                    <span class="stat-label">Filesystem Access</span>
+                </div>
+                <div class="stat-divider"></div>
+                <div class="stat">
+                    <span class="stat-value">0</span>
+                    <span class="stat-label">Network Sockets</span>
+                </div>
+                <div class="stat-divider"></div>
+                <div class="stat">
+                    <span class="stat-value">100%</span>
+                    <span class="stat-label">Sandboxed</span>
+                </div>
+                <div class="stat-divider"></div>
+                <div class="stat">
+                    <span class="stat-value">WASM</span>
+                    <span class="stat-label">Native Binary</span>
+                </div>
+            </div>
+        </div>
+        <div class="hero-visual" data-animate="fade-up" data-delay="500">
+            <div class="browser-preview">
+                <div class="browser-chrome">
+                    <div class="browser-dots">
+                        <span></span><span></span><span></span>
+                    </div>
+                    <div class="browser-url">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                        oxide://hello-oxide.wasm
+                    </div>
+                </div>
+                <img src="assets/oxide-screenshot.png" alt="Oxide Browser Screenshot" class="browser-screenshot" loading="lazy">
+            </div>
+        </div>
+    </section>
+
+    <section class="about" id="about">
+        <div class="container">
+            <div class="section-header" data-animate="fade-up">
+                <span class="section-tag">ABOUT OXIDE</span>
+                <h2>A New Paradigm for the Web</h2>
+                <p>The traditional web is broken — bloated JavaScript bundles, pervasive tracking, and centralized gatekeepers. Oxide replaces it all with pure WebAssembly binaries running in a capability-based sandbox.</p>
+            </div>
+            <div class="about-grid">
+                <div class="about-card" data-animate="fade-up" data-delay="100">
+                    <div class="about-icon">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                    </div>
+                    <h3>Binary-First</h3>
+                    <p>No HTML, no JavaScript, no DOM. Oxide fetches and executes compiled WebAssembly modules directly — faster, smaller, and more secure than traditional web pages.</p>
+                </div>
+                <div class="about-card" data-animate="fade-up" data-delay="200">
+                    <div class="about-icon">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M2 12h20M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+                    </div>
+                    <h3>Decentralized</h3>
+                    <p>No central authority controls what you can browse. WASM modules can be served from any HTTP endpoint, IPFS, or loaded directly from disk. The web belongs to everyone.</p>
+                </div>
+                <div class="about-card" data-animate="fade-up" data-delay="300">
+                    <div class="about-icon">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                    </div>
+                    <h3>Sandboxed</h3>
+                    <p>Zero filesystem access. Zero environment variables. Zero network sockets. Guest modules can only interact with the host through explicitly granted capabilities.</p>
+                </div>
+                <div class="about-card" data-animate="fade-up" data-delay="400">
+                    <div class="about-icon">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+                    </div>
+                    <h3>Blazing Fast</h3>
+                    <p>Built with Rust and powered by Wasmtime. Near-native execution speed with fuel metering to prevent abuse. No garbage collector, no JIT warmup, just raw performance.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="features" id="features">
+        <div class="container">
+            <div class="section-header" data-animate="fade-up">
+                <span class="section-tag">CORE STACK</span>
+                <h2>Engineered for Security</h2>
+                <p>Every component is chosen for maximum security and performance. No compromises.</p>
+            </div>
+            <div class="tech-grid" data-animate="fade-up" data-delay="100">
+                <div class="tech-card">
+                    <div class="tech-name">wasmtime</div>
+                    <div class="tech-desc">WASM execution with fuel metering & memory limits</div>
+                </div>
+                <div class="tech-card">
+                    <div class="tech-name">reqwest</div>
+                    <div class="tech-desc">Fetch .wasm binaries from any URL or endpoint</div>
+                </div>
+                <div class="tech-card">
+                    <div class="tech-name">tokio</div>
+                    <div class="tech-desc">Async runtime for network operations</div>
+                </div>
+                <div class="tech-card">
+                    <div class="tech-name">egui</div>
+                    <div class="tech-desc">Immediate-mode GUI for URL bar, canvas & console</div>
+                </div>
+                <div class="tech-card">
+                    <div class="tech-name">protobuf</div>
+                    <div class="tech-desc">Native wire format — no JSON overhead</div>
+                </div>
+                <div class="tech-card">
+                    <div class="tech-name">sha-256</div>
+                    <div class="tech-desc">Built-in cryptographic hashing for integrity</div>
+                </div>
+            </div>
+            <div class="security-banner" data-animate="fade-up" data-delay="200">
+                <div class="security-grid">
+                    <div class="security-item">
+                        <div class="security-value">16 MB</div>
+                        <div class="security-label">Memory Limit</div>
+                    </div>
+                    <div class="security-item">
+                        <div class="security-value">500M</div>
+                        <div class="security-label">Instruction Fuel</div>
+                    </div>
+                    <div class="security-item">
+                        <div class="security-value">Zero</div>
+                        <div class="security-label">System Access</div>
+                    </div>
+                    <div class="security-item">
+                        <div class="security-value">No WASI</div>
+                        <div class="security-label">No Implicit Permissions</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="architecture" id="architecture">
+        <div class="container">
+            <div class="section-header" data-animate="fade-up">
+                <span class="section-tag">ARCHITECTURE</span>
+                <h2>How Oxide Works</h2>
+            </div>
+            <div class="arch-diagram" data-animate="fade-up" data-delay="100">
+                <pre class="arch-code"><code>┌──────────────────────────────────────────────────┐
+│                   Oxide Browser                  │
+│  ┌──────────┐  ┌────────────┐  ┌──────────────┐  │
+│  │  URL Bar │  │   Canvas   │  │   Console    │  │
+│  └────┬─────┘  └──────┬─────┘  └──────┬───────┘  │
+│       │               │               │          │
+│  ┌────▼───────────────▼───────────────▼───────┐  │
+│  │              Host Runtime                  │  │
+│  │  wasmtime engine + sandbox policy          │  │
+│  │  fuel limit: 500M  │  memory: 16MB max     │  │
+│  └────────────────────┬───────────────────────┘  │
+│                       │                          │
+│  ┌────────────────────▼───────────────────────┐  │
+│  │          Capability Provider               │  │
+│  │  "oxide" import module                     │  │
+│  │  canvas, console, storage, clipboard,      │  │
+│  │  fetch, images, crypto, base64, protobuf   │  │
+│  └────────────────────┬───────────────────────┘  │
+│                       │                          │
+│  ┌────────────────────▼───────────────────────┐  │
+│  │           Guest .wasm Module               │  │
+│  │  exports: start_app()                      │  │
+│  │  imports: oxide::*                         │  │
+│  └────────────────────────────────────────────┘  │
+└──────────────────────────────────────────────────┘</code></pre>
+            </div>
+        </div>
+    </section>
+
+    <section class="token" id="token">
+        <div class="container">
+            <div class="token-card" data-animate="fade-up">
+                <div class="token-glow"></div>
+                <div class="token-header">
+                    <span class="section-tag">$OXIDE TOKEN</span>
+                    <h2>Join the Revolution</h2>
+                    <p>The $OXIDE token powers the decentralized browser ecosystem. Early supporters fuel the development of the world's first binary-native, censorship-resistant browser.</p>
+                </div>
+                <div class="token-ca" data-animate="fade-up" data-delay="100">
+                    <div class="ca-label">Contract Address (Solana)</div>
+                    <div class="ca-box" id="ca-box">
+                        <code id="ca-text">F9GohhDUsdcPCnARhrdrU68erD8ohfcW8pZZrjNPjHBQ</code>
+                        <button class="copy-btn" id="copy-ca" aria-label="Copy contract address">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                            <span class="copy-label">Copy</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="token-actions" data-animate="fade-up" data-delay="200">
+                    <a href="https://pump.fun/coin/F9GohhDUsdcPCnARhrdrU68erD8ohfcW8pZZrjNPjHBQ" target="_blank" rel="noopener" class="btn btn-primary btn-lg btn-glow">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                        Buy on Pump.fun
+                    </a>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="community" id="community">
+        <div class="container">
+            <div class="section-header" data-animate="fade-up">
+                <span class="section-tag">COMMUNITY</span>
+                <h2>Join the Movement</h2>
+                <p>Be part of building the future of the decentralized web.</p>
+            </div>
+            <div class="community-grid" data-animate="fade-up" data-delay="100">
+                <a href="https://t.me/oxide_browser" target="_blank" rel="noopener" class="community-card">
+                    <div class="community-icon telegram">
+                        <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.479.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
+                    </div>
+                    <h3>Telegram</h3>
+                    <p>Chat with the community</p>
+                    <span class="community-arrow">&rarr;</span>
+                </a>
+                <a href="https://x.com/ForgeX_ai" target="_blank" rel="noopener" class="community-card">
+                    <div class="community-icon x">
+                        <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+                    </div>
+                    <h3>X (Twitter)</h3>
+                    <p>Follow for updates</p>
+                    <span class="community-arrow">&rarr;</span>
+                </a>
+                <a href="https://github.com/niklabh/oxide" target="_blank" rel="noopener" class="community-card">
+                    <div class="community-icon github">
+                        <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+                    </div>
+                    <h3>GitHub</h3>
+                    <p>Explore the source code</p>
+                    <span class="community-arrow">&rarr;</span>
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-brand">
+                    <div class="nav-logo">
+                        <img src="logo.png" alt="Oxide" class="logo-img">
+                        <span>OXIDE</span>
+                    </div>
+                    <p>The world's first decentralized browser.<br>Built with Rust. Powered by WebAssembly.</p>
+                </div>
+                <div class="footer-links">
+                    <div class="footer-col">
+                        <h4>Project</h4>
+                        <a href="https://github.com/niklabh/oxide" target="_blank" rel="noopener">GitHub</a>
+                        <a href="https://github.com/niklabh/oxide/blob/main/DOCS.md" target="_blank" rel="noopener">Documentation</a>
+                    </div>
+                    <div class="footer-col">
+                        <h4>Community</h4>
+                        <a href="https://t.me/oxide_browser" target="_blank" rel="noopener">Telegram</a>
+                        <a href="https://x.com/ForgeX_ai" target="_blank" rel="noopener">X (Twitter)</a>
+                    </div>
+                    <div class="footer-col">
+                        <h4>Token</h4>
+                        <a href="https://pump.fun/coin/F9GohhDUsdcPCnARhrdrU68erD8ohfcW8pZZrjNPjHBQ" target="_blank" rel="noopener">Pump.fun</a>
+                    </div>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p>&copy; 2026 Oxide Foundation. All rights reserved.</p>
+            </div>
+        </div>
+    </footer>
+
+    <script src="script.js"></script>
+</body>
+</html>
