@@ -3,6 +3,14 @@ name = "oxide-sdk"
 version = "0.1.0"
 edition = "2021"
 description = "Guest SDK for building .wasm applications that run inside the Oxide browser"
+license = "Apache-2.0"
+authors = ["Nikhil Ranjan <niklabh>"]
+repository = "https://github.com/niklabh/oxide"
+homepage = "https://github.com/niklabh/oxide"
+documentation = "https://docs.rs/oxide-sdk"
+readme = "README.md"
+keywords = ["wasm", "webassembly", "browser", "sdk", "sandbox"]
+categories = ["wasm", "api-bindings"]
 
 [lib]
 crate-type = ["rlib"]
