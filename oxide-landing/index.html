@@ -84,6 +84,7 @@
             <div class="nav-links" id="nav-links">
                 <a href="#about">About</a>
                 <a href="#features">Features</a>
+                <a href="#roadmap">Roadmap</a>
                 <a href="#token">Token</a>
                 <a href="#community">Community</a>
                 <a href="https://github.com/niklabh/oxide/releases" target="_blank" rel="noopener">Download</a>
@@ -298,6 +299,230 @@
         </div>
     </section>
 
+    <section class="roadmap" id="roadmap">
+        <div class="container">
+            <div class="section-header" data-animate="fade-up">
+                <span class="section-tag">ROADMAP</span>
+                <h2>The Road Ahead</h2>
+                <p>From foundation to full-featured decentralized platform — here's what's coming to Oxide.</p>
+            </div>
+
+            <div class="roadmap-timeline">
+
+                <div class="roadmap-phase shipped" data-animate="fade-up" data-delay="50">
+                    <div class="phase-marker">
+                        <div class="phase-dot shipped-dot"></div>
+                        <div class="phase-line"></div>
+                    </div>
+                    <div class="phase-content">
+                        <div class="phase-badge shipped-badge">Shipped</div>
+                        <h3>Phase 0 — Foundation</h3>
+                        <p class="phase-date">Q1 2026</p>
+                        <ul class="phase-list">
+                            <li>Wasmtime sandbox with fuel metering &amp; 16 MB memory cap</li>
+                            <li>Canvas rendering, widgets, input polling, navigation</li>
+                            <li>HTTP fetch, storage, clipboard, crypto, protobuf codec</li>
+                            <li>Dynamic child module loading with isolated memory</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="roadmap-phase active" data-animate="fade-up" data-delay="100">
+                    <div class="phase-marker">
+                        <div class="phase-dot active-dot"></div>
+                        <div class="phase-line"></div>
+                    </div>
+                    <div class="phase-content">
+                        <div class="phase-badge active-badge">In Progress</div>
+                        <h3>Phase 1 — Media &amp; Rich Content</h3>
+                        <p class="phase-date">Q2 2026</p>
+                        <ul class="phase-list">
+                            <li><strong>Audio API</strong> — play, pause, seek, volume, looping, multiple channels</li>
+                            <li><strong>Video API</strong> — load, stream, render frames to canvas, subtitles</li>
+                            <li><strong>Adaptive streaming</strong> — HLS/DASH support for live &amp; on-demand</li>
+                            <li><strong>Media capture</strong> — camera, microphone, screen capture with permissions</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="roadmap-phase" data-animate="fade-up" data-delay="150">
+                    <div class="phase-marker">
+                        <div class="phase-dot"></div>
+                        <div class="phase-line"></div>
+                    </div>
+                    <div class="phase-content">
+                        <div class="phase-badge">Planned</div>
+                        <h3>Phase 2 — GPU &amp; Graphics</h3>
+                        <p class="phase-date">Q3 2026</p>
+                        <ul class="phase-list">
+                            <li><strong>GPU-backed canvas</strong> — hardware-accelerated 2D rendering</li>
+                            <li><strong>WebGPU-style API</strong> — buffers, textures, shaders, pipelines</li>
+                            <li><strong>3D rendering</strong> — depth buffer, instanced draws, WGSL shaders</li>
+                            <li><strong>GPU compute</strong> — general-purpose compute for ML, physics, crypto</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="roadmap-phase" data-animate="fade-up" data-delay="200">
+                    <div class="phase-marker">
+                        <div class="phase-dot"></div>
+                        <div class="phase-line"></div>
+                    </div>
+                    <div class="phase-content">
+                        <div class="phase-badge">Planned</div>
+                        <h3>Phase 3 — Real-Time Communication</h3>
+                        <p class="phase-date">Q3 2026</p>
+                        <ul class="phase-list">
+                            <li><strong>WebRTC peers</strong> — create connections, SDP offer/answer, ICE candidates</li>
+                            <li><strong>Data channels</strong> — reliable &amp; unreliable P2P data transfer</li>
+                            <li><strong>Media streams</strong> — attach audio/video tracks, codec negotiation</li>
+                            <li><strong>Signaling</strong> — built-in relay, custom servers, room management</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="roadmap-phase" data-animate="fade-up" data-delay="250">
+                    <div class="phase-marker">
+                        <div class="phase-dot"></div>
+                        <div class="phase-line"></div>
+                    </div>
+                    <div class="phase-content">
+                        <div class="phase-badge">Planned</div>
+                        <h3>Phase 4 — Tasks, Events &amp; Background Processing</h3>
+                        <p class="phase-date">Q4 2026</p>
+                        <ul class="phase-list">
+                            <li><strong>Timers</strong> — setTimeout, setInterval, requestAnimationFrame</li>
+                            <li><strong>Event system</strong> — custom events, touch, gamepad, drag &amp; drop</li>
+                            <li><strong>Background workers</strong> — spawn WASM workers with message passing</li>
+                            <li><strong>Async I/O</strong> — WebSockets, SSE, streaming fetch, non-blocking ops</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="roadmap-phase" data-animate="fade-up" data-delay="300">
+                    <div class="phase-marker">
+                        <div class="phase-dot"></div>
+                        <div class="phase-line"></div>
+                    </div>
+                    <div class="phase-content">
+                        <div class="phase-badge">Planned</div>
+                        <h3>Phase 5 — Plugin Framework</h3>
+                        <p class="phase-date">Q4 2026</p>
+                        <ul class="phase-list">
+                            <li><strong>Plugin API</strong> — manifest format, lifecycle hooks, sandboxed execution</li>
+                            <li><strong>Extension points</strong> — UI, content, protocol, storage, network, themes</li>
+                            <li><strong>Plugin registry</strong> — discover, install, update, rate plugins</li>
+                            <li><strong>Inter-plugin comms</strong> — message passing, shared services, dependency resolution</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="roadmap-phase" data-animate="fade-up" data-delay="350">
+                    <div class="phase-marker">
+                        <div class="phase-dot"></div>
+                        <div class="phase-line"></div>
+                    </div>
+                    <div class="phase-content">
+                        <div class="phase-badge">Planned</div>
+                        <h3>Phase 6 — Decentralized Infrastructure</h3>
+                        <p class="phase-date">Q1 2027</p>
+                        <ul class="phase-list">
+                            <li><strong>P2P content</strong> — IPFS integration, DHT discovery, content pinning</li>
+                            <li><strong>Decentralized identity</strong> — key management, DIDs, wallet sign-in</li>
+                            <li><strong>Decentralized storage</strong> — encrypted vaults, CRDT sync, user-held keys</li>
+                            <li><strong>Name resolution</strong> — ENS/SNS domain mapping, DNS-over-HTTPS fallback</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="roadmap-phase rewards-phase" data-animate="fade-up" data-delay="400">
+                    <div class="phase-marker">
+                        <div class="phase-dot rewards-dot"></div>
+                        <div class="phase-line"></div>
+                    </div>
+                    <div class="phase-content">
+                        <div class="phase-badge rewards-badge">$OXIDE Rewards</div>
+                        <h3>Phase 7 — Open Source Contributions &amp; Rewards</h3>
+                        <p class="phase-date">Q1 2027</p>
+                        <div class="rewards-grid">
+                            <div class="reward-card">
+                                <div class="reward-icon">
+                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+                                </div>
+                                <h4>Contributors</h4>
+                                <p>Token bounties for PRs, code reviews, docs, and translations. Tiered rewards from Explorer to Architect.</p>
+                            </div>
+                            <div class="reward-card">
+                                <div class="reward-icon">
+                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 15l-3-3m0 0l3-3m-3 3h12M5 19.5A2.5 2.5 0 017.5 17H20"/><path d="M5 4.5A2.5 2.5 0 017.5 7H20"/></svg>
+                                </div>
+                                <h4>Early Adopters</h4>
+                                <p>Genesis Badge NFT, Pioneer Airdrop, beta tester rewards, and referral bonuses. Earlier = higher multiplier.</p>
+                            </div>
+                            <div class="reward-card">
+                                <div class="reward-icon">
+                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                                </div>
+                                <h4>App Builders</h4>
+                                <p>Revenue sharing, developer grants, hackathon prizes, showcase features, and SDK porting bounties.</p>
+                            </div>
+                            <div class="reward-card">
+                                <div class="reward-icon">
+                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                                </div>
+                                <h4>Security</h4>
+                                <p>Bug bounty program with tiered $OXIDE rewards for critical, high, medium, and low severity vulnerabilities.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="roadmap-phase" data-animate="fade-up" data-delay="450">
+                    <div class="phase-marker">
+                        <div class="phase-dot"></div>
+                        <div class="phase-line"></div>
+                    </div>
+                    <div class="phase-content">
+                        <div class="phase-badge">Planned</div>
+                        <h3>Phase 8 — Developer Experience &amp; Ecosystem</h3>
+                        <p class="phase-date">Q2 2027</p>
+                        <ul class="phase-list">
+                            <li><strong>Dev tools</strong> — hot-reload, profiler, network inspector, WASM debugger</li>
+                            <li><strong>Multi-language SDKs</strong> — C/C++, Go, Zig, AssemblyScript, Python</li>
+                            <li><strong>App registry</strong> — searchable store, versioning, security scanning</li>
+                            <li><strong>CLI</strong> — <code>oxide new</code>, <code>oxide build</code>, <code>oxide deploy</code></li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="roadmap-phase" data-animate="fade-up" data-delay="500">
+                    <div class="phase-marker">
+                        <div class="phase-dot"></div>
+                    </div>
+                    <div class="phase-content">
+                        <div class="phase-badge">Planned</div>
+                        <h3>Phase 9 — Platform Maturity</h3>
+                        <p class="phase-date">Q3 2027</p>
+                        <ul class="phase-list">
+                            <li><strong>Browser polish</strong> — multi-tab, bookmarks, downloads, print, accessibility</li>
+                            <li><strong>Performance</strong> — AOT cache, streaming compilation, frame budgets</li>
+                            <li><strong>Security hardening</strong> — fuzzing, CSP for WASM, per-origin policies</li>
+                            <li><strong>Cross-platform</strong> — Android, iOS, and web (Oxide-in-browser) targets</li>
+                        </ul>
+                    </div>
+                </div>
+
+            </div>
+
+            <div class="roadmap-cta" data-animate="fade-up" data-delay="200">
+                <a href="https://github.com/niklabh/oxide/blob/main/ROADMAP.md" target="_blank" rel="noopener" class="btn btn-outline btn-lg">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                    View Full Roadmap on GitHub
+                </a>
+            </div>
+        </div>
+    </section>
+
     <section class="token" id="token">
         <div class="container">
             <div class="token-card" data-animate="fade-up">
@@ -379,6 +604,7 @@
                         <a href="https://github.com/niklabh/oxide/releases" target="_blank" rel="noopener">Download</a>
                         <a href="https://github.com/niklabh/oxide" target="_blank" rel="noopener">GitHub</a>
                         <a href="https://github.com/niklabh/oxide/blob/main/DOCS.md" target="_blank" rel="noopener">Documentation</a>
+                        <a href="#roadmap">Roadmap</a>
                     </div>
                     <div class="footer-col">
                         <h4>Community</h4>
