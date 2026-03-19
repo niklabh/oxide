@@ -214,9 +214,13 @@ fn read_guest_string(
     ptr: u32,
     len: u32,
 ) -> Result<String> {
+    let start = ptr as usize;
+    let end = start
+        .checked_add(len as usize)
+        .context("guest string pointer arithmetic overflow")?;
     let data = memory
         .data(store)
-        .get(ptr as usize..(ptr + len) as usize)
+        .get(start..end)
         .context("guest string out of bounds")?;
     String::from_utf8(data.to_vec()).context("guest string is not valid utf-8")
 }
@@ -227,9 +231,13 @@ fn read_guest_bytes(
     ptr: u32,
     len: u32,
 ) -> Result<Vec<u8>> {
+    let start = ptr as usize;
+    let end = start
+        .checked_add(len as usize)
+        .context("guest buffer pointer arithmetic overflow")?;
     let data = memory
         .data(store)
-        .get(ptr as usize..(ptr + len) as usize)
+        .get(start..end)
         .context("guest buffer out of bounds")?;
     Ok(data.to_vec())
 }
@@ -240,9 +248,13 @@ fn write_guest_bytes(
     ptr: u32,
     bytes: &[u8],
 ) -> Result<()> {
+    let start = ptr as usize;
+    let end = start
+        .checked_add(bytes.len())
+        .context("guest write pointer arithmetic overflow")?;
     memory
         .data_mut(store)
-        .get_mut(ptr as usize..ptr as usize + bytes.len())
+        .get_mut(start..end)
         .context("guest buffer out of bounds")?
         .copy_from_slice(bytes);
     Ok(())
@@ -996,8 +1008,10 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
             let mem = caller.data().memory.expect("memory not set");
             let key = read_guest_string(&mem, &caller, key_ptr, key_len).unwrap_or_default();
             let val = read_guest_bytes(&mem, &caller, val_ptr, val_len).unwrap_or_default();
+            let origin = caller.data().current_url.lock().unwrap().clone();
+            let prefixed_key = format!("{origin}::{key}");
             match &caller.data().kv_db {
-                Some(db) => match db.insert(key.as_bytes(), val) {
+                Some(db) => match db.insert(prefixed_key.as_bytes(), val) {
                     Ok(_) => {
                         let _ = db.flush();
                         0
@@ -1034,8 +1048,10 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
          -> i32 {
             let mem = caller.data().memory.expect("memory not set");
             let key = read_guest_string(&mem, &caller, key_ptr, key_len).unwrap_or_default();
+            let origin = caller.data().current_url.lock().unwrap().clone();
+            let prefixed_key = format!("{origin}::{key}");
             match &caller.data().kv_db {
-                Some(db) => match db.get(key.as_bytes()) {
+                Some(db) => match db.get(prefixed_key.as_bytes()) {
                     Ok(Some(val)) => {
                         let bytes = val.as_ref();
                         let write_len = bytes.len().min(out_cap as usize);
@@ -1063,8 +1079,10 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
         |caller: Caller<'_, HostState>, key_ptr: u32, key_len: u32| -> i32 {
             let mem = caller.data().memory.expect("memory not set");
             let key = read_guest_string(&mem, &caller, key_ptr, key_len).unwrap_or_default();
+            let origin = caller.data().current_url.lock().unwrap().clone();
+            let prefixed_key = format!("{origin}::{key}");
             match &caller.data().kv_db {
-                Some(db) => match db.remove(key.as_bytes()) {
+                Some(db) => match db.remove(prefixed_key.as_bytes()) {
                     Ok(_) => {
                         let _ = db.flush();
                         0
@@ -1652,12 +1670,5 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
 }
 
 fn getrandom(buf: &mut [u8]) {
-    use std::collections::hash_map::RandomState;
-    use std::hash::{BuildHasher, Hasher};
-    for chunk in buf.chunks_mut(8) {
-        let val = RandomState::new().build_hasher().finish().to_le_bytes();
-        for (dst, src) in chunk.iter_mut().zip(val.iter()) {
-            *dst = *src;
-        }
-    }
+    ::getrandom::getrandom(buf).expect("OS random number generator unavailable");
 }
