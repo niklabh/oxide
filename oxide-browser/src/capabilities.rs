@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -28,6 +28,16 @@ pub struct HostState {
     pub pending_navigation: Arc<Mutex<Option<String>>>,
     /// The URL of the currently loaded module (set by the host before execution).
     pub current_url: Arc<Mutex<String>>,
+    /// Input state polled by the guest each frame.
+    pub input_state: Arc<Mutex<InputState>>,
+    /// Widget commands issued by the guest during `on_frame`.
+    pub widget_commands: Arc<Mutex<Vec<WidgetCommand>>>,
+    /// Persistent widget values (checkbox, slider, text input state).
+    pub widget_states: Arc<Mutex<HashMap<u32, WidgetValue>>>,
+    /// Button IDs that were clicked during the last render pass.
+    pub widget_clicked: Arc<Mutex<HashSet<u32>>>,
+    /// Top-left corner of the canvas panel in egui screen coords.
+    pub canvas_offset: Arc<Mutex<(f32, f32)>>,
 }
 
 #[derive(Clone, Debug)]
@@ -134,6 +144,39 @@ pub struct Hyperlink {
     pub url: String,
 }
 
+/// Per-frame input state captured from egui and exposed to the guest.
+#[derive(Clone, Debug, Default)]
+pub struct InputState {
+    pub mouse_x: f32,
+    pub mouse_y: f32,
+    pub mouse_buttons_down: [bool; 3],
+    pub mouse_buttons_clicked: [bool; 3],
+    pub keys_down: Vec<u32>,
+    pub keys_pressed: Vec<u32>,
+    pub modifiers_shift: bool,
+    pub modifiers_ctrl: bool,
+    pub modifiers_alt: bool,
+    pub scroll_x: f32,
+    pub scroll_y: f32,
+}
+
+/// A widget the guest wants rendered this frame.
+#[derive(Clone, Debug)]
+pub enum WidgetCommand {
+    Button { id: u32, x: f32, y: f32, w: f32, h: f32, label: String },
+    Checkbox { id: u32, x: f32, y: f32, label: String },
+    Slider { id: u32, x: f32, y: f32, w: f32, min: f32, max: f32 },
+    TextInput { id: u32, x: f32, y: f32, w: f32 },
+}
+
+/// Persistent widget state maintained by the host across frames.
+#[derive(Clone, Debug)]
+pub enum WidgetValue {
+    Bool(bool),
+    Float(f32),
+    Text(String),
+}
+
 impl Default for HostState {
     fn default() -> Self {
         Self {
@@ -156,6 +199,11 @@ impl Default for HostState {
             hyperlinks: Arc::new(Mutex::new(Vec::new())),
             pending_navigation: Arc::new(Mutex::new(None)),
             current_url: Arc::new(Mutex::new(String::new())),
+            input_state: Arc::new(Mutex::new(InputState::default())),
+            widget_commands: Arc::new(Mutex::new(Vec::new())),
+            widget_states: Arc::new(Mutex::new(HashMap::new())),
+            widget_clicked: Arc::new(Mutex::new(HashSet::new())),
+            canvas_offset: Arc::new(Mutex::new((0.0, 0.0))),
         }
     }
 }
@@ -200,7 +248,7 @@ fn write_guest_bytes(
     Ok(())
 }
 
-fn console_log(console: &Arc<Mutex<Vec<ConsoleEntry>>>, level: ConsoleLevel, message: String) {
+pub fn console_log(console: &Arc<Mutex<Vec<ConsoleEntry>>>, level: ConsoleLevel, message: String) {
     console.lock().unwrap().push(ConsoleEntry {
         timestamp: chrono::Local::now().format("%H:%M:%S%.3f").to_string(),
         level,
@@ -1348,6 +1396,252 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
             let input = read_guest_string(&mem, &caller, input_ptr, input_len).unwrap_or_default();
             let decoded = oxide_url::percent_decode(&input);
             let bytes = decoded.as_bytes();
+            let write_len = bytes.len().min(out_cap as usize);
+            write_guest_bytes(&mem, &mut caller, out_ptr, &bytes[..write_len]).ok();
+            write_len as u32
+        },
+    )?;
+
+    // ── Input Polling ────────────────────────────────────────────────
+
+    linker.func_wrap(
+        "oxide",
+        "api_mouse_position",
+        |caller: Caller<'_, HostState>| -> u64 {
+            let input = caller.data().input_state.lock().unwrap();
+            let offset = caller.data().canvas_offset.lock().unwrap();
+            let x = input.mouse_x - offset.0;
+            let y = input.mouse_y - offset.1;
+            ((x.to_bits() as u64) << 32) | (y.to_bits() as u64)
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_mouse_button_down",
+        |caller: Caller<'_, HostState>, button: u32| -> u32 {
+            let input = caller.data().input_state.lock().unwrap();
+            if (button as usize) < 3 && input.mouse_buttons_down[button as usize] {
+                1
+            } else {
+                0
+            }
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_mouse_button_clicked",
+        |caller: Caller<'_, HostState>, button: u32| -> u32 {
+            let input = caller.data().input_state.lock().unwrap();
+            if (button as usize) < 3 && input.mouse_buttons_clicked[button as usize] {
+                1
+            } else {
+                0
+            }
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_key_down",
+        |caller: Caller<'_, HostState>, key: u32| -> u32 {
+            let input = caller.data().input_state.lock().unwrap();
+            if input.keys_down.contains(&key) {
+                1
+            } else {
+                0
+            }
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_key_pressed",
+        |caller: Caller<'_, HostState>, key: u32| -> u32 {
+            let input = caller.data().input_state.lock().unwrap();
+            if input.keys_pressed.contains(&key) {
+                1
+            } else {
+                0
+            }
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_scroll_delta",
+        |caller: Caller<'_, HostState>| -> u64 {
+            let input = caller.data().input_state.lock().unwrap();
+            ((input.scroll_x.to_bits() as u64) << 32) | (input.scroll_y.to_bits() as u64)
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_modifiers",
+        |caller: Caller<'_, HostState>| -> u32 {
+            let input = caller.data().input_state.lock().unwrap();
+            let mut flags = 0u32;
+            if input.modifiers_shift {
+                flags |= 1;
+            }
+            if input.modifiers_ctrl {
+                flags |= 2;
+            }
+            if input.modifiers_alt {
+                flags |= 4;
+            }
+            flags
+        },
+    )?;
+
+    // ── Interactive Widgets ─────────────────────────────────────────
+
+    linker.func_wrap(
+        "oxide",
+        "api_ui_button",
+        |caller: Caller<'_, HostState>,
+         id: u32,
+         x: f32,
+         y: f32,
+         w: f32,
+         h: f32,
+         label_ptr: u32,
+         label_len: u32|
+         -> u32 {
+            let mem = caller.data().memory.expect("memory not set");
+            let label =
+                read_guest_string(&mem, &caller, label_ptr, label_len).unwrap_or_default();
+            caller
+                .data()
+                .widget_commands
+                .lock()
+                .unwrap()
+                .push(WidgetCommand::Button {
+                    id,
+                    x,
+                    y,
+                    w,
+                    h,
+                    label,
+                });
+            if caller.data().widget_clicked.lock().unwrap().contains(&id) {
+                1
+            } else {
+                0
+            }
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_ui_checkbox",
+        |caller: Caller<'_, HostState>,
+         id: u32,
+         x: f32,
+         y: f32,
+         label_ptr: u32,
+         label_len: u32,
+         initial: u32|
+         -> u32 {
+            let mem = caller.data().memory.expect("memory not set");
+            let label =
+                read_guest_string(&mem, &caller, label_ptr, label_len).unwrap_or_default();
+            let mut states = caller.data().widget_states.lock().unwrap();
+            let entry = states
+                .entry(id)
+                .or_insert_with(|| WidgetValue::Bool(initial != 0));
+            let checked = match entry {
+                WidgetValue::Bool(b) => *b,
+                _ => initial != 0,
+            };
+            drop(states);
+            caller
+                .data()
+                .widget_commands
+                .lock()
+                .unwrap()
+                .push(WidgetCommand::Checkbox { id, x, y, label });
+            if checked {
+                1
+            } else {
+                0
+            }
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_ui_slider",
+        |caller: Caller<'_, HostState>,
+         id: u32,
+         x: f32,
+         y: f32,
+         w: f32,
+         min: f32,
+         max: f32,
+         initial: f32|
+         -> f32 {
+            let mut states = caller.data().widget_states.lock().unwrap();
+            let entry = states
+                .entry(id)
+                .or_insert_with(|| WidgetValue::Float(initial));
+            let value = match entry {
+                WidgetValue::Float(v) => *v,
+                _ => initial,
+            };
+            drop(states);
+            caller
+                .data()
+                .widget_commands
+                .lock()
+                .unwrap()
+                .push(WidgetCommand::Slider {
+                    id,
+                    x,
+                    y,
+                    w,
+                    min,
+                    max,
+                });
+            value
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_ui_text_input",
+        |mut caller: Caller<'_, HostState>,
+         id: u32,
+         x: f32,
+         y: f32,
+         w: f32,
+         init_ptr: u32,
+         init_len: u32,
+         out_ptr: u32,
+         out_cap: u32|
+         -> u32 {
+            let mem = caller.data().memory.expect("memory not set");
+            let text = {
+                let mut states = caller.data().widget_states.lock().unwrap();
+                let entry = states.entry(id).or_insert_with(|| {
+                    let init =
+                        read_guest_string(&mem, &caller, init_ptr, init_len).unwrap_or_default();
+                    WidgetValue::Text(init)
+                });
+                match entry {
+                    WidgetValue::Text(t) => t.clone(),
+                    _ => String::new(),
+                }
+            };
+            caller
+                .data()
+                .widget_commands
+                .lock()
+                .unwrap()
+                .push(WidgetCommand::TextInput { id, x, y, w });
+            let bytes = text.as_bytes();
             let write_len = bytes.len().min(out_cap as usize);
             write_guest_bytes(&mem, &mut caller, out_ptr, &bytes[..write_len]).ok();
             write_len as u32

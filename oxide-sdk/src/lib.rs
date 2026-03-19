@@ -166,6 +166,75 @@ extern "C" {
     #[link_name = "api_clear_hyperlinks"]
     fn _api_clear_hyperlinks();
 
+    // ── Input Polling ────────────────────────────────────────────────
+
+    #[link_name = "api_mouse_position"]
+    fn _api_mouse_position() -> u64;
+
+    #[link_name = "api_mouse_button_down"]
+    fn _api_mouse_button_down(button: u32) -> u32;
+
+    #[link_name = "api_mouse_button_clicked"]
+    fn _api_mouse_button_clicked(button: u32) -> u32;
+
+    #[link_name = "api_key_down"]
+    fn _api_key_down(key: u32) -> u32;
+
+    #[link_name = "api_key_pressed"]
+    fn _api_key_pressed(key: u32) -> u32;
+
+    #[link_name = "api_scroll_delta"]
+    fn _api_scroll_delta() -> u64;
+
+    #[link_name = "api_modifiers"]
+    fn _api_modifiers() -> u32;
+
+    // ── Interactive Widgets ─────────────────────────────────────────
+
+    #[link_name = "api_ui_button"]
+    fn _api_ui_button(
+        id: u32,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        label_ptr: u32,
+        label_len: u32,
+    ) -> u32;
+
+    #[link_name = "api_ui_checkbox"]
+    fn _api_ui_checkbox(
+        id: u32,
+        x: f32,
+        y: f32,
+        label_ptr: u32,
+        label_len: u32,
+        initial: u32,
+    ) -> u32;
+
+    #[link_name = "api_ui_slider"]
+    fn _api_ui_slider(
+        id: u32,
+        x: f32,
+        y: f32,
+        w: f32,
+        min: f32,
+        max: f32,
+        initial: f32,
+    ) -> f32;
+
+    #[link_name = "api_ui_text_input"]
+    fn _api_ui_text_input(
+        id: u32,
+        x: f32,
+        y: f32,
+        w: f32,
+        init_ptr: u32,
+        init_len: u32,
+        out_ptr: u32,
+        out_cap: u32,
+    ) -> u32;
+
     // ── URL Utilities ───────────────────────────────────────────────
 
     #[link_name = "api_url_resolve"]
@@ -709,6 +778,183 @@ pub fn url_decode(input: &str) -> String {
         _api_url_decode(
             input.as_ptr() as u32,
             input.len() as u32,
+            buf.as_mut_ptr() as u32,
+            buf.len() as u32,
+        )
+    };
+    String::from_utf8_lossy(&buf[..len as usize]).to_string()
+}
+
+// ─── Input Polling API ──────────────────────────────────────────────────────
+
+/// Get the mouse position in canvas-local coordinates.
+pub fn mouse_position() -> (f32, f32) {
+    let packed = unsafe { _api_mouse_position() };
+    let x = f32::from_bits((packed >> 32) as u32);
+    let y = f32::from_bits((packed & 0xFFFF_FFFF) as u32);
+    (x, y)
+}
+
+/// Returns `true` if the given mouse button is currently held down.
+/// Button 0 = primary (left), 1 = secondary (right), 2 = middle.
+pub fn mouse_button_down(button: u32) -> bool {
+    unsafe { _api_mouse_button_down(button) != 0 }
+}
+
+/// Returns `true` if the given mouse button was clicked this frame.
+pub fn mouse_button_clicked(button: u32) -> bool {
+    unsafe { _api_mouse_button_clicked(button) != 0 }
+}
+
+/// Returns `true` if the given key is currently held down.
+/// See `KEY_*` constants for key codes.
+pub fn key_down(key: u32) -> bool {
+    unsafe { _api_key_down(key) != 0 }
+}
+
+/// Returns `true` if the given key was pressed this frame.
+pub fn key_pressed(key: u32) -> bool {
+    unsafe { _api_key_pressed(key) != 0 }
+}
+
+/// Get the scroll wheel delta for this frame.
+pub fn scroll_delta() -> (f32, f32) {
+    let packed = unsafe { _api_scroll_delta() };
+    let x = f32::from_bits((packed >> 32) as u32);
+    let y = f32::from_bits((packed & 0xFFFF_FFFF) as u32);
+    (x, y)
+}
+
+/// Returns modifier key state as a bitmask: bit 0 = Shift, bit 1 = Ctrl, bit 2 = Alt.
+pub fn modifiers() -> u32 {
+    unsafe { _api_modifiers() }
+}
+
+/// Returns `true` if Shift is held.
+pub fn shift_held() -> bool {
+    modifiers() & 1 != 0
+}
+
+/// Returns `true` if Ctrl (or Cmd on macOS) is held.
+pub fn ctrl_held() -> bool {
+    modifiers() & 2 != 0
+}
+
+/// Returns `true` if Alt is held.
+pub fn alt_held() -> bool {
+    modifiers() & 4 != 0
+}
+
+// ─── Key Constants ──────────────────────────────────────────────────────────
+
+pub const KEY_A: u32 = 0;
+pub const KEY_B: u32 = 1;
+pub const KEY_C: u32 = 2;
+pub const KEY_D: u32 = 3;
+pub const KEY_E: u32 = 4;
+pub const KEY_F: u32 = 5;
+pub const KEY_G: u32 = 6;
+pub const KEY_H: u32 = 7;
+pub const KEY_I: u32 = 8;
+pub const KEY_J: u32 = 9;
+pub const KEY_K: u32 = 10;
+pub const KEY_L: u32 = 11;
+pub const KEY_M: u32 = 12;
+pub const KEY_N: u32 = 13;
+pub const KEY_O: u32 = 14;
+pub const KEY_P: u32 = 15;
+pub const KEY_Q: u32 = 16;
+pub const KEY_R: u32 = 17;
+pub const KEY_S: u32 = 18;
+pub const KEY_T: u32 = 19;
+pub const KEY_U: u32 = 20;
+pub const KEY_V: u32 = 21;
+pub const KEY_W: u32 = 22;
+pub const KEY_X: u32 = 23;
+pub const KEY_Y: u32 = 24;
+pub const KEY_Z: u32 = 25;
+pub const KEY_0: u32 = 26;
+pub const KEY_1: u32 = 27;
+pub const KEY_2: u32 = 28;
+pub const KEY_3: u32 = 29;
+pub const KEY_4: u32 = 30;
+pub const KEY_5: u32 = 31;
+pub const KEY_6: u32 = 32;
+pub const KEY_7: u32 = 33;
+pub const KEY_8: u32 = 34;
+pub const KEY_9: u32 = 35;
+pub const KEY_ENTER: u32 = 36;
+pub const KEY_ESCAPE: u32 = 37;
+pub const KEY_TAB: u32 = 38;
+pub const KEY_BACKSPACE: u32 = 39;
+pub const KEY_DELETE: u32 = 40;
+pub const KEY_SPACE: u32 = 41;
+pub const KEY_UP: u32 = 42;
+pub const KEY_DOWN: u32 = 43;
+pub const KEY_LEFT: u32 = 44;
+pub const KEY_RIGHT: u32 = 45;
+pub const KEY_HOME: u32 = 46;
+pub const KEY_END: u32 = 47;
+pub const KEY_PAGE_UP: u32 = 48;
+pub const KEY_PAGE_DOWN: u32 = 49;
+
+// ─── Interactive Widget API ─────────────────────────────────────────────────
+
+/// Render a button at the given position. Returns `true` if it was clicked
+/// on the previous frame.
+///
+/// Must be called from `on_frame()` — widgets are only rendered for
+/// interactive applications that export a frame loop.
+pub fn ui_button(id: u32, x: f32, y: f32, w: f32, h: f32, label: &str) -> bool {
+    unsafe {
+        _api_ui_button(
+            id,
+            x,
+            y,
+            w,
+            h,
+            label.as_ptr() as u32,
+            label.len() as u32,
+        ) != 0
+    }
+}
+
+/// Render a checkbox. Returns the current checked state.
+///
+/// `initial` sets the value the first time this ID is seen.
+pub fn ui_checkbox(id: u32, x: f32, y: f32, label: &str, initial: bool) -> bool {
+    unsafe {
+        _api_ui_checkbox(
+            id,
+            x,
+            y,
+            label.as_ptr() as u32,
+            label.len() as u32,
+            if initial { 1 } else { 0 },
+        ) != 0
+    }
+}
+
+/// Render a slider. Returns the current value.
+///
+/// `initial` sets the value the first time this ID is seen.
+pub fn ui_slider(id: u32, x: f32, y: f32, w: f32, min: f32, max: f32, initial: f32) -> f32 {
+    unsafe { _api_ui_slider(id, x, y, w, min, max, initial) }
+}
+
+/// Render a single-line text input. Returns the current text content.
+///
+/// `initial` sets the text the first time this ID is seen.
+pub fn ui_text_input(id: u32, x: f32, y: f32, w: f32, initial: &str) -> String {
+    let mut buf = [0u8; 4096];
+    let len = unsafe {
+        _api_ui_text_input(
+            id,
+            x,
+            y,
+            w,
+            initial.as_ptr() as u32,
+            initial.len() as u32,
             buf.as_mut_ptr() as u32,
             buf.len() as u32,
         )
