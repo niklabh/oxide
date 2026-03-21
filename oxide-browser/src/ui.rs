@@ -860,8 +860,10 @@ impl OxideApp {
                                     };
 
                                     let max_len = 22;
-                                    let display = if title.len() > max_len {
-                                        format!("{}\u{2026}", &title[..max_len])
+                                    let display = if title.chars().count() > max_len {
+                                        let truncated: String =
+                                            title.chars().take(max_len).collect();
+                                        format!("{truncated}\u{2026}")
                                     } else {
                                         title
                                     };
@@ -955,8 +957,9 @@ fn url_to_title(url: &str) -> String {
             .to_string()
     } else {
         let max = 20;
-        if url.len() > max {
-            format!("{}\u{2026}", &url[..max])
+        if url.chars().count() > max {
+            let truncated: String = url.chars().take(max).collect();
+            format!("{truncated}\u{2026}")
         } else {
             url.to_string()
         }
