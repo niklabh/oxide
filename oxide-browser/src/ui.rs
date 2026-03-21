@@ -5,23 +5,9 @@ use std::time::Instant;
 use eframe::egui;
 
 use crate::capabilities::{ConsoleLevel, DrawCommand, HostState, WidgetCommand, WidgetValue};
+use crate::engine::ModuleLoader;
 use crate::navigation::HistoryEntry;
 use crate::runtime::{LiveModule, PageStatus};
-
-pub struct OxideApp {
-    url_input: String,
-    host_state: HostState,
-    status: Arc<Mutex<PageStatus>>,
-    show_console: bool,
-    run_tx: std::sync::mpsc::Sender<RunRequest>,
-    run_rx: Arc<Mutex<std::sync::mpsc::Receiver<RunResult>>>,
-    image_textures: HashMap<usize, egui::TextureHandle>,
-    canvas_generation: u64,
-    pending_history_url: Option<String>,
-    hovered_link_url: Option<String>,
-    live_module: Option<LiveModule>,
-    last_frame: Instant,
-}
 
 enum RunRequest {
     FetchAndRun { url: String },
@@ -37,8 +23,26 @@ struct RunResult {
 // Store<HostState> is Send because HostState fields are Arc<Mutex<>>.
 unsafe impl Send for RunResult {}
 
-impl OxideApp {
-    pub fn new(host_state: HostState, status: Arc<Mutex<PageStatus>>) -> Self {
+// ── Per-tab state ───────────────────────────────────────────────────────────
+
+struct TabState {
+    id: u64,
+    url_input: String,
+    host_state: HostState,
+    status: Arc<Mutex<PageStatus>>,
+    show_console: bool,
+    run_tx: std::sync::mpsc::Sender<RunRequest>,
+    run_rx: Arc<Mutex<std::sync::mpsc::Receiver<RunResult>>>,
+    image_textures: HashMap<usize, egui::TextureHandle>,
+    canvas_generation: u64,
+    pending_history_url: Option<String>,
+    hovered_link_url: Option<String>,
+    live_module: Option<LiveModule>,
+    last_frame: Instant,
+}
+
+impl TabState {
+    fn new(id: u64, host_state: HostState, status: Arc<Mutex<PageStatus>>) -> Self {
         let (req_tx, req_rx) = std::sync::mpsc::channel::<RunRequest>();
         let (res_tx, res_rx) = std::sync::mpsc::channel::<RunResult>();
 
@@ -62,6 +66,7 @@ impl OxideApp {
         });
 
         Self {
+            id,
             url_input: String::from("https://"),
             host_state,
             status,
@@ -76,6 +81,18 @@ impl OxideApp {
             last_frame: Instant::now(),
         }
     }
+
+    fn display_title(&self) -> String {
+        let status = self.status.lock().unwrap().clone();
+        match status {
+            PageStatus::Idle => "New Tab".to_string(),
+            PageStatus::Loading(_) => "Loading\u{2026}".to_string(),
+            PageStatus::Running(ref url) => url_to_title(url),
+            PageStatus::Error(_) => "Error".to_string(),
+        }
+    }
+
+    // ── Navigation ──────────────────────────────────────────────────────
 
     fn navigate(&mut self) {
         let url = self.url_input.trim().to_string();
@@ -133,6 +150,8 @@ impl OxideApp {
         }
     }
 
+    // ── Frame lifecycle ─────────────────────────────────────────────────
+
     fn capture_input(&self, ctx: &egui::Context) {
         let mut input = self.host_state.input_state.lock().unwrap();
 
@@ -165,7 +184,6 @@ impl OxideApp {
                         if *pressed {
                             input.keys_pressed.push(code);
                         }
-                        // For keys_down we'd need sustained state; approximate with pressed.
                         if *pressed {
                             input.keys_down.push(code);
                         }
@@ -185,7 +203,6 @@ impl OxideApp {
         self.last_frame = now;
         let dt_ms = dt.as_millis().min(100) as u32;
 
-        // Clear widget commands so on_frame fills them fresh.
         self.host_state.widget_commands.lock().unwrap().clear();
 
         if let Some(ref mut live) = self.live_module {
@@ -209,14 +226,10 @@ impl OxideApp {
             }
         }
 
-        // Clear clicked set after on_frame has read it, before next render adds new clicks.
         self.host_state.widget_clicked.lock().unwrap().clear();
     }
-}
 
-impl eframe::App for OxideApp {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // Drain results from the background worker.
+    fn drain_results(&mut self) {
         if let Ok(rx) = self.run_rx.lock() {
             while let Ok(result) = rx.try_recv() {
                 if let Some(err) = result.error {
@@ -228,7 +241,6 @@ impl eframe::App for OxideApp {
                         let mut nav = self.host_state.navigation.lock().unwrap();
                         nav.push(HistoryEntry::new(&url));
                     }
-                    // Reset widget state for the new module.
                     self.host_state.widget_states.lock().unwrap().clear();
                     self.host_state.widget_clicked.lock().unwrap().clear();
                     self.host_state.widget_commands.lock().unwrap().clear();
@@ -237,59 +249,44 @@ impl eframe::App for OxideApp {
                 }
             }
         }
+    }
 
-        // Check for guest-initiated navigations.
+    fn handle_pending_navigation(&mut self) {
         let pending = self.host_state.pending_navigation.lock().unwrap().take();
         if let Some(url) = pending {
             self.navigate_to(url, true);
         }
+    }
 
-        // Sync address bar with current URL (may have changed via push_state).
-        {
-            let cur = self.host_state.current_url.lock().unwrap().clone();
-            if !cur.is_empty() && cur != self.url_input {
-                let status = self.status.lock().unwrap().clone();
-                if matches!(status, PageStatus::Running(_)) {
-                    self.url_input = cur;
-                }
+    fn sync_url_bar(&mut self) {
+        let cur = self.host_state.current_url.lock().unwrap().clone();
+        if !cur.is_empty() && cur != self.url_input {
+            let status = self.status.lock().unwrap().clone();
+            if matches!(status, PageStatus::Running(_)) {
+                self.url_input = cur;
             }
         }
-
-        ctx.request_repaint();
-
-        // Capture input and run the guest frame loop before rendering.
-        self.capture_input(ctx);
-        self.tick_frame();
-
-        self.render_toolbar(ctx);
-        self.render_canvas(ctx);
-        if self.show_console {
-            self.render_console(ctx);
-        }
-
-        if let Some(ref link_url) = self.hovered_link_url.clone() {
-            egui::TopBottomPanel::bottom("link_status")
-                .default_height(18.0)
-                .show(ctx, |ui| {
-                    ui.label(
-                        egui::RichText::new(link_url)
-                            .monospace()
-                            .size(11.0)
-                            .color(egui::Color32::from_rgb(140, 140, 180)),
-                    );
-                });
-        }
     }
-}
 
-impl OxideApp {
+    // ── Rendering ───────────────────────────────────────────────────────
+
     fn render_toolbar(&mut self, ctx: &egui::Context) {
+        let can_back = self.host_state.navigation.lock().unwrap().can_go_back();
+        let can_fwd = self.host_state.navigation.lock().unwrap().can_go_forward();
+
+        let status_icon = match &*self.status.lock().unwrap() {
+            PageStatus::Idle => "\u{26AA}",
+            PageStatus::Loading(_) => "\u{1F504}",
+            PageStatus::Running(_) => "\u{1F7E2}",
+            PageStatus::Error(_) => "\u{1F534}",
+        }
+        .to_string();
+
+        let status = self.status.lock().unwrap().clone();
+
         egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 6.0;
-
-                let can_back = self.host_state.navigation.lock().unwrap().can_go_back();
-                let can_fwd = self.host_state.navigation.lock().unwrap().can_go_forward();
 
                 let back_btn = ui.add_enabled(
                     can_back,
@@ -319,13 +316,7 @@ impl OxideApp {
                     fwd_btn.on_hover_text("Forward");
                 }
 
-                let status_icon = match &*self.status.lock().unwrap() {
-                    PageStatus::Idle => "\u{26AA}",
-                    PageStatus::Loading(_) => "\u{1F504}",
-                    PageStatus::Running(_) => "\u{1F7E2}",
-                    PageStatus::Error(_) => "\u{1F534}",
-                };
-                ui.label(egui::RichText::new(status_icon).size(16.0));
+                ui.label(egui::RichText::new(&status_icon).size(16.0));
 
                 let response = ui.add(
                     egui::TextEdit::singleline(&mut self.url_input)
@@ -354,7 +345,6 @@ impl OxideApp {
                 }
             });
 
-            let status = self.status.lock().unwrap().clone();
             if let PageStatus::Error(ref msg) = status {
                 ui.colored_label(egui::Color32::from_rgb(220, 50, 50), msg);
             }
@@ -369,6 +359,7 @@ impl OxideApp {
                 self.image_textures.clear();
                 self.canvas_generation = canvas.generation;
             }
+            let tab_id = self.id;
             for (i, decoded) in canvas.images.iter().enumerate() {
                 self.image_textures.entry(i).or_insert_with(|| {
                     let color_image = egui::ColorImage::from_rgba_unmultiplied(
@@ -376,7 +367,7 @@ impl OxideApp {
                         &decoded.pixels,
                     );
                     ctx.load_texture(
-                        format!("oxide_img_{i}"),
+                        format!("oxide_img_{i}_tab{tab_id}"),
                         color_image,
                         egui::TextureOptions::LINEAR,
                     )
@@ -394,8 +385,13 @@ impl OxideApp {
             .map(|(k, v)| (*k, v.id()))
             .collect();
 
+        let host_state = self.host_state.clone();
+        let canvas_offset = self.host_state.canvas_offset.clone();
+
         // Phase 3: Render.
         self.hovered_link_url = None;
+        let mut new_hovered: Option<String> = None;
+        let mut clicked_link: Option<String> = None;
 
         egui::CentralPanel::default().show(ctx, |ui| {
             if commands.is_empty() && widget_commands.is_empty() {
@@ -426,8 +422,7 @@ impl OxideApp {
             let (response, painter) = ui.allocate_painter(available, egui::Sense::click());
             let rect = response.rect;
 
-            // Store canvas offset so input coordinates can be canvas-relative.
-            *self.host_state.canvas_offset.lock().unwrap() = (rect.min.x, rect.min.y);
+            *canvas_offset.lock().unwrap() = (rect.min.x, rect.min.y);
 
             // ── Draw commands ───────────────────────────────────────
             for cmd in &commands {
@@ -532,8 +527,8 @@ impl OxideApp {
 
             // ── Interactive widgets ─────────────────────────────────
             if !widget_commands.is_empty() {
-                let mut widget_states = self.host_state.widget_states.lock().unwrap();
-                let mut widget_clicked = self.host_state.widget_clicked.lock().unwrap();
+                let mut widget_states = host_state.widget_states.lock().unwrap();
+                let mut widget_clicked = host_state.widget_clicked.lock().unwrap();
 
                 for cmd in &widget_commands {
                     match cmd {
@@ -636,7 +631,7 @@ impl OxideApp {
                     );
                     if link_rect.contains(pointer_pos) {
                         ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
-                        self.hovered_link_url = Some(link.url.clone());
+                        new_hovered = Some(link.url.clone());
 
                         painter.rect_filled(
                             link_rect,
@@ -645,14 +640,18 @@ impl OxideApp {
                         );
 
                         if response.clicked() {
-                            let url = link.url.clone();
-                            self.navigate_to(url, true);
+                            clicked_link = Some(link.url.clone());
                         }
                         break;
                     }
                 }
             }
         });
+
+        self.hovered_link_url = new_hovered;
+        if let Some(url) = clicked_link {
+            self.navigate_to(url, true);
+        }
     }
 
     fn render_console(&mut self, ctx: &egui::Context) {
@@ -699,7 +698,273 @@ impl OxideApp {
     }
 }
 
-// ── Key mapping ─────────────────────────────────────────────────────────────
+// ── Application ─────────────────────────────────────────────────────────────
+
+pub struct OxideApp {
+    tabs: Vec<TabState>,
+    active_tab: usize,
+    next_tab_id: u64,
+    shared_kv_db: Option<Arc<sled::Db>>,
+    shared_module_loader: Option<Arc<ModuleLoader>>,
+}
+
+impl OxideApp {
+    pub fn new(host_state: HostState, status: Arc<Mutex<PageStatus>>) -> Self {
+        let shared_kv_db = host_state.kv_db.clone();
+        let shared_module_loader = host_state.module_loader.clone();
+
+        let first_tab = TabState::new(0, host_state, status);
+
+        Self {
+            tabs: vec![first_tab],
+            active_tab: 0,
+            next_tab_id: 1,
+            shared_kv_db,
+            shared_module_loader,
+        }
+    }
+
+    fn create_tab(&mut self) -> usize {
+        let host_state = HostState {
+            kv_db: self.shared_kv_db.clone(),
+            module_loader: self.shared_module_loader.clone(),
+            ..Default::default()
+        };
+        let status = Arc::new(Mutex::new(PageStatus::Idle));
+        let tab = TabState::new(self.next_tab_id, host_state, status);
+        self.next_tab_id += 1;
+        self.tabs.push(tab);
+        self.tabs.len() - 1
+    }
+
+    fn close_tab(&mut self, idx: usize) {
+        if self.tabs.len() <= 1 {
+            return;
+        }
+        self.tabs.remove(idx);
+        if self.active_tab == idx {
+            if self.active_tab >= self.tabs.len() {
+                self.active_tab = self.tabs.len() - 1;
+            }
+        } else if self.active_tab > idx {
+            self.active_tab -= 1;
+        }
+    }
+
+    fn handle_keyboard_shortcuts(&mut self, ctx: &egui::Context) {
+        let (new_tab, close_tab, next_tab, prev_tab) = ctx.input(|i| {
+            let cmd = i.modifiers.command;
+            (
+                cmd && i.key_pressed(egui::Key::T),
+                cmd && i.key_pressed(egui::Key::W),
+                i.modifiers.ctrl && !i.modifiers.shift && i.key_pressed(egui::Key::Tab),
+                i.modifiers.ctrl && i.modifiers.shift && i.key_pressed(egui::Key::Tab),
+            )
+        });
+
+        if new_tab {
+            let idx = self.create_tab();
+            self.active_tab = idx;
+        }
+        if close_tab && self.tabs.len() > 1 {
+            let active = self.active_tab;
+            self.close_tab(active);
+        }
+        if next_tab && !self.tabs.is_empty() {
+            self.active_tab = (self.active_tab + 1) % self.tabs.len();
+        }
+        if prev_tab && !self.tabs.is_empty() {
+            if self.active_tab == 0 {
+                self.active_tab = self.tabs.len() - 1;
+            } else {
+                self.active_tab -= 1;
+            }
+        }
+    }
+}
+
+impl eframe::App for OxideApp {
+    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.handle_keyboard_shortcuts(ctx);
+
+        // Drain results and handle navigations for all tabs so background loads complete.
+        for tab in &mut self.tabs {
+            tab.drain_results();
+            tab.handle_pending_navigation();
+            tab.sync_url_bar();
+        }
+
+        ctx.request_repaint();
+
+        let active = self.active_tab;
+        self.tabs[active].capture_input(ctx);
+        self.tabs[active].tick_frame();
+
+        self.render_tab_bar(ctx);
+        self.tabs[self.active_tab].render_toolbar(ctx);
+        self.tabs[self.active_tab].render_canvas(ctx);
+        if self.tabs[self.active_tab].show_console {
+            self.tabs[self.active_tab].render_console(ctx);
+        }
+
+        if let Some(link_url) = self.tabs[self.active_tab].hovered_link_url.clone() {
+            egui::TopBottomPanel::bottom("link_status")
+                .default_height(18.0)
+                .show(ctx, |ui| {
+                    ui.label(
+                        egui::RichText::new(&link_url)
+                            .monospace()
+                            .size(11.0)
+                            .color(egui::Color32::from_rgb(140, 140, 180)),
+                    );
+                });
+        }
+    }
+}
+
+impl OxideApp {
+    fn render_tab_bar(&mut self, ctx: &egui::Context) {
+        let mut switch_to = None;
+        let mut close_idx = None;
+        let mut open_new = false;
+        let num_tabs = self.tabs.len();
+
+        egui::TopBottomPanel::top("tab_bar")
+            .exact_height(30.0)
+            .show(ctx, |ui| {
+                ui.horizontal_centered(|ui| {
+                    ui.spacing_mut().item_spacing.x = 2.0;
+
+                    for i in 0..num_tabs {
+                        let is_active = i == self.active_tab;
+                        let title = self.tabs[i].display_title();
+
+                        let bg = if is_active {
+                            egui::Color32::from_rgb(55, 55, 65)
+                        } else {
+                            egui::Color32::TRANSPARENT
+                        };
+
+                        egui::Frame::NONE
+                            .fill(bg)
+                            .inner_margin(4.0)
+                            .corner_radius(4.0)
+                            .show(ui, |ui| {
+                                ui.horizontal(|ui| {
+                                    ui.spacing_mut().item_spacing.x = 4.0;
+
+                                    let text_color = if is_active {
+                                        egui::Color32::from_rgb(220, 220, 230)
+                                    } else {
+                                        egui::Color32::from_rgb(150, 150, 160)
+                                    };
+
+                                    let max_len = 22;
+                                    let display = if title.chars().count() > max_len {
+                                        let truncated: String =
+                                            title.chars().take(max_len).collect();
+                                        format!("{truncated}\u{2026}")
+                                    } else {
+                                        title
+                                    };
+
+                                    let tab_label = ui.add(
+                                        egui::Label::new(
+                                            egui::RichText::new(&display)
+                                                .color(text_color)
+                                                .size(12.0),
+                                        )
+                                        .sense(egui::Sense::click()),
+                                    );
+                                    if tab_label.clicked() {
+                                        switch_to = Some(i);
+                                    }
+
+                                    if num_tabs > 1 {
+                                        let close_color = if is_active {
+                                            egui::Color32::from_rgb(160, 160, 170)
+                                        } else {
+                                            egui::Color32::from_rgb(100, 100, 110)
+                                        };
+                                        let close_btn = ui.add(
+                                            egui::Label::new(
+                                                egui::RichText::new("\u{00D7}")
+                                                    .color(close_color)
+                                                    .size(16.0),
+                                            )
+                                            .sense(egui::Sense::click()),
+                                        );
+                                        if close_btn.clicked() {
+                                            close_idx = Some(i);
+                                        }
+                                    }
+                                });
+                            });
+                    }
+
+                    ui.add_space(4.0);
+
+                    let shortcut_hint = if cfg!(target_os = "macos") {
+                        "New tab (\u{2318}T)"
+                    } else {
+                        "New tab (Ctrl+T)"
+                    };
+                    if ui
+                        .add(
+                            egui::Button::new(egui::RichText::new("+").size(16.0))
+                                .frame(false)
+                                .min_size(egui::vec2(24.0, 22.0)),
+                        )
+                        .on_hover_text(shortcut_hint)
+                        .clicked()
+                    {
+                        open_new = true;
+                    }
+                });
+            });
+
+        if let Some(i) = close_idx {
+            self.close_tab(i);
+        }
+        if open_new {
+            let idx = self.create_tab();
+            self.active_tab = idx;
+        }
+        if let Some(i) = switch_to {
+            if i < self.tabs.len() {
+                self.active_tab = i;
+            }
+        }
+    }
+}
+
+// ── Helpers ─────────────────────────────────────────────────────────────────
+
+fn url_to_title(url: &str) -> String {
+    if url == "(local)" {
+        return "Local Module".to_string();
+    }
+    if let Some(stripped) = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))
+    {
+        stripped.split('/').next().unwrap_or(stripped).to_string()
+    } else if let Some(stripped) = url.strip_prefix("file://") {
+        stripped
+            .rsplit('/')
+            .next()
+            .unwrap_or("Local File")
+            .to_string()
+    } else {
+        let max = 20;
+        if url.chars().count() > max {
+            let truncated: String = url.chars().take(max).collect();
+            format!("{truncated}\u{2026}")
+        } else {
+            url.to_string()
+        }
+    }
+}
 
 fn egui_key_to_oxide(key: &egui::Key) -> Option<u32> {
     use egui::Key::*;

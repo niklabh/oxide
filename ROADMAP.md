@@ -336,7 +336,7 @@ The core architecture is live: a Rust-native browser that fetches and executes `
 
 ### Browser Features
 
-- [ ] Multi-tab support with per-tab isolation
+- [x] Multi-tab support with per-tab isolation
 - [ ] Bookmarks and favorites
 - [ ] Download manager
 - [ ] Print-to-PDF
