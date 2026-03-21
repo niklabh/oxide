@@ -405,8 +405,10 @@ impl TabState {
                         stroke,
                         egui::StrokeKind::Outside,
                     );
-                    ui.painter()
-                        .line_segment([egui::pos2(c.x, c.y - hh), egui::pos2(c.x, c.y + hh)], stroke);
+                    ui.painter().line_segment(
+                        [egui::pos2(c.x, c.y - hh), egui::pos2(c.x, c.y + hh)],
+                        stroke,
+                    );
                 }
                 if book_resp.clicked() {
                     toggle_panel = true;
