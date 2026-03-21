@@ -115,12 +115,10 @@ impl BookmarkStore {
 
     pub fn list_all(&self) -> Vec<Bookmark> {
         let mut bookmarks = Vec::new();
-        for entry in self.tree.iter() {
-            if let Ok((key, val)) = entry {
-                if let Ok(url) = String::from_utf8(key.to_vec()) {
-                    if let Some(bm) = Bookmark::from_bytes(&url, &val) {
-                        bookmarks.push(bm);
-                    }
+        for (key, val) in self.tree.iter().flatten() {
+            if let Ok(url) = String::from_utf8(key.to_vec()) {
+                if let Some(bm) = Bookmark::from_bytes(&url, &val) {
+                    bookmarks.push(bm);
                 }
             }
         }
