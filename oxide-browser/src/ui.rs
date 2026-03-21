@@ -386,11 +386,9 @@ impl TabState {
                     egui::Color32::from_rgb(160, 160, 170)
                 };
                 let bm_btn = ui.add(
-                    egui::Button::new(
-                        egui::RichText::new("\u{2605}").size(15.0).color(bm_color),
-                    )
-                    .frame(false)
-                    .min_size(egui::vec2(28.0, 28.0)),
+                    egui::Button::new(egui::RichText::new("\u{2605}").size(15.0).color(bm_color))
+                        .frame(false)
+                        .min_size(egui::vec2(28.0, 28.0)),
                 );
                 if bm_btn.clicked() {
                     toggle_panel = true;
@@ -403,8 +401,7 @@ impl TabState {
 
                 // ── Three-dots overflow menu ─────────────────────
                 let dot_size = egui::vec2(28.0, 28.0);
-                let (menu_rect, menu_resp) =
-                    ui.allocate_exact_size(dot_size, egui::Sense::click());
+                let (menu_rect, menu_resp) = ui.allocate_exact_size(dot_size, egui::Sense::click());
                 if ui.is_rect_visible(menu_rect) {
                     let c = menu_rect.center();
                     let dot_color = if menu_resp.hovered() {
