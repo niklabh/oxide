@@ -1200,10 +1200,7 @@ impl OxideApp {
         ctx: &egui::Context,
         bookmark_store: &Option<BookmarkStore>,
     ) -> Option<String> {
-        let store = match bookmark_store.as_ref() {
-            Some(s) => s,
-            None => return None,
-        };
+        let store = bookmark_store.as_ref()?;
 
         let all = store.list_all();
         let favorites: Vec<_> = all.iter().filter(|b| b.is_favorite).collect();
