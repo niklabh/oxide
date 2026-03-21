@@ -343,8 +343,8 @@ impl TabState {
                     self.navigate();
                 }
 
-                let has_url = !self.url_input.trim().is_empty()
-                    && self.url_input.trim() != "https://";
+                let has_url =
+                    !self.url_input.trim().is_empty() && self.url_input.trim() != "https://";
 
                 if has_url {
                     let star = if is_bookmarked {
@@ -358,11 +358,9 @@ impl TabState {
                         egui::Color32::from_rgb(160, 160, 170)
                     };
                     let star_btn = ui.add(
-                        egui::Button::new(
-                            egui::RichText::new(star).size(18.0).color(star_color),
-                        )
-                        .frame(false)
-                        .min_size(egui::vec2(28.0, 28.0)),
+                        egui::Button::new(egui::RichText::new(star).size(18.0).color(star_color))
+                            .frame(false)
+                            .min_size(egui::vec2(28.0, 28.0)),
                     );
                     if star_btn.clicked() {
                         toggle_bookmark = true;
@@ -810,9 +808,8 @@ impl OxideApp {
     }
 
     fn create_tab(&mut self) -> usize {
-        let bm_shared: crate::bookmarks::SharedBookmarkStore = Arc::new(Mutex::new(
-            self.bookmark_store.clone(),
-        ));
+        let bm_shared: crate::bookmarks::SharedBookmarkStore =
+            Arc::new(Mutex::new(self.bookmark_store.clone()));
         let host_state = HostState {
             kv_db: self.shared_kv_db.clone(),
             module_loader: self.shared_module_loader.clone(),

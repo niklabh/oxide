@@ -62,8 +62,8 @@ impl BrowserHost {
 
         let kv_db = Arc::new(kv_db);
 
-        let bookmark_store = BookmarkStore::open(&kv_db)
-            .context("failed to initialize bookmark store")?;
+        let bookmark_store =
+            BookmarkStore::open(&kv_db).context("failed to initialize bookmark store")?;
 
         let host_state = HostState {
             module_loader: Some(loader),
