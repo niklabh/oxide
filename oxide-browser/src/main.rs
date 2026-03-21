@@ -1,3 +1,4 @@
+mod bookmarks;
 mod capabilities;
 mod engine;
 mod navigation;

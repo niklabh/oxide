@@ -4,6 +4,7 @@ use std::time::Instant;
 
 use eframe::egui;
 
+use crate::bookmarks::BookmarkStore;
 use crate::capabilities::{ConsoleLevel, DrawCommand, HostState, WidgetCommand, WidgetValue};
 use crate::engine::ModuleLoader;
 use crate::navigation::HistoryEntry;
@@ -270,7 +271,13 @@ impl TabState {
 
     // ── Rendering ───────────────────────────────────────────────────────
 
-    fn render_toolbar(&mut self, ctx: &egui::Context) {
+    fn render_toolbar(
+        &mut self,
+        ctx: &egui::Context,
+        bookmark_store: &Option<BookmarkStore>,
+        show_bookmarks: &mut bool,
+        show_about: &mut bool,
+    ) {
         let can_back = self.host_state.navigation.lock().unwrap().can_go_back();
         let can_fwd = self.host_state.navigation.lock().unwrap().can_go_forward();
 
@@ -283,6 +290,15 @@ impl TabState {
         .to_string();
 
         let status = self.status.lock().unwrap().clone();
+
+        let current_url = self.url_input.clone();
+        let is_bookmarked = bookmark_store
+            .as_ref()
+            .map(|s| s.contains(&current_url))
+            .unwrap_or(false);
+
+        let mut toggle_bookmark = false;
+        let mut toggle_panel = false;
 
         egui::TopBottomPanel::top("toolbar").show(ctx, |ui| {
             ui.horizontal(|ui| {
@@ -320,12 +336,41 @@ impl TabState {
 
                 let response = ui.add(
                     egui::TextEdit::singleline(&mut self.url_input)
-                        .desired_width(ui.available_width() - 160.0)
+                        .desired_width(ui.available_width() - 190.0)
                         .hint_text("Enter .wasm URL...")
                         .font(egui::TextStyle::Monospace),
                 );
                 if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                     self.navigate();
+                }
+
+                let has_url =
+                    !self.url_input.trim().is_empty() && self.url_input.trim() != "https://";
+
+                if has_url {
+                    let star = if is_bookmarked {
+                        "\u{2605}" // filled star
+                    } else {
+                        "\u{2606}" // outline star
+                    };
+                    let star_color = if is_bookmarked {
+                        egui::Color32::from_rgb(255, 200, 50)
+                    } else {
+                        egui::Color32::from_rgb(160, 160, 170)
+                    };
+                    let star_btn = ui.add(
+                        egui::Button::new(egui::RichText::new(star).size(18.0).color(star_color))
+                            .frame(false)
+                            .min_size(egui::vec2(28.0, 28.0)),
+                    );
+                    if star_btn.clicked() {
+                        toggle_bookmark = true;
+                    }
+                    star_btn.on_hover_text(if is_bookmarked {
+                        "Remove bookmark"
+                    } else {
+                        "Add bookmark"
+                    });
                 }
 
                 if ui.button("Go").clicked() {
@@ -335,20 +380,93 @@ impl TabState {
                     self.load_local_file();
                 }
 
-                let console_label = if self.show_console {
-                    "Hide Console"
+                let bm_color = if *show_bookmarks {
+                    egui::Color32::from_rgb(255, 200, 50)
                 } else {
-                    "Show Console"
+                    egui::Color32::from_rgb(160, 160, 170)
                 };
-                if ui.button(console_label).clicked() {
-                    self.show_console = !self.show_console;
+                let bm_btn = ui.add(
+                    egui::Button::new(egui::RichText::new("\u{2605}").size(15.0).color(bm_color))
+                        .frame(false)
+                        .min_size(egui::vec2(28.0, 28.0)),
+                );
+                if bm_btn.clicked() {
+                    toggle_panel = true;
                 }
+                bm_btn.on_hover_text(if *show_bookmarks {
+                    "Hide bookmarks"
+                } else {
+                    "Show bookmarks"
+                });
+
+                // ── Three-dots overflow menu ─────────────────────
+                let dot_size = egui::vec2(28.0, 28.0);
+                let (menu_rect, menu_resp) = ui.allocate_exact_size(dot_size, egui::Sense::click());
+                if ui.is_rect_visible(menu_rect) {
+                    let c = menu_rect.center();
+                    let dot_color = if menu_resp.hovered() {
+                        egui::Color32::from_rgb(220, 220, 230)
+                    } else {
+                        egui::Color32::from_rgb(160, 160, 170)
+                    };
+                    let r = 2.0;
+                    let gap = 5.0;
+                    ui.painter()
+                        .circle_filled(c + egui::vec2(0.0, -gap), r, dot_color);
+                    ui.painter().circle_filled(c, r, dot_color);
+                    ui.painter()
+                        .circle_filled(c + egui::vec2(0.0, gap), r, dot_color);
+                }
+                let menu_id = ui.make_persistent_id("toolbar_overflow_menu");
+                if menu_resp.clicked() {
+                    ui.memory_mut(|mem| mem.toggle_popup(menu_id));
+                }
+                let menu_resp = menu_resp.on_hover_text("Menu");
+                egui::popup_below_widget(
+                    ui,
+                    menu_id,
+                    &menu_resp,
+                    egui::PopupCloseBehavior::CloseOnClick,
+                    |ui| {
+                        ui.set_min_width(160.0);
+
+                        let console_label = if self.show_console {
+                            "Hide Console"
+                        } else {
+                            "Show Console"
+                        };
+                        if ui.button(console_label).clicked() {
+                            self.show_console = !self.show_console;
+                        }
+
+                        ui.separator();
+
+                        if ui.button("About Oxide").clicked() {
+                            *show_about = true;
+                        }
+                    },
+                );
             });
 
             if let PageStatus::Error(ref msg) = status {
                 ui.colored_label(egui::Color32::from_rgb(220, 50, 50), msg);
             }
         });
+
+        if toggle_bookmark {
+            if let Some(store) = bookmark_store.as_ref() {
+                if is_bookmarked {
+                    let _ = store.remove(&current_url);
+                } else {
+                    let title = url_to_title(&current_url);
+                    let _ = store.add(&current_url, &title);
+                }
+            }
+        }
+
+        if toggle_panel {
+            *show_bookmarks = !*show_bookmarks;
+        }
     }
 
     fn render_canvas(&mut self, ctx: &egui::Context) {
@@ -706,12 +824,16 @@ pub struct OxideApp {
     next_tab_id: u64,
     shared_kv_db: Option<Arc<sled::Db>>,
     shared_module_loader: Option<Arc<ModuleLoader>>,
+    bookmark_store: Option<BookmarkStore>,
+    show_bookmarks: bool,
+    show_about: bool,
 }
 
 impl OxideApp {
     pub fn new(host_state: HostState, status: Arc<Mutex<PageStatus>>) -> Self {
         let shared_kv_db = host_state.kv_db.clone();
         let shared_module_loader = host_state.module_loader.clone();
+        let bookmark_store = host_state.bookmark_store.lock().unwrap().clone();
 
         let first_tab = TabState::new(0, host_state, status);
 
@@ -721,13 +843,19 @@ impl OxideApp {
             next_tab_id: 1,
             shared_kv_db,
             shared_module_loader,
+            bookmark_store,
+            show_bookmarks: false,
+            show_about: false,
         }
     }
 
     fn create_tab(&mut self) -> usize {
+        let bm_shared: crate::bookmarks::SharedBookmarkStore =
+            Arc::new(Mutex::new(self.bookmark_store.clone()));
         let host_state = HostState {
             kv_db: self.shared_kv_db.clone(),
             module_loader: self.shared_module_loader.clone(),
+            bookmark_store: bm_shared,
             ..Default::default()
         };
         let status = Arc::new(Mutex::new(PageStatus::Idle));
@@ -752,15 +880,18 @@ impl OxideApp {
     }
 
     fn handle_keyboard_shortcuts(&mut self, ctx: &egui::Context) {
-        let (new_tab, close_tab, next_tab, prev_tab) = ctx.input(|i| {
-            let cmd = i.modifiers.command;
-            (
-                cmd && i.key_pressed(egui::Key::T),
-                cmd && i.key_pressed(egui::Key::W),
-                i.modifiers.ctrl && !i.modifiers.shift && i.key_pressed(egui::Key::Tab),
-                i.modifiers.ctrl && i.modifiers.shift && i.key_pressed(egui::Key::Tab),
-            )
-        });
+        let (new_tab, close_tab, next_tab, prev_tab, toggle_bookmark, toggle_panel) =
+            ctx.input(|i| {
+                let cmd = i.modifiers.command;
+                (
+                    cmd && i.key_pressed(egui::Key::T),
+                    cmd && i.key_pressed(egui::Key::W),
+                    i.modifiers.ctrl && !i.modifiers.shift && i.key_pressed(egui::Key::Tab),
+                    i.modifiers.ctrl && i.modifiers.shift && i.key_pressed(egui::Key::Tab),
+                    cmd && i.key_pressed(egui::Key::D),
+                    cmd && i.key_pressed(egui::Key::B),
+                )
+            });
 
         if new_tab {
             let idx = self.create_tab();
@@ -778,6 +909,27 @@ impl OxideApp {
                 self.active_tab = self.tabs.len() - 1;
             } else {
                 self.active_tab -= 1;
+            }
+        }
+        if toggle_bookmark {
+            self.toggle_active_bookmark();
+        }
+        if toggle_panel {
+            self.show_bookmarks = !self.show_bookmarks;
+        }
+    }
+
+    fn toggle_active_bookmark(&self) {
+        let url = self.tabs[self.active_tab].url_input.trim().to_string();
+        if url.is_empty() || url == "https://" {
+            return;
+        }
+        if let Some(store) = &self.bookmark_store {
+            if store.contains(&url) {
+                let _ = store.remove(&url);
+            } else {
+                let title = url_to_title(&url);
+                let _ = store.add(&url, &title);
             }
         }
     }
@@ -801,10 +953,27 @@ impl eframe::App for OxideApp {
         self.tabs[active].tick_frame();
 
         self.render_tab_bar(ctx);
-        self.tabs[self.active_tab].render_toolbar(ctx);
+
+        let bm_store = self.bookmark_store.clone();
+        let mut show_bm = self.show_bookmarks;
+        let mut show_about = self.show_about;
+        self.tabs[self.active_tab].render_toolbar(ctx, &bm_store, &mut show_bm, &mut show_about);
+        self.show_bookmarks = show_bm;
+        self.show_about = show_about;
+
+        let mut nav_to_url: Option<String> = None;
+        if self.show_bookmarks {
+            nav_to_url = Self::render_bookmarks_panel(ctx, &self.bookmark_store);
+        }
+
         self.tabs[self.active_tab].render_canvas(ctx);
+
         if self.tabs[self.active_tab].show_console {
             self.tabs[self.active_tab].render_console(ctx);
+        }
+
+        if let Some(url) = nav_to_url {
+            self.tabs[self.active_tab].navigate_to(url, true);
         }
 
         if let Some(link_url) = self.tabs[self.active_tab].hovered_link_url.clone() {
@@ -819,6 +988,94 @@ impl eframe::App for OxideApp {
                     );
                 });
         }
+
+        if self.show_about {
+            self.render_about_modal(ctx);
+        }
+    }
+}
+
+impl OxideApp {
+    fn render_about_modal(&mut self, ctx: &egui::Context) {
+        egui::Window::new("About Oxide")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .fixed_size([360.0, 0.0])
+            .show(ctx, |ui| {
+                ui.vertical_centered(|ui| {
+                    ui.add_space(8.0);
+                    ui.heading(
+                        egui::RichText::new("Oxide Browser")
+                            .size(24.0)
+                            .strong()
+                            .color(egui::Color32::from_rgb(180, 120, 255)),
+                    );
+                    ui.add_space(4.0);
+                    ui.label(
+                        egui::RichText::new(format!("Version {}", env!("CARGO_PKG_VERSION")))
+                            .size(13.0)
+                            .color(egui::Color32::from_rgb(160, 160, 170)),
+                    );
+                    ui.add_space(12.0);
+                });
+
+                ui.label("A binary-first, decentralized browser that loads and runs WebAssembly modules instead of HTML/JavaScript.");
+                ui.add_space(8.0);
+
+                egui::Grid::new("about_details")
+                    .num_columns(2)
+                    .spacing([12.0, 4.0])
+                    .show(ui, |ui| {
+                        ui.label(
+                            egui::RichText::new("Runtime")
+                                .strong()
+                                .color(egui::Color32::from_rgb(180, 180, 190)),
+                        );
+                        ui.label("Wasmtime");
+                        ui.end_row();
+
+                        ui.label(
+                            egui::RichText::new("UI")
+                                .strong()
+                                .color(egui::Color32::from_rgb(180, 180, 190)),
+                        );
+                        ui.label("egui / eframe");
+                        ui.end_row();
+
+                        ui.label(
+                            egui::RichText::new("Sandbox")
+                                .strong()
+                                .color(egui::Color32::from_rgb(180, 180, 190)),
+                        );
+                        ui.label("Capability-based, 16 MB memory limit");
+                        ui.end_row();
+
+                        ui.label(
+                            egui::RichText::new("Storage")
+                                .strong()
+                                .color(egui::Color32::from_rgb(180, 180, 190)),
+                        );
+                        ui.label("sled embedded KV store");
+                        ui.end_row();
+
+                        ui.label(
+                            egui::RichText::new("License")
+                                .strong()
+                                .color(egui::Color32::from_rgb(180, 180, 190)),
+                        );
+                        ui.label("MIT");
+                        ui.end_row();
+                    });
+
+                ui.add_space(12.0);
+                ui.vertical_centered(|ui| {
+                    if ui.button("Close").clicked() {
+                        self.show_about = false;
+                    }
+                });
+                ui.add_space(4.0);
+            });
     }
 }
 
@@ -936,6 +1193,175 @@ impl OxideApp {
             }
         }
     }
+}
+
+impl OxideApp {
+    fn render_bookmarks_panel(
+        ctx: &egui::Context,
+        bookmark_store: &Option<BookmarkStore>,
+    ) -> Option<String> {
+        let store = bookmark_store.as_ref()?;
+
+        let all = store.list_all();
+        let favorites: Vec<_> = all.iter().filter(|b| b.is_favorite).collect();
+        let regular: Vec<_> = all.iter().filter(|b| !b.is_favorite).collect();
+
+        let mut navigate_url: Option<String> = None;
+        let mut toggle_fav_url: Option<String> = None;
+        let mut remove_url: Option<String> = None;
+
+        egui::SidePanel::left("bookmarks_panel")
+            .default_width(260.0)
+            .resizable(true)
+            .show(ctx, |ui| {
+                ui.heading(
+                    egui::RichText::new("\u{2605} Bookmarks")
+                        .size(16.0)
+                        .color(egui::Color32::from_rgb(255, 200, 50)),
+                );
+                ui.separator();
+
+                if all.is_empty() {
+                    ui.add_space(20.0);
+                    ui.label(
+                        egui::RichText::new("No bookmarks yet.\nClick the \u{2606} star in the toolbar to bookmark a page.")
+                            .color(egui::Color32::from_rgb(130, 130, 140))
+                            .size(12.0),
+                    );
+                    return;
+                }
+
+                egui::ScrollArea::vertical()
+                    .auto_shrink([false; 2])
+                    .show(ui, |ui| {
+                        if !favorites.is_empty() {
+                            ui.label(
+                                egui::RichText::new("Favorites")
+                                    .strong()
+                                    .size(13.0)
+                                    .color(egui::Color32::from_rgb(255, 200, 50)),
+                            );
+                            ui.add_space(4.0);
+                            for bm in &favorites {
+                                render_bookmark_row(
+                                    ui,
+                                    bm,
+                                    &mut navigate_url,
+                                    &mut toggle_fav_url,
+                                    &mut remove_url,
+                                );
+                            }
+                            if !regular.is_empty() {
+                                ui.add_space(8.0);
+                                ui.separator();
+                                ui.add_space(4.0);
+                            }
+                        }
+
+                        if !regular.is_empty() {
+                            ui.label(
+                                egui::RichText::new("All Bookmarks")
+                                    .strong()
+                                    .size(13.0)
+                                    .color(egui::Color32::from_rgb(180, 180, 190)),
+                            );
+                            ui.add_space(4.0);
+                            for bm in &regular {
+                                render_bookmark_row(
+                                    ui,
+                                    bm,
+                                    &mut navigate_url,
+                                    &mut toggle_fav_url,
+                                    &mut remove_url,
+                                );
+                            }
+                        }
+                    });
+            });
+
+        if let Some(url) = toggle_fav_url {
+            let _ = store.toggle_favorite(&url);
+        }
+        if let Some(url) = remove_url {
+            let _ = store.remove(&url);
+        }
+
+        navigate_url
+    }
+}
+
+fn render_bookmark_row(
+    ui: &mut egui::Ui,
+    bm: &crate::bookmarks::Bookmark,
+    navigate_url: &mut Option<String>,
+    toggle_fav_url: &mut Option<String>,
+    remove_url: &mut Option<String>,
+) {
+    let max_title_len = 28;
+    let display_title = if bm.title.is_empty() {
+        url_to_title(&bm.url)
+    } else {
+        bm.title.clone()
+    };
+    let truncated = if display_title.chars().count() > max_title_len {
+        let t: String = display_title.chars().take(max_title_len).collect();
+        format!("{t}\u{2026}")
+    } else {
+        display_title
+    };
+
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 4.0;
+
+        let fav_icon = if bm.is_favorite {
+            "\u{2605}"
+        } else {
+            "\u{2606}"
+        };
+        let fav_color = if bm.is_favorite {
+            egui::Color32::from_rgb(255, 200, 50)
+        } else {
+            egui::Color32::from_rgb(120, 120, 130)
+        };
+        let fav_btn = ui.add(
+            egui::Label::new(egui::RichText::new(fav_icon).color(fav_color).size(14.0))
+                .sense(egui::Sense::click()),
+        );
+        if fav_btn.clicked() {
+            *toggle_fav_url = Some(bm.url.clone());
+        }
+        fav_btn.on_hover_text(if bm.is_favorite {
+            "Unfavorite"
+        } else {
+            "Mark as favorite"
+        });
+
+        let link = ui.add(
+            egui::Label::new(
+                egui::RichText::new(&truncated)
+                    .color(egui::Color32::from_rgb(170, 190, 255))
+                    .size(12.5),
+            )
+            .sense(egui::Sense::click()),
+        );
+        if link.clicked() {
+            *navigate_url = Some(bm.url.clone());
+        }
+        link.on_hover_text(&bm.url);
+
+        let del_btn = ui.add(
+            egui::Label::new(
+                egui::RichText::new("\u{00D7}")
+                    .color(egui::Color32::from_rgb(140, 100, 100))
+                    .size(14.0),
+            )
+            .sense(egui::Sense::click()),
+        );
+        if del_btn.clicked() {
+            *remove_url = Some(bm.url.clone());
+        }
+        del_btn.on_hover_text("Remove bookmark");
+    });
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
