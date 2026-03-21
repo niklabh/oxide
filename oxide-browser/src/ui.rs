@@ -276,6 +276,7 @@ impl TabState {
         ctx: &egui::Context,
         bookmark_store: &Option<BookmarkStore>,
         show_bookmarks: &mut bool,
+        show_about: &mut bool,
     ) {
         let can_back = self.host_state.navigation.lock().unwrap().can_go_back();
         let can_fwd = self.host_state.navigation.lock().unwrap().can_go_forward();
@@ -335,7 +336,7 @@ impl TabState {
 
                 let response = ui.add(
                     egui::TextEdit::singleline(&mut self.url_input)
-                        .desired_width(ui.available_width() - 220.0)
+                        .desired_width(ui.available_width() - 190.0)
                         .hint_text("Enter .wasm URL...")
                         .font(egui::TextStyle::Monospace),
                 );
@@ -398,14 +399,44 @@ impl TabState {
                     "Show bookmarks"
                 });
 
-                let console_label = if self.show_console {
-                    "Hide Console"
-                } else {
-                    "Show Console"
-                };
-                if ui.button(console_label).clicked() {
-                    self.show_console = !self.show_console;
+                // ── Three-dots overflow menu ─────────────────────
+                let menu_btn = ui.add(
+                    egui::Button::new(
+                        egui::RichText::new("\u{22EE}")
+                            .size(18.0)
+                            .color(egui::Color32::from_rgb(180, 180, 190)),
+                    )
+                    .frame(false)
+                    .min_size(egui::vec2(28.0, 28.0)),
+                );
+                let menu_id = ui.make_persistent_id("toolbar_overflow_menu");
+                if menu_btn.clicked() {
+                    ui.memory_mut(|mem| mem.toggle_popup(menu_id));
                 }
+                egui::popup_below_widget(
+                    ui,
+                    menu_id,
+                    &menu_btn,
+                    egui::PopupCloseBehavior::CloseOnClick,
+                    |ui| {
+                        ui.set_min_width(180.0);
+
+                        let console_label = if self.show_console {
+                            "\u{1F4D5}  Hide Console"
+                        } else {
+                            "\u{1F4D6}  Show Console"
+                        };
+                        if ui.button(console_label).clicked() {
+                            self.show_console = !self.show_console;
+                        }
+
+                        ui.separator();
+
+                        if ui.button("\u{24D8}  About Oxide").clicked() {
+                            *show_about = true;
+                        }
+                    },
+                );
             });
 
             if let PageStatus::Error(ref msg) = status {
@@ -786,6 +817,7 @@ pub struct OxideApp {
     shared_module_loader: Option<Arc<ModuleLoader>>,
     bookmark_store: Option<BookmarkStore>,
     show_bookmarks: bool,
+    show_about: bool,
 }
 
 impl OxideApp {
@@ -804,6 +836,7 @@ impl OxideApp {
             shared_module_loader,
             bookmark_store,
             show_bookmarks: false,
+            show_about: false,
         }
     }
 
@@ -914,8 +947,10 @@ impl eframe::App for OxideApp {
 
         let bm_store = self.bookmark_store.clone();
         let mut show_bm = self.show_bookmarks;
-        self.tabs[self.active_tab].render_toolbar(ctx, &bm_store, &mut show_bm);
+        let mut show_about = self.show_about;
+        self.tabs[self.active_tab].render_toolbar(ctx, &bm_store, &mut show_bm, &mut show_about);
         self.show_bookmarks = show_bm;
+        self.show_about = show_about;
 
         let mut nav_to_url: Option<String> = None;
         if self.show_bookmarks {
@@ -944,6 +979,94 @@ impl eframe::App for OxideApp {
                     );
                 });
         }
+
+        if self.show_about {
+            self.render_about_modal(ctx);
+        }
+    }
+}
+
+impl OxideApp {
+    fn render_about_modal(&mut self, ctx: &egui::Context) {
+        egui::Window::new("About Oxide")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
+            .fixed_size([360.0, 0.0])
+            .show(ctx, |ui| {
+                ui.vertical_centered(|ui| {
+                    ui.add_space(8.0);
+                    ui.heading(
+                        egui::RichText::new("Oxide Browser")
+                            .size(24.0)
+                            .strong()
+                            .color(egui::Color32::from_rgb(180, 120, 255)),
+                    );
+                    ui.add_space(4.0);
+                    ui.label(
+                        egui::RichText::new(format!("Version {}", env!("CARGO_PKG_VERSION")))
+                            .size(13.0)
+                            .color(egui::Color32::from_rgb(160, 160, 170)),
+                    );
+                    ui.add_space(12.0);
+                });
+
+                ui.label("A binary-first, decentralized browser that loads and runs WebAssembly modules instead of HTML/JavaScript.");
+                ui.add_space(8.0);
+
+                egui::Grid::new("about_details")
+                    .num_columns(2)
+                    .spacing([12.0, 4.0])
+                    .show(ui, |ui| {
+                        ui.label(
+                            egui::RichText::new("Runtime")
+                                .strong()
+                                .color(egui::Color32::from_rgb(180, 180, 190)),
+                        );
+                        ui.label("Wasmtime");
+                        ui.end_row();
+
+                        ui.label(
+                            egui::RichText::new("UI")
+                                .strong()
+                                .color(egui::Color32::from_rgb(180, 180, 190)),
+                        );
+                        ui.label("egui / eframe");
+                        ui.end_row();
+
+                        ui.label(
+                            egui::RichText::new("Sandbox")
+                                .strong()
+                                .color(egui::Color32::from_rgb(180, 180, 190)),
+                        );
+                        ui.label("Capability-based, 16 MB memory limit");
+                        ui.end_row();
+
+                        ui.label(
+                            egui::RichText::new("Storage")
+                                .strong()
+                                .color(egui::Color32::from_rgb(180, 180, 190)),
+                        );
+                        ui.label("sled embedded KV store");
+                        ui.end_row();
+
+                        ui.label(
+                            egui::RichText::new("License")
+                                .strong()
+                                .color(egui::Color32::from_rgb(180, 180, 190)),
+                        );
+                        ui.label("MIT");
+                        ui.end_row();
+                    });
+
+                ui.add_space(12.0);
+                ui.vertical_centered(|ui| {
+                    if ui.button("Close").clicked() {
+                        self.show_about = false;
+                    }
+                });
+                ui.add_space(4.0);
+            });
     }
 }
 
