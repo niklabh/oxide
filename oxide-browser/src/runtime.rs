@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex};
 use anyhow::{Context, Result};
 use wasmtime::*;
 
+use crate::bookmarks::BookmarkStore;
 use crate::capabilities::{register_host_functions, HostState};
 use crate::engine::{ModuleLoader, SandboxPolicy, WasmEngine};
 use crate::url::OxideUrl;
@@ -59,9 +60,15 @@ impl BrowserHost {
         let kv_db = sled::open(&kv_path)
             .with_context(|| format!("failed to open KV store at {}", kv_path.display()))?;
 
+        let kv_db = Arc::new(kv_db);
+
+        let bookmark_store = BookmarkStore::open(&kv_db)
+            .context("failed to initialize bookmark store")?;
+
         let host_state = HostState {
             module_loader: Some(loader),
-            kv_db: Some(Arc::new(kv_db)),
+            kv_db: Some(kv_db),
+            bookmark_store: Arc::new(Mutex::new(Some(bookmark_store))),
             ..Default::default()
         };
 

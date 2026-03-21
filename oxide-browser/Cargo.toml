@@ -28,3 +28,6 @@ dirs = "5"
 url = "2"
 percent-encoding = "2"
 getrandom = "0.2"
+
+[dev-dependencies]
+tempfile = "3"

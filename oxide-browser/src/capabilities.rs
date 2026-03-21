@@ -6,6 +6,7 @@ use anyhow::{Context, Result};
 use image::GenericImageView;
 use wasmtime::*;
 
+use crate::bookmarks::SharedBookmarkStore;
 use crate::engine::ModuleLoader;
 use crate::navigation::NavigationStack;
 use crate::url as oxide_url;
@@ -38,6 +39,8 @@ pub struct HostState {
     pub widget_clicked: Arc<Mutex<HashSet<u32>>>,
     /// Top-left corner of the canvas panel in egui screen coords.
     pub canvas_offset: Arc<Mutex<(f32, f32)>>,
+    /// Persistent bookmark storage shared across tabs.
+    pub bookmark_store: SharedBookmarkStore,
 }
 
 #[derive(Clone, Debug)]
@@ -228,6 +231,7 @@ impl Default for HostState {
             widget_states: Arc::new(Mutex::new(HashMap::new())),
             widget_clicked: Arc::new(Mutex::new(HashSet::new())),
             canvas_offset: Arc::new(Mutex::new((0.0, 0.0))),
+            bookmark_store: crate::bookmarks::new_shared(),
         }
     }
 }
