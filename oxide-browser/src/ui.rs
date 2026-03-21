@@ -380,15 +380,17 @@ impl TabState {
                     self.load_local_file();
                 }
 
-                let bm_label = if *show_bookmarks {
-                    "\u{1F4D6}"
+                let bm_color = if *show_bookmarks {
+                    egui::Color32::from_rgb(255, 200, 50)
                 } else {
-                    "\u{1F4D5}"
+                    egui::Color32::from_rgb(160, 160, 170)
                 };
                 let bm_btn = ui.add(
-                    egui::Button::new(egui::RichText::new(bm_label).size(15.0))
-                        .frame(false)
-                        .min_size(egui::vec2(28.0, 28.0)),
+                    egui::Button::new(
+                        egui::RichText::new("\u{2605}").size(15.0).color(bm_color),
+                    )
+                    .frame(false)
+                    .min_size(egui::vec2(28.0, 28.0)),
                 );
                 if bm_btn.clicked() {
                     toggle_panel = true;
@@ -400,31 +402,41 @@ impl TabState {
                 });
 
                 // ── Three-dots overflow menu ─────────────────────
-                let menu_btn = ui.add(
-                    egui::Button::new(
-                        egui::RichText::new("\u{22EE}")
-                            .size(18.0)
-                            .color(egui::Color32::from_rgb(180, 180, 190)),
-                    )
-                    .frame(false)
-                    .min_size(egui::vec2(28.0, 28.0)),
-                );
+                let dot_size = egui::vec2(28.0, 28.0);
+                let (menu_rect, menu_resp) =
+                    ui.allocate_exact_size(dot_size, egui::Sense::click());
+                if ui.is_rect_visible(menu_rect) {
+                    let c = menu_rect.center();
+                    let dot_color = if menu_resp.hovered() {
+                        egui::Color32::from_rgb(220, 220, 230)
+                    } else {
+                        egui::Color32::from_rgb(160, 160, 170)
+                    };
+                    let r = 2.0;
+                    let gap = 5.0;
+                    ui.painter()
+                        .circle_filled(c + egui::vec2(0.0, -gap), r, dot_color);
+                    ui.painter().circle_filled(c, r, dot_color);
+                    ui.painter()
+                        .circle_filled(c + egui::vec2(0.0, gap), r, dot_color);
+                }
                 let menu_id = ui.make_persistent_id("toolbar_overflow_menu");
-                if menu_btn.clicked() {
+                if menu_resp.clicked() {
                     ui.memory_mut(|mem| mem.toggle_popup(menu_id));
                 }
+                let menu_resp = menu_resp.on_hover_text("Menu");
                 egui::popup_below_widget(
                     ui,
                     menu_id,
-                    &menu_btn,
+                    &menu_resp,
                     egui::PopupCloseBehavior::CloseOnClick,
                     |ui| {
-                        ui.set_min_width(180.0);
+                        ui.set_min_width(160.0);
 
                         let console_label = if self.show_console {
-                            "\u{1F4D5}  Hide Console"
+                            "Hide Console"
                         } else {
-                            "\u{1F4D6}  Show Console"
+                            "Show Console"
                         };
                         if ui.button(console_label).clicked() {
                             self.show_console = !self.show_console;
@@ -432,7 +444,7 @@ impl TabState {
 
                         ui.separator();
 
-                        if ui.button("\u{24D8}  About Oxide").clicked() {
+                        if ui.button("About Oxide").clicked() {
                             *show_about = true;
                         }
                     },
