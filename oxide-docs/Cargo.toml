@@ -1,0 +1,18 @@
+[package]
+name = "oxide-docs"
+version = "0.2.0"
+edition = "2021"
+description = "Documentation hub for the Oxide browser project — a binary-first browser for WebAssembly"
+license = "Apache-2.0"
+authors = ["Nikhil Ranjan <niklabh>"]
+repository = "https://github.com/nicklabh/oxide"
+homepage = "https://docs.oxide.foundation"
+documentation = "https://docs.oxide.foundation"
+
+[lib]
+name = "oxide_docs"
+path = "src/lib.rs"
+
+[dependencies]
+oxide-sdk = { path = "../oxide-sdk" }
+oxide-browser = { path = "../oxide-browser" }

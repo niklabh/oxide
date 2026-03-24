@@ -1,3 +1,13 @@
+//! Desktop GUI for Oxide using [egui](https://github.com/emilk/egui) and [eframe](https://github.com/emilk/egui/tree/master/crates/eframe).
+//!
+//! This module implements a multi-tab browser shell: toolbar, canvas renderer, console panel,
+//! bookmarks sidebar, and an about dialog. The canvas draws guest WebAssembly output—rectangles,
+//! circles, text, lines, and images—via the host’s draw command stream. Interactive widgets
+//! (buttons, checkboxes, sliders, text inputs) are issued by the guest and rendered each frame.
+//! Hyperlinks drawn on the canvas are hit-tested so clicks trigger navigation.
+//!
+//! **Shortcuts:** Cmd+T new tab, Cmd+W close tab, Ctrl+Tab next tab, Cmd+D toggle bookmark for the
+//! current page, Cmd+B toggle the bookmarks panel.
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -838,6 +848,8 @@ impl TabState {
 
 // ── Application ─────────────────────────────────────────────────────────────
 
+/// Main [`eframe::App`] implementation: owns tab state, bookmarks, and browser chrome (navigation,
+/// panels, and dialogs) for the Oxide desktop shell.
 pub struct OxideApp {
     tabs: Vec<TabState>,
     active_tab: usize,

@@ -1,10 +1,23 @@
 //! # Oxide SDK
 //!
 //! Guest-side SDK for building WebAssembly applications that run inside the
-//! Oxide browser. This crate provides safe Rust wrappers around the raw
-//! host-imported functions exposed by the `"oxide"` module.
+//! [Oxide browser](https://github.com/niklabh/oxide). This crate provides
+//! safe Rust wrappers around the raw host-imported functions exposed by the
+//! `"oxide"` wasm import module.
 //!
 //! ## Quick Start
+//!
+//! Add `oxide-sdk` to your `Cargo.toml` and set `crate-type = ["cdylib"]`:
+//!
+//! ```toml
+//! [lib]
+//! crate-type = ["cdylib"]
+//!
+//! [dependencies]
+//! oxide-sdk = "0.2"
+//! ```
+//!
+//! Then write your app:
 //!
 //! ```rust,ignore
 //! use oxide_sdk::*;
@@ -16,6 +29,54 @@
 //!     canvas_text(20.0, 40.0, 28.0, 255, 255, 255, "Welcome to Oxide");
 //! }
 //! ```
+//!
+//! Build with `cargo build --target wasm32-unknown-unknown --release`.
+//!
+//! ## Interactive Apps
+//!
+//! For apps that need a render loop, export `on_frame`:
+//!
+//! ```rust,ignore
+//! use oxide_sdk::*;
+//!
+//! #[no_mangle]
+//! pub extern "C" fn start_app() {
+//!     log("Interactive app started");
+//! }
+//!
+//! #[no_mangle]
+//! pub extern "C" fn on_frame(_dt_ms: u32) {
+//!     canvas_clear(30, 30, 46, 255);
+//!     let (mx, my) = mouse_position();
+//!     canvas_circle(mx, my, 20.0, 255, 100, 100, 255);
+//!
+//!     if ui_button(1, 20.0, 20.0, 100.0, 30.0, "Click me!") {
+//!         log("Button was clicked!");
+//!     }
+//! }
+//! ```
+//!
+//! ## API Categories
+//!
+//! | Category | Functions |
+//! |----------|-----------|
+//! | **Canvas** | [`canvas_clear`], [`canvas_rect`], [`canvas_circle`], [`canvas_text`], [`canvas_line`], [`canvas_image`], [`canvas_dimensions`] |
+//! | **Console** | [`log`], [`warn`], [`error`] |
+//! | **HTTP** | [`fetch`], [`fetch_get`], [`fetch_post`], [`fetch_post_proto`], [`fetch_put`], [`fetch_delete`] |
+//! | **Protobuf** | [`proto::ProtoEncoder`], [`proto::ProtoDecoder`] |
+//! | **Storage** | [`storage_set`], [`storage_get`], [`storage_remove`], [`kv_store_set`], [`kv_store_get`], [`kv_store_delete`] |
+//! | **Audio** | [`audio_play`], [`audio_play_url`], [`audio_pause`], [`audio_resume`], [`audio_stop`], [`audio_set_volume`], [`audio_channel_play`] |
+//! | **Timers** | [`set_timeout`], [`set_interval`], [`clear_timer`], [`time_now_ms`] |
+//! | **Navigation** | [`navigate`], [`push_state`], [`replace_state`], [`get_url`], [`history_back`], [`history_forward`] |
+//! | **Input** | [`mouse_position`], [`mouse_button_down`], [`key_down`], [`key_pressed`], [`scroll_delta`] |
+//! | **Widgets** | [`ui_button`], [`ui_checkbox`], [`ui_slider`], [`ui_text_input`] |
+//! | **Crypto** | [`hash_sha256`], [`hash_sha256_hex`], [`base64_encode`], [`base64_decode`] |
+//! | **Other** | [`clipboard_write`], [`clipboard_read`], [`random_u64`], [`random_f64`], [`notify`], [`upload_file`], [`load_module`] |
+//!
+//! ## Full API Documentation
+//!
+//! See <https://docs.oxide.foundation/oxide_sdk/> for the complete API
+//! reference, or browse the individual function documentation below.
 
 pub mod proto;
 

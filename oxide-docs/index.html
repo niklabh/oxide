@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Oxide Documentation</title>
+    <meta name="description" content="API documentation for the Oxide browser — a binary-first browser for WebAssembly">
+    <style>
+        :root {
+            --bg: #1a1a2e;
+            --surface: #16213e;
+            --primary: #b478ff;
+            --primary-dim: #8a5ccf;
+            --text: #e0e0e0;
+            --text-dim: #9a9ab0;
+            --link: #a0b0ff;
+            --accent: #ff6b9d;
+            --border: #2a2a4a;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .hero {
+            text-align: center;
+            padding: 80px 20px 40px;
+            max-width: 720px;
+        }
+        .hero h1 {
+            font-size: 3rem;
+            font-weight: 700;
+            color: var(--primary);
+            margin-bottom: 12px;
+        }
+        .hero p {
+            font-size: 1.15rem;
+            color: var(--text-dim);
+            line-height: 1.6;
+        }
+        .cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 24px;
+            max-width: 720px;
+            width: 100%;
+            padding: 0 20px 60px;
+        }
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 28px 24px;
+            text-decoration: none;
+            color: var(--text);
+            transition: border-color 0.2s, transform 0.15s;
+        }
+        .card:hover {
+            border-color: var(--primary-dim);
+            transform: translateY(-2px);
+        }
+        .card h2 {
+            font-size: 1.25rem;
+            color: var(--primary);
+            margin-bottom: 8px;
+        }
+        .card .badge {
+            display: inline-block;
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            padding: 2px 8px;
+            border-radius: 4px;
+            margin-bottom: 12px;
+        }
+        .badge-sdk { background: #2d4a2d; color: #7ddf7d; }
+        .badge-browser { background: #4a2d3a; color: #df7da0; }
+        .badge-hub { background: #2d3a4a; color: #7db0df; }
+        .card p {
+            font-size: 0.9rem;
+            color: var(--text-dim);
+            line-height: 1.5;
+        }
+        .footer {
+            text-align: center;
+            padding: 30px 20px;
+            color: var(--text-dim);
+            font-size: 0.8rem;
+            border-top: 1px solid var(--border);
+            width: 100%;
+            max-width: 720px;
+        }
+        .footer a { color: var(--link); text-decoration: none; }
+        .footer a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <div class="hero">
+        <h1>Oxide Docs</h1>
+        <p>
+            API documentation for the <strong>Oxide browser</strong> — a binary-first,
+            decentralized browser that fetches and executes WebAssembly modules
+            instead of HTML/JavaScript.
+        </p>
+    </div>
+
+    <div class="cards">
+        <a href="oxide_docs/index.html" class="card">
+            <span class="badge badge-hub">Documentation Hub</span>
+            <h2>oxide-docs</h2>
+            <p>
+                Start here. Comprehensive overview of the Oxide platform,
+                architecture diagrams, complete API reference tables,
+                guest module contract, and security model.
+            </p>
+        </a>
+
+        <a href="oxide_sdk/index.html" class="card">
+            <span class="badge badge-sdk">Guest SDK</span>
+            <h2>oxide-sdk</h2>
+            <p>
+                Guest-side SDK for building <code>.wasm</code> applications.
+                Canvas drawing, HTTP fetch, protobuf codec, audio, timers,
+                widgets, input, navigation, storage, and more.
+            </p>
+        </a>
+
+        <a href="oxide_browser/index.html" class="card">
+            <span class="badge badge-browser">Host Runtime</span>
+            <h2>oxide-browser</h2>
+            <p>
+                Host runtime internals: Wasmtime engine, sandbox policy,
+                capability provider, egui desktop UI, navigation, bookmarks,
+                and URL parsing. For browser contributors.
+            </p>
+        </a>
+    </div>
+
+    <div class="footer">
+        <p>
+            <a href="https://github.com/niklabh/oxide">GitHub</a> &middot;
+            <a href="https://oxide.foundation">oxide.foundation</a> &middot;
+            Built with <code>cargo doc</code>
+        </p>
+    </div>
+</body>
+</html>

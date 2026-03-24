@@ -1,17 +1,9 @@
-mod bookmarks;
-mod capabilities;
-mod engine;
-mod navigation;
-mod runtime;
-mod ui;
-mod url;
-
 use anyhow::Result;
 
 fn main() -> Result<()> {
     tracing_subscriber::fmt::init();
 
-    let host = runtime::BrowserHost::new()?;
+    let host = oxide_browser::runtime::BrowserHost::new()?;
     let host_state = host.host_state.clone();
     let status = host.status.clone();
 
@@ -26,7 +18,11 @@ fn main() -> Result<()> {
     eframe::run_native(
         "Oxide Browser",
         native_options,
-        Box::new(move |_cc| Ok(Box::new(ui::OxideApp::new(host_state, status)))),
+        Box::new(move |_cc| {
+            Ok(Box::new(oxide_browser::ui::OxideApp::new(
+                host_state, status,
+            )))
+        }),
     )
     .map_err(|e| anyhow::anyhow!("eframe error: {e}"))?;
 
