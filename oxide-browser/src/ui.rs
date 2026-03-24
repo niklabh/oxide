@@ -380,20 +380,40 @@ impl TabState {
                     self.load_local_file();
                 }
 
-                let bm_color = if *show_bookmarks {
-                    egui::Color32::from_rgb(255, 200, 50)
-                } else {
-                    egui::Color32::from_rgb(160, 160, 170)
-                };
-                let bm_btn = ui.add(
-                    egui::Button::new(egui::RichText::new("\u{2605}").size(15.0).color(bm_color))
-                        .frame(false)
-                        .min_size(egui::vec2(28.0, 28.0)),
-                );
-                if bm_btn.clicked() {
+                let book_size = egui::vec2(28.0, 28.0);
+                let (book_rect, book_resp) =
+                    ui.allocate_exact_size(book_size, egui::Sense::click());
+                if ui.is_rect_visible(book_rect) {
+                    let c = book_rect.center();
+                    let book_color = if *show_bookmarks {
+                        egui::Color32::from_rgb(255, 200, 50)
+                    } else if book_resp.hovered() {
+                        egui::Color32::from_rgb(220, 220, 230)
+                    } else {
+                        egui::Color32::from_rgb(160, 160, 170)
+                    };
+                    let stroke = egui::Stroke::new(1.5, book_color);
+                    let hw = 6.0;
+                    let hh = 7.0;
+                    let spine_x = c.x - hw;
+                    ui.painter().rect_stroke(
+                        egui::Rect::from_min_size(
+                            egui::pos2(spine_x, c.y - hh),
+                            egui::vec2(hw * 2.0, hh * 2.0),
+                        ),
+                        egui::CornerRadius::same(2),
+                        stroke,
+                        egui::StrokeKind::Outside,
+                    );
+                    ui.painter().line_segment(
+                        [egui::pos2(c.x, c.y - hh), egui::pos2(c.x, c.y + hh)],
+                        stroke,
+                    );
+                }
+                if book_resp.clicked() {
                     toggle_panel = true;
                 }
-                bm_btn.on_hover_text(if *show_bookmarks {
+                book_resp.on_hover_text(if *show_bookmarks {
                     "Hide bookmarks"
                 } else {
                     "Show bookmarks"
