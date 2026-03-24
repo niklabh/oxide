@@ -71,17 +71,38 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
     canvas_rect(0.0, 0.0, w, 52.0, ACCENT.0, ACCENT.1, ACCENT.2, 255);
     canvas_text(20.0, 14.0, 22.0, 255, 255, 255, "Oxide Timer Demo");
     canvas_text(
-        20.0, 36.0, 11.0, 200, 220, 255,
+        20.0,
+        36.0,
+        11.0,
+        200,
+        220,
+        255,
         "set_timeout / set_interval / clear_timer",
     );
 
     // ── Countdown (set_interval) ────────────────────────────────────
-    canvas_text(20.0, 72.0, 14.0, DIM.0, DIM.1, DIM.2, "COUNTDOWN (set_interval)");
+    canvas_text(
+        20.0,
+        72.0,
+        14.0,
+        DIM.0,
+        DIM.1,
+        DIM.2,
+        "COUNTDOWN (set_interval)",
+    );
 
     let countdown = unsafe { COUNTDOWN };
     let running = unsafe { COUNTDOWN_TIMER } != 0;
 
-    if ui_button(BTN_START_COUNTDOWN, 20.0, 95.0, 140.0, 30.0, "Start from 10") && !running {
+    if ui_button(
+        BTN_START_COUNTDOWN,
+        20.0,
+        95.0,
+        140.0,
+        30.0,
+        "Start from 10",
+    ) && !running
+    {
         unsafe {
             COUNTDOWN = 10;
             COUNTDOWN_TIMER = set_interval(CB_COUNTDOWN, 1000);
@@ -98,7 +119,15 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         ("--".into(), DIM)
     };
 
-    canvas_text(200.0, 100.0, 28.0, count_color.0, count_color.1, count_color.2, &count_text);
+    canvas_text(
+        200.0,
+        100.0,
+        28.0,
+        count_color.0,
+        count_color.1,
+        count_color.2,
+        &count_text,
+    );
 
     if countdown == 0 && !running {
         canvas_text(260.0, 105.0, 14.0, DIM.0, DIM.1, DIM.2, "Done!");
@@ -106,7 +135,15 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
 
     // ── Delayed Message (set_timeout) ───────────────────────────────
     canvas_line(20.0, 145.0, w - 20.0, 145.0, 40, 35, 60, 1.0);
-    canvas_text(20.0, 160.0, 14.0, DIM.0, DIM.1, DIM.2, "DELAYED MESSAGE (set_timeout)");
+    canvas_text(
+        20.0,
+        160.0,
+        14.0,
+        DIM.0,
+        DIM.1,
+        DIM.2,
+        "DELAYED MESSAGE (set_timeout)",
+    );
 
     if ui_button(BTN_FIRE_DELAY, 20.0, 183.0, 180.0, 30.0, "Fire after 3 sec") {
         unsafe { DELAYED_MSG = "Waiting..." };
@@ -115,16 +152,32 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
 
     let msg = unsafe { DELAYED_MSG };
     if !msg.is_empty() {
-        let color = if msg.starts_with("Waiting") { ORANGE } else { GREEN };
+        let color = if msg.starts_with("Waiting") {
+            ORANGE
+        } else {
+            GREEN
+        };
         canvas_text(220.0, 190.0, 14.0, color.0, color.1, color.2, msg);
     }
 
     // ── Blink (set_interval + clear_timer) ──────────────────────────
     canvas_line(20.0, 230.0, w - 20.0, 230.0, 40, 35, 60, 1.0);
-    canvas_text(20.0, 245.0, 14.0, DIM.0, DIM.1, DIM.2, "BLINK (interval + clear)");
+    canvas_text(
+        20.0,
+        245.0,
+        14.0,
+        DIM.0,
+        DIM.1,
+        DIM.2,
+        "BLINK (interval + clear)",
+    );
 
     let blinking = unsafe { BLINK_TIMER } != 0;
-    let label = if blinking { "Stop Blink" } else { "Start Blink" };
+    let label = if blinking {
+        "Stop Blink"
+    } else {
+        "Start Blink"
+    };
     if ui_button(BTN_TOGGLE_BLINK, 20.0, 268.0, 120.0, 30.0, label) {
         unsafe {
             if blinking {
@@ -146,13 +199,30 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
     }
 
     canvas_text(
-        230.0, 276.0, 13.0, DIM.0, DIM.1, DIM.2,
-        if blinking { "Toggling every 500ms" } else { "Idle" },
+        230.0,
+        276.0,
+        13.0,
+        DIM.0,
+        DIM.1,
+        DIM.2,
+        if blinking {
+            "Toggling every 500ms"
+        } else {
+            "Idle"
+        },
     );
 
     // ── Stopwatch (set_interval + clear_timer) ──────────────────────
     canvas_line(20.0, 315.0, w - 20.0, 315.0, 40, 35, 60, 1.0);
-    canvas_text(20.0, 330.0, 14.0, DIM.0, DIM.1, DIM.2, "STOPWATCH (100ms interval)");
+    canvas_text(
+        20.0,
+        330.0,
+        14.0,
+        DIM.0,
+        DIM.1,
+        DIM.2,
+        "STOPWATCH (100ms interval)",
+    );
 
     let sw_running = unsafe { STOPWATCH_TIMER } != 0;
     let sw_ms = unsafe { STOPWATCH_MS };
@@ -175,18 +245,33 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
     let secs = sw_ms / 1000;
     let tenths = (sw_ms % 1000) / 100;
     canvas_text(
-        310.0, 355.0, 28.0, BRIGHT.0, BRIGHT.1, BRIGHT.2,
+        310.0,
+        355.0,
+        28.0,
+        BRIGHT.0,
+        BRIGHT.1,
+        BRIGHT.2,
         &format!("{secs}.{tenths}s"),
     );
 
     // ── Info ─────────────────────────────────────────────────────────
     canvas_line(20.0, 405.0, w - 20.0, 405.0, 40, 35, 60, 1.0);
     canvas_text(
-        20.0, 420.0, 12.0, DIM.0, DIM.1, DIM.2,
+        20.0,
+        420.0,
+        12.0,
+        DIM.0,
+        DIM.1,
+        DIM.2,
         "Timers fire via exported on_timer(callback_id). Intervals repeat until cleared.",
     );
     canvas_text(
-        20.0, 440.0, 12.0, DIM.0, DIM.1, DIM.2,
+        20.0,
+        440.0,
+        12.0,
+        DIM.0,
+        DIM.1,
+        DIM.2,
         "Resolution is tied to the frame rate (~16ms at 60fps).",
     );
 }

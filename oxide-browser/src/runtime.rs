@@ -195,8 +195,9 @@ impl BrowserHost {
             Ok(()) => {
                 if let Ok(on_frame_fn) = instance.get_typed_func::<u32, ()>(&mut store, "on_frame")
                 {
-                    let on_timer_fn =
-                        instance.get_typed_func::<u32, ()>(&mut store, "on_timer").ok();
+                    let on_timer_fn = instance
+                        .get_typed_func::<u32, ()>(&mut store, "on_timer")
+                        .ok();
                     Ok(Some(LiveModule {
                         store,
                         on_frame_fn,
