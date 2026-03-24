@@ -5,7 +5,7 @@ edition = "2021"
 description = "Documentation hub for the Oxide browser project — a binary-first browser for WebAssembly"
 license = "Apache-2.0"
 authors = ["Nikhil Ranjan <niklabh>"]
-repository = "https://github.com/nicklabh/oxide"
+repository = "https://github.com/niklabh/oxide"
 homepage = "https://docs.oxide.foundation"
 documentation = "https://docs.oxide.foundation"
 
