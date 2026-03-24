@@ -227,6 +227,38 @@ extern "C" {
         out_cap: u32,
     ) -> u32;
 
+    // ── Audio Playback ──────────────────────────────────────────────
+
+    #[link_name = "api_audio_play"]
+    fn _api_audio_play(data_ptr: u32, data_len: u32) -> i32;
+
+    #[link_name = "api_audio_play_url"]
+    fn _api_audio_play_url(url_ptr: u32, url_len: u32) -> i32;
+
+    #[link_name = "api_audio_pause"]
+    fn _api_audio_pause();
+
+    #[link_name = "api_audio_resume"]
+    fn _api_audio_resume();
+
+    #[link_name = "api_audio_stop"]
+    fn _api_audio_stop();
+
+    #[link_name = "api_audio_set_volume"]
+    fn _api_audio_set_volume(level: f32);
+
+    #[link_name = "api_audio_get_volume"]
+    fn _api_audio_get_volume() -> f32;
+
+    #[link_name = "api_audio_is_playing"]
+    fn _api_audio_is_playing() -> u32;
+
+    #[link_name = "api_audio_position"]
+    fn _api_audio_position() -> u64;
+
+    #[link_name = "api_audio_seek"]
+    fn _api_audio_seek(position_ms: u64) -> i32;
+
     // ── URL Utilities ───────────────────────────────────────────────
 
     #[link_name = "api_url_resolve"]
@@ -436,6 +468,61 @@ pub fn notify(title: &str, body: &str) {
             body.len() as u32,
         )
     }
+}
+
+// ─── Audio Playback API ─────────────────────────────────────────────────────
+
+/// Play audio from encoded bytes (WAV, MP3, OGG, FLAC).
+/// The host decodes and plays the audio. Returns 0 on success, negative on error.
+pub fn audio_play(data: &[u8]) -> i32 {
+    unsafe { _api_audio_play(data.as_ptr() as u32, data.len() as u32) }
+}
+
+/// Fetch audio from a URL and play it.
+/// The host performs the HTTP fetch and decodes the audio.
+/// Returns 0 on success, negative on error.
+pub fn audio_play_url(url: &str) -> i32 {
+    unsafe { _api_audio_play_url(url.as_ptr() as u32, url.len() as u32) }
+}
+
+/// Pause audio playback.
+pub fn audio_pause() {
+    unsafe { _api_audio_pause() }
+}
+
+/// Resume paused audio playback.
+pub fn audio_resume() {
+    unsafe { _api_audio_resume() }
+}
+
+/// Stop audio playback and clear the queue.
+pub fn audio_stop() {
+    unsafe { _api_audio_stop() }
+}
+
+/// Set audio volume. 1.0 is normal, 0.0 is silent, up to 2.0 for boost.
+pub fn audio_set_volume(level: f32) {
+    unsafe { _api_audio_set_volume(level) }
+}
+
+/// Get the current audio volume.
+pub fn audio_get_volume() -> f32 {
+    unsafe { _api_audio_get_volume() }
+}
+
+/// Returns `true` if audio is currently playing (not paused and not empty).
+pub fn audio_is_playing() -> bool {
+    unsafe { _api_audio_is_playing() != 0 }
+}
+
+/// Get the current playback position in milliseconds.
+pub fn audio_position() -> u64 {
+    unsafe { _api_audio_position() }
+}
+
+/// Seek to a position in milliseconds. Returns 0 on success, negative on error.
+pub fn audio_seek(position_ms: u64) -> i32 {
+    unsafe { _api_audio_seek(position_ms) }
 }
 
 // ─── HTTP Fetch API ─────────────────────────────────────────────────────────

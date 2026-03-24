@@ -34,11 +34,11 @@ The core architecture is live: a Rust-native browser that fetches and executes `
 
 ### Audio
 
-- [ ] `audio_play(data, format)` — decode and play audio buffers (MP3, OGG, WAV, FLAC)
-- [ ] `audio_play_url(url)` — stream audio from a URL
-- [ ] `audio_pause()` / `audio_resume()` / `audio_stop()` — playback control
-- [ ] `audio_set_volume(level)` / `audio_get_volume()` — volume control (0.0–1.0)
-- [ ] `audio_seek(position_ms)` / `audio_position()` — seek and query playback position
+- [x] `audio_play(data, format)` — decode and play audio buffers (MP3, OGG, WAV, FLAC)
+- [x] `audio_play_url(url)` — stream audio from a URL
+- [x] `audio_pause()` / `audio_resume()` / `audio_stop()` — playback control
+- [x] `audio_set_volume(level)` / `audio_get_volume()` — volume control (0.0–1.0)
+- [x] `audio_seek(position_ms)` / `audio_position()` — seek and query playback position
 - [ ] `audio_duration()` — get total duration of loaded track
 - [ ] `audio_set_loop(enabled)` — loop playback toggle
 - [ ] Multiple simultaneous audio channels for sound effects and background music

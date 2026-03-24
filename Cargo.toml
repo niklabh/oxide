@@ -3,6 +3,7 @@ members = [
     "oxide-browser",
     "oxide-sdk",
     "examples/hello-oxide",
+    "examples/audio-player",
     "examples/fullstack-notes/frontend",
     "examples/fullstack-notes/backend",
 ]
