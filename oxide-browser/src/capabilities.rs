@@ -84,8 +84,8 @@ pub struct HostState {
     pub console: Arc<Mutex<Vec<ConsoleEntry>>>,
     pub canvas: Arc<Mutex<CanvasState>>,
     pub storage: Arc<Mutex<HashMap<String, String>>>,
-    #[allow(dead_code)]
     pub timers: Arc<Mutex<Vec<TimerEntry>>>,
+    pub timer_next_id: Arc<Mutex<u32>>,
     pub clipboard: Arc<Mutex<String>>,
     pub clipboard_allowed: Arc<Mutex<bool>>,
     pub kv_db: Option<Arc<sled::Db>>,
@@ -198,13 +198,35 @@ pub enum DrawCommand {
     },
 }
 
-#[allow(dead_code)]
 #[derive(Clone, Debug)]
 pub struct TimerEntry {
     pub id: u32,
     pub fire_at: Instant,
     pub interval: Option<Duration>,
     pub callback_id: u32,
+}
+
+/// Drain all expired timers, returning their callback IDs.
+/// One-shot timers are removed; interval timers are rescheduled.
+pub fn drain_expired_timers(timers: &Arc<Mutex<Vec<TimerEntry>>>) -> Vec<u32> {
+    let now = Instant::now();
+    let mut guard = timers.lock().unwrap();
+    let mut fired = Vec::new();
+    let mut i = 0;
+    while i < guard.len() {
+        if guard[i].fire_at <= now {
+            fired.push(guard[i].callback_id);
+            if let Some(interval) = guard[i].interval {
+                guard[i].fire_at = now + interval;
+                i += 1;
+            } else {
+                guard.swap_remove(i);
+            }
+        } else {
+            i += 1;
+        }
+    }
+    fired
 }
 
 /// A clickable rectangular region on the canvas that acts as a hyperlink.
@@ -287,6 +309,7 @@ impl Default for HostState {
             })),
             storage: Arc::new(Mutex::new(HashMap::new())),
             timers: Arc::new(Mutex::new(Vec::new())),
+            timer_next_id: Arc::new(Mutex::new(1)),
             clipboard: Arc::new(Mutex::new(String::new())),
             clipboard_allowed: Arc::new(Mutex::new(false)),
             kv_db: None,
@@ -771,6 +794,64 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_millis() as u64
+        },
+    )?;
+
+    // ── Timers ────────────────────────────────────────────────────────
+    // Timers fire via the guest-exported `on_timer(callback_id)` function,
+    // which the host calls from the frame loop for each expired timer.
+
+    linker.func_wrap(
+        "oxide",
+        "api_set_timeout",
+        |caller: Caller<'_, HostState>, callback_id: u32, delay_ms: u32| -> u32 {
+            let mut next = caller.data().timer_next_id.lock().unwrap();
+            let id = *next;
+            *next = next.wrapping_add(1).max(1);
+            drop(next);
+
+            let entry = TimerEntry {
+                id,
+                fire_at: Instant::now() + Duration::from_millis(delay_ms as u64),
+                interval: None,
+                callback_id,
+            };
+            caller.data().timers.lock().unwrap().push(entry);
+            id
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_set_interval",
+        |caller: Caller<'_, HostState>, callback_id: u32, interval_ms: u32| -> u32 {
+            let mut next = caller.data().timer_next_id.lock().unwrap();
+            let id = *next;
+            *next = next.wrapping_add(1).max(1);
+            drop(next);
+
+            let interval = Duration::from_millis(interval_ms as u64);
+            let entry = TimerEntry {
+                id,
+                fire_at: Instant::now() + interval,
+                interval: Some(interval),
+                callback_id,
+            };
+            caller.data().timers.lock().unwrap().push(entry);
+            id
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_clear_timer",
+        |caller: Caller<'_, HostState>, timer_id: u32| {
+            caller
+                .data()
+                .timers
+                .lock()
+                .unwrap()
+                .retain(|t| t.id != timer_id);
         },
     )?;
 

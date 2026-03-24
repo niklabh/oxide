@@ -77,6 +77,15 @@ extern "C" {
     #[link_name = "api_time_now_ms"]
     fn _api_time_now_ms() -> u64;
 
+    #[link_name = "api_set_timeout"]
+    fn _api_set_timeout(callback_id: u32, delay_ms: u32) -> u32;
+
+    #[link_name = "api_set_interval"]
+    fn _api_set_interval(callback_id: u32, interval_ms: u32) -> u32;
+
+    #[link_name = "api_clear_timer"]
+    fn _api_clear_timer(timer_id: u32);
+
     #[link_name = "api_random"]
     fn _api_random() -> u64;
 
@@ -457,6 +466,25 @@ pub fn clipboard_read() -> String {
 /// Get the current time in milliseconds since the UNIX epoch.
 pub fn time_now_ms() -> u64 {
     unsafe { _api_time_now_ms() }
+}
+
+/// Schedule a one-shot timer that fires after `delay_ms` milliseconds.
+/// When it fires the host calls your exported `on_timer(callback_id)`.
+/// Returns a timer ID that can be passed to [`clear_timer`].
+pub fn set_timeout(callback_id: u32, delay_ms: u32) -> u32 {
+    unsafe { _api_set_timeout(callback_id, delay_ms) }
+}
+
+/// Schedule a repeating timer that fires every `interval_ms` milliseconds.
+/// When it fires the host calls your exported `on_timer(callback_id)`.
+/// Returns a timer ID that can be passed to [`clear_timer`].
+pub fn set_interval(callback_id: u32, interval_ms: u32) -> u32 {
+    unsafe { _api_set_interval(callback_id, interval_ms) }
+}
+
+/// Cancel a timer previously created with [`set_timeout`] or [`set_interval`].
+pub fn clear_timer(timer_id: u32) {
+    unsafe { _api_clear_timer(timer_id) }
 }
 
 // ─── Random API ─────────────────────────────────────────────────────────────
