@@ -1896,11 +1896,7 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
     linker.func_wrap(
         "oxide",
         "api_audio_channel_play",
-        |caller: Caller<'_, HostState>,
-         channel: u32,
-         data_ptr: u32,
-         data_len: u32|
-         -> i32 {
+        |caller: Caller<'_, HostState>, channel: u32, data_ptr: u32, data_len: u32| -> i32 {
             let mem = caller.data().memory.expect("memory not set");
             let data = read_guest_bytes(&mem, &caller, data_ptr, data_len).unwrap_or_default();
             if data.is_empty() {

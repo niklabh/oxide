@@ -182,12 +182,23 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
     }
 
     canvas_text(
-        20.0, 440.0, 13.0, TEXT_BRIGHT.0, TEXT_BRIGHT.1, TEXT_BRIGHT.2, "Volume",
+        20.0,
+        440.0,
+        13.0,
+        TEXT_BRIGHT.0,
+        TEXT_BRIGHT.1,
+        TEXT_BRIGHT.2,
+        "Volume",
     );
     let vol = ui_slider(WIDGET_VOL, 80.0, 438.0, 250.0, 0.0, 1.5, 1.0);
     audio_set_volume(vol);
     canvas_text(
-        340.0, 440.0, 13.0, GREEN.0, GREEN.1, GREEN.2,
+        340.0,
+        440.0,
+        13.0,
+        GREEN.0,
+        GREEN.1,
+        GREEN.2,
         &format!("{:.0}%", vol * 100.0),
     );
 
@@ -195,7 +206,12 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
     canvas_line(20.0, 468.0, w - 20.0, 468.0, 50, 45, 70, 1.0);
 
     canvas_text(
-        20.0, 480.0, 14.0, TEXT_DIM.0, TEXT_DIM.1, TEXT_DIM.2,
+        20.0,
+        480.0,
+        14.0,
+        TEXT_DIM.0,
+        TEXT_DIM.1,
+        TEXT_DIM.2,
         "SFX CHANNEL (plays over main audio)",
     );
 
@@ -213,7 +229,13 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
     }
 
     canvas_text(
-        300.0, 508.0, 13.0, TEXT_BRIGHT.0, TEXT_BRIGHT.1, TEXT_BRIGHT.2, "SFX Vol",
+        300.0,
+        508.0,
+        13.0,
+        TEXT_BRIGHT.0,
+        TEXT_BRIGHT.1,
+        TEXT_BRIGHT.2,
+        "SFX Vol",
     );
     let sfx_vol = ui_slider(WIDGET_SFX_VOL, 365.0, 506.0, 100.0, 0.0, 1.5, 0.8);
     audio_channel_set_volume(SFX_CHANNEL, sfx_vol);
@@ -240,7 +262,12 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
     let note = unsafe { LAST_NOTE };
     if !note.is_empty() {
         canvas_text(
-            100.0, 558.0, 14.0, TEXT_DIM.0, TEXT_DIM.1, TEXT_DIM.2,
+            100.0,
+            558.0,
+            14.0,
+            TEXT_DIM.0,
+            TEXT_DIM.1,
+            TEXT_DIM.2,
             &format!("  {note}"),
         );
     }
@@ -255,9 +282,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
     );
 
     if looping {
-        canvas_text(
-            250.0, 580.0, 13.0, ORANGE.0, ORANGE.1, ORANGE.2, "LOOP",
-        );
+        canvas_text(250.0, 580.0, 13.0, ORANGE.0, ORANGE.1, ORANGE.2, "LOOP");
     }
 
     // ── Visualiser bar ──────────────────────────────────────────────
