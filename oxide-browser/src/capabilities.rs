@@ -1757,10 +1757,7 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
         |caller: Caller<'_, HostState>| -> f32 {
             let audio = caller.data().audio.clone();
             let guard = audio.lock().unwrap();
-            guard
-                .as_ref()
-                .map(|e| e.player.volume())
-                .unwrap_or(1.0)
+            guard.as_ref().map(|e| e.player.volume()).unwrap_or(1.0)
         },
     )?;
 

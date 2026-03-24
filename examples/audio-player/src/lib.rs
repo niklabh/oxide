@@ -157,13 +157,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
     canvas_line(20.0, 365.0, w - 20.0, 365.0, 50, 45, 70, 1.0);
 
     canvas_text(
-        20.0,
-        380.0,
-        14.0,
-        TEXT_DIM.0,
-        TEXT_DIM.1,
-        TEXT_DIM.2,
-        "CONTROLS",
+        20.0, 380.0, 14.0, TEXT_DIM.0, TEXT_DIM.1, TEXT_DIM.2, "CONTROLS",
     );
 
     if ui_button(BTN_PAUSE, 20.0, 405.0, 80.0, 30.0, "Pause") {
