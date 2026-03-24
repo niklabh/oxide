@@ -30,7 +30,7 @@ jobs:
             libglib2.0-dev libpango1.0-dev libgdk-pixbuf-2.0-dev \
             libasound2-dev
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@nightly
 
       - uses: Swatinem/rust-cache@v2
 
