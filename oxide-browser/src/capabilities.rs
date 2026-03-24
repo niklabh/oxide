@@ -11,36 +11,71 @@ use crate::engine::ModuleLoader;
 use crate::navigation::NavigationStack;
 use crate::url as oxide_url;
 
+/// Per-channel audio state: a rodio Player plus metadata.
+struct AudioChannel {
+    player: rodio::Player,
+    duration_ms: u64,
+    looping: bool,
+}
+
 /// Audio playback engine backed by rodio.
-/// Holds the OS audio device sink (must stay alive) and a Player for control.
+/// Supports multiple simultaneous channels for layered audio (e.g. music + SFX).
 pub struct AudioEngine {
     _device_sink: rodio::stream::MixerDeviceSink,
-    player: rodio::Player,
+    channels: HashMap<u32, AudioChannel>,
 }
 
 impl AudioEngine {
     fn try_new() -> Option<Self> {
         let mut device_sink = rodio::DeviceSinkBuilder::open_default_sink().ok()?;
         device_sink.log_on_drop(false);
-        let player = rodio::Player::connect_new(device_sink.mixer());
         Some(Self {
             _device_sink: device_sink,
-            player,
+            channels: HashMap::new(),
         })
     }
 
-    fn play_bytes(&self, data: Vec<u8>) -> bool {
-        self.player.clear();
+    fn ensure_channel(&mut self, id: u32) -> &mut AudioChannel {
+        if !self.channels.contains_key(&id) {
+            let player = rodio::Player::connect_new(self._device_sink.mixer());
+            self.channels.insert(
+                id,
+                AudioChannel {
+                    player,
+                    duration_ms: 0,
+                    looping: false,
+                },
+            );
+        }
+        self.channels.get_mut(&id).unwrap()
+    }
+
+    fn play_bytes_on(&mut self, channel_id: u32, data: Vec<u8>) -> bool {
+        use rodio::Source;
+
         let cursor = std::io::Cursor::new(data);
         let reader = std::io::BufReader::new(cursor);
-        match rodio::Decoder::try_from(reader) {
-            Ok(source) => {
-                self.player.append(source);
-                self.player.play();
-                true
-            }
-            Err(_) => false,
+        let source = match rodio::Decoder::try_from(reader) {
+            Ok(s) => s,
+            Err(_) => return false,
+        };
+
+        let duration_ms = source
+            .total_duration()
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+
+        let ch = self.ensure_channel(channel_id);
+        ch.player.clear();
+        ch.duration_ms = duration_ms;
+
+        if ch.looping {
+            ch.player.append(source.repeat_infinite());
+        } else {
+            ch.player.append(source);
         }
+        ch.player.play();
+        true
     }
 }
 
@@ -1579,6 +1614,9 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
     )?;
 
     // ── Audio Playback ────────────────────────────────────────────
+    // All single-argument functions operate on the default channel (0).
+    // Channel-specific variants allow simultaneous playback on separate
+    // channels (e.g. background music on 0, SFX on 1+).
 
     linker.func_wrap(
         "oxide",
@@ -1595,9 +1633,9 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
             if guard.is_none() {
                 *guard = AudioEngine::try_new();
             }
-            match guard.as_ref() {
+            match guard.as_mut() {
                 Some(engine) => {
-                    if engine.play_bytes(data) {
+                    if engine.play_bytes_on(0, data) {
                         console_log(
                             &caller.data().console,
                             ConsoleLevel::Log,
@@ -1673,9 +1711,9 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
             if guard.is_none() {
                 *guard = AudioEngine::try_new();
             }
-            match guard.as_ref() {
+            match guard.as_mut() {
                 Some(engine) => {
-                    if engine.play_bytes(data) {
+                    if engine.play_bytes_on(0, data) {
                         console_log(
                             &caller.data().console,
                             ConsoleLevel::Log,
@@ -1710,7 +1748,9 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
             let audio = caller.data().audio.clone();
             let guard = audio.lock().unwrap();
             if let Some(engine) = guard.as_ref() {
-                engine.player.pause();
+                if let Some(ch) = engine.channels.get(&0) {
+                    ch.player.pause();
+                }
             }
         },
     )?;
@@ -1722,7 +1762,9 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
             let audio = caller.data().audio.clone();
             let guard = audio.lock().unwrap();
             if let Some(engine) = guard.as_ref() {
-                engine.player.play();
+                if let Some(ch) = engine.channels.get(&0) {
+                    ch.player.play();
+                }
             }
         },
     )?;
@@ -1734,7 +1776,9 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
             let audio = caller.data().audio.clone();
             let guard = audio.lock().unwrap();
             if let Some(engine) = guard.as_ref() {
-                engine.player.stop();
+                if let Some(ch) = engine.channels.get(&0) {
+                    ch.player.stop();
+                }
             }
         },
     )?;
@@ -1746,7 +1790,9 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
             let audio = caller.data().audio.clone();
             let guard = audio.lock().unwrap();
             if let Some(engine) = guard.as_ref() {
-                engine.player.set_volume(level.clamp(0.0, 2.0));
+                if let Some(ch) = engine.channels.get(&0) {
+                    ch.player.set_volume(level.clamp(0.0, 2.0));
+                }
             }
         },
     )?;
@@ -1757,7 +1803,11 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
         |caller: Caller<'_, HostState>| -> f32 {
             let audio = caller.data().audio.clone();
             let guard = audio.lock().unwrap();
-            guard.as_ref().map(|e| e.player.volume()).unwrap_or(1.0)
+            guard
+                .as_ref()
+                .and_then(|e| e.channels.get(&0))
+                .map(|ch| ch.player.volume())
+                .unwrap_or(1.0)
         },
     )?;
 
@@ -1767,15 +1817,9 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
         |caller: Caller<'_, HostState>| -> u32 {
             let audio = caller.data().audio.clone();
             let guard = audio.lock().unwrap();
-            match guard.as_ref() {
-                Some(engine) => {
-                    if !engine.player.is_paused() && !engine.player.empty() {
-                        1
-                    } else {
-                        0
-                    }
-                }
-                None => 0,
+            match guard.as_ref().and_then(|e| e.channels.get(&0)) {
+                Some(ch) if !ch.player.is_paused() && !ch.player.empty() => 1,
+                _ => 0,
             }
         },
     )?;
@@ -1788,7 +1832,8 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
             let guard = audio.lock().unwrap();
             guard
                 .as_ref()
-                .map(|e| e.player.get_pos().as_millis() as u64)
+                .and_then(|e| e.channels.get(&0))
+                .map(|ch| ch.player.get_pos().as_millis() as u64)
                 .unwrap_or(0)
         },
     )?;
@@ -1799,10 +1844,10 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
         |caller: Caller<'_, HostState>, position_ms: u64| -> i32 {
             let audio = caller.data().audio.clone();
             let guard = audio.lock().unwrap();
-            match guard.as_ref() {
-                Some(engine) => {
+            match guard.as_ref().and_then(|e| e.channels.get(&0)) {
+                Some(ch) => {
                     let pos = Duration::from_millis(position_ms);
-                    match engine.player.try_seek(pos) {
+                    match ch.player.try_seek(pos) {
                         Ok(_) => 0,
                         Err(e) => {
                             console_log(
@@ -1815,6 +1860,105 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
                     }
                 }
                 None => -1,
+            }
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_audio_duration",
+        |caller: Caller<'_, HostState>| -> u64 {
+            let audio = caller.data().audio.clone();
+            let guard = audio.lock().unwrap();
+            guard
+                .as_ref()
+                .and_then(|e| e.channels.get(&0))
+                .map(|ch| ch.duration_ms)
+                .unwrap_or(0)
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_audio_set_loop",
+        |caller: Caller<'_, HostState>, enabled: u32| {
+            let audio = caller.data().audio.clone();
+            let mut guard = audio.lock().unwrap();
+            if guard.is_none() {
+                *guard = AudioEngine::try_new();
+            }
+            if let Some(engine) = guard.as_mut() {
+                engine.ensure_channel(0).looping = enabled != 0;
+            }
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_audio_channel_play",
+        |caller: Caller<'_, HostState>,
+         channel: u32,
+         data_ptr: u32,
+         data_len: u32|
+         -> i32 {
+            let mem = caller.data().memory.expect("memory not set");
+            let data = read_guest_bytes(&mem, &caller, data_ptr, data_len).unwrap_or_default();
+            if data.is_empty() {
+                return -1;
+            }
+
+            let audio = caller.data().audio.clone();
+            let mut guard = audio.lock().unwrap();
+            if guard.is_none() {
+                *guard = AudioEngine::try_new();
+            }
+            match guard.as_mut() {
+                Some(engine) => {
+                    if engine.play_bytes_on(channel, data) {
+                        console_log(
+                            &caller.data().console,
+                            ConsoleLevel::Log,
+                            format!("[AUDIO] Playing on channel {channel}"),
+                        );
+                        0
+                    } else {
+                        console_log(
+                            &caller.data().console,
+                            ConsoleLevel::Error,
+                            format!("[AUDIO] Failed to decode audio for channel {channel}"),
+                        );
+                        -2
+                    }
+                }
+                None => -3,
+            }
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_audio_channel_stop",
+        |caller: Caller<'_, HostState>, channel: u32| {
+            let audio = caller.data().audio.clone();
+            let guard = audio.lock().unwrap();
+            if let Some(engine) = guard.as_ref() {
+                if let Some(ch) = engine.channels.get(&channel) {
+                    ch.player.stop();
+                }
+            }
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_audio_channel_set_volume",
+        |caller: Caller<'_, HostState>, channel: u32, level: f32| {
+            let audio = caller.data().audio.clone();
+            let guard = audio.lock().unwrap();
+            if let Some(engine) = guard.as_ref() {
+                if let Some(ch) = engine.channels.get(&channel) {
+                    ch.player.set_volume(level.clamp(0.0, 2.0));
+                }
             }
         },
     )?;

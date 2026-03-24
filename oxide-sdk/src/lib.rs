@@ -259,6 +259,21 @@ extern "C" {
     #[link_name = "api_audio_seek"]
     fn _api_audio_seek(position_ms: u64) -> i32;
 
+    #[link_name = "api_audio_duration"]
+    fn _api_audio_duration() -> u64;
+
+    #[link_name = "api_audio_set_loop"]
+    fn _api_audio_set_loop(enabled: u32);
+
+    #[link_name = "api_audio_channel_play"]
+    fn _api_audio_channel_play(channel: u32, data_ptr: u32, data_len: u32) -> i32;
+
+    #[link_name = "api_audio_channel_stop"]
+    fn _api_audio_channel_stop(channel: u32);
+
+    #[link_name = "api_audio_channel_set_volume"]
+    fn _api_audio_channel_set_volume(channel: u32, level: f32);
+
     // ── URL Utilities ───────────────────────────────────────────────
 
     #[link_name = "api_url_resolve"]
@@ -523,6 +538,37 @@ pub fn audio_position() -> u64 {
 /// Seek to a position in milliseconds. Returns 0 on success, negative on error.
 pub fn audio_seek(position_ms: u64) -> i32 {
     unsafe { _api_audio_seek(position_ms) }
+}
+
+/// Get the total duration of the currently loaded track in milliseconds.
+/// Returns 0 if unknown or nothing is loaded.
+pub fn audio_duration() -> u64 {
+    unsafe { _api_audio_duration() }
+}
+
+/// Enable or disable looping on the default channel.
+/// When enabled, subsequent `audio_play` calls will loop indefinitely.
+pub fn audio_set_loop(enabled: bool) {
+    unsafe { _api_audio_set_loop(if enabled { 1 } else { 0 }) }
+}
+
+// ─── Multi-Channel Audio API ────────────────────────────────────────────────
+
+/// Play audio on a specific channel. Multiple channels play simultaneously.
+/// Channel 0 is the default used by `audio_play`. Use channels 1+ for layered
+/// sound effects, background music, etc.
+pub fn audio_channel_play(channel: u32, data: &[u8]) -> i32 {
+    unsafe { _api_audio_channel_play(channel, data.as_ptr() as u32, data.len() as u32) }
+}
+
+/// Stop playback on a specific channel.
+pub fn audio_channel_stop(channel: u32) {
+    unsafe { _api_audio_channel_stop(channel) }
+}
+
+/// Set volume for a specific channel (0.0 silent, 1.0 normal, up to 2.0 boost).
+pub fn audio_channel_set_volume(channel: u32, level: f32) {
+    unsafe { _api_audio_channel_set_volume(channel, level) }
 }
 
 // ─── HTTP Fetch API ─────────────────────────────────────────────────────────

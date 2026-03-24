@@ -27,6 +27,14 @@ const BTN_FETCH: u32 = 205;
 const BTN_PAUSE: u32 = 210;
 const BTN_RESUME: u32 = 211;
 const BTN_STOP: u32 = 212;
+const BTN_SFX_BLIP: u32 = 220;
+const BTN_SFX_BEEP: u32 = 221;
+const BTN_SFX_CHIRP: u32 = 222;
+
+const WIDGET_LOOP: u32 = 110;
+const WIDGET_SFX_VOL: u32 = 111;
+
+const SFX_CHANNEL: u32 = 1;
 
 static mut LAST_NOTE: &str = "";
 
@@ -129,6 +137,9 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         &format!("{dur:.1} s"),
     );
 
+    let looping = ui_checkbox(WIDGET_LOOP, 170.0, 245.0, "Loop", false);
+    audio_set_loop(looping);
+
     if ui_button(BTN_PLAY_CUSTOM, 20.0, 240.0, 130.0, 30.0, "Play Tone") {
         play_tone(freq, dur);
         unsafe { LAST_NOTE = "Custom" };
@@ -137,7 +148,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
     // ── URL Player ──────────────────────────────────────────────────
     canvas_text(
         20.0,
-        295.0,
+        290.0,
         14.0,
         TEXT_DIM.0,
         TEXT_DIM.1,
@@ -145,8 +156,8 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         "PLAY FROM URL",
     );
 
-    let url = ui_text_input(WIDGET_URL, 20.0, 318.0, 350.0, "");
-    if ui_button(BTN_FETCH, 380.0, 318.0, 80.0, 26.0, "Fetch") && !url.is_empty() {
+    let url = ui_text_input(WIDGET_URL, 20.0, 313.0, 350.0, "");
+    if ui_button(BTN_FETCH, 380.0, 313.0, 80.0, 26.0, "Fetch") && !url.is_empty() {
         let rc = audio_play_url(&url);
         if rc == 0 {
             unsafe { LAST_NOTE = "URL stream" };
@@ -154,49 +165,67 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
     }
 
     // ── Playback Controls ───────────────────────────────────────────
-    canvas_line(20.0, 365.0, w - 20.0, 365.0, 50, 45, 70, 1.0);
+    canvas_line(20.0, 355.0, w - 20.0, 355.0, 50, 45, 70, 1.0);
 
     canvas_text(
-        20.0, 380.0, 14.0, TEXT_DIM.0, TEXT_DIM.1, TEXT_DIM.2, "CONTROLS",
+        20.0, 370.0, 14.0, TEXT_DIM.0, TEXT_DIM.1, TEXT_DIM.2, "CONTROLS",
     );
 
-    if ui_button(BTN_PAUSE, 20.0, 405.0, 80.0, 30.0, "Pause") {
+    if ui_button(BTN_PAUSE, 20.0, 393.0, 80.0, 30.0, "Pause") {
         audio_pause();
     }
-    if ui_button(BTN_RESUME, 110.0, 405.0, 80.0, 30.0, "Resume") {
+    if ui_button(BTN_RESUME, 110.0, 393.0, 80.0, 30.0, "Resume") {
         audio_resume();
     }
-    if ui_button(BTN_STOP, 200.0, 405.0, 80.0, 30.0, "Stop") {
+    if ui_button(BTN_STOP, 200.0, 393.0, 80.0, 30.0, "Stop") {
         audio_stop();
     }
 
     canvas_text(
-        20.0,
-        458.0,
-        13.0,
-        TEXT_BRIGHT.0,
-        TEXT_BRIGHT.1,
-        TEXT_BRIGHT.2,
-        "Volume",
+        20.0, 440.0, 13.0, TEXT_BRIGHT.0, TEXT_BRIGHT.1, TEXT_BRIGHT.2, "Volume",
     );
-    let vol = ui_slider(WIDGET_VOL, 80.0, 456.0, 250.0, 0.0, 1.5, 1.0);
+    let vol = ui_slider(WIDGET_VOL, 80.0, 438.0, 250.0, 0.0, 1.5, 1.0);
     audio_set_volume(vol);
     canvas_text(
-        340.0,
-        458.0,
-        13.0,
-        GREEN.0,
-        GREEN.1,
-        GREEN.2,
+        340.0, 440.0, 13.0, GREEN.0, GREEN.1, GREEN.2,
         &format!("{:.0}%", vol * 100.0),
     );
 
+    // ── SFX Channel ─────────────────────────────────────────────────
+    canvas_line(20.0, 468.0, w - 20.0, 468.0, 50, 45, 70, 1.0);
+
+    canvas_text(
+        20.0, 480.0, 14.0, TEXT_DIM.0, TEXT_DIM.1, TEXT_DIM.2,
+        "SFX CHANNEL (plays over main audio)",
+    );
+
+    if ui_button(BTN_SFX_BLIP, 20.0, 503.0, 80.0, 28.0, "Blip") {
+        let wav = generate_wav(1200.0, 0.08);
+        audio_channel_play(SFX_CHANNEL, &wav);
+    }
+    if ui_button(BTN_SFX_BEEP, 110.0, 503.0, 80.0, 28.0, "Beep") {
+        let wav = generate_wav(880.0, 0.25);
+        audio_channel_play(SFX_CHANNEL, &wav);
+    }
+    if ui_button(BTN_SFX_CHIRP, 200.0, 503.0, 80.0, 28.0, "Chirp") {
+        let wav = generate_chirp();
+        audio_channel_play(SFX_CHANNEL, &wav);
+    }
+
+    canvas_text(
+        300.0, 508.0, 13.0, TEXT_BRIGHT.0, TEXT_BRIGHT.1, TEXT_BRIGHT.2, "SFX Vol",
+    );
+    let sfx_vol = ui_slider(WIDGET_SFX_VOL, 365.0, 506.0, 100.0, 0.0, 1.5, 0.8);
+    audio_channel_set_volume(SFX_CHANNEL, sfx_vol);
+
     // ── Status ──────────────────────────────────────────────────────
-    canvas_line(20.0, 490.0, w - 20.0, 490.0, 50, 45, 70, 1.0);
+    canvas_line(20.0, 545.0, w - 20.0, 545.0, 50, 45, 70, 1.0);
 
     let playing = audio_is_playing();
     let pos_ms = audio_position();
+    let dur_ms = audio_duration();
     let pos_secs = pos_ms as f32 / 1000.0;
+    let dur_secs = dur_ms as f32 / 1000.0;
 
     let (status_text, color) = if playing {
         ("Playing", GREEN)
@@ -206,35 +235,35 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         ("Stopped", RED)
     };
 
-    canvas_text(20.0, 505.0, 14.0, color.0, color.1, color.2, status_text);
+    canvas_text(20.0, 558.0, 14.0, color.0, color.1, color.2, status_text);
 
     let note = unsafe { LAST_NOTE };
     if !note.is_empty() {
         canvas_text(
-            100.0,
-            505.0,
-            14.0,
-            TEXT_DIM.0,
-            TEXT_DIM.1,
-            TEXT_DIM.2,
+            100.0, 558.0, 14.0, TEXT_DIM.0, TEXT_DIM.1, TEXT_DIM.2,
             &format!("  {note}"),
         );
     }
 
+    let time_info = if dur_ms > 0 {
+        format!("Position: {pos_secs:.1}s / {dur_secs:.1}s")
+    } else {
+        format!("Position: {pos_secs:.1}s")
+    };
     canvas_text(
-        20.0,
-        528.0,
-        13.0,
-        TEXT_DIM.0,
-        TEXT_DIM.1,
-        TEXT_DIM.2,
-        &format!("Position: {pos_secs:.1}s"),
+        20.0, 580.0, 13.0, TEXT_DIM.0, TEXT_DIM.1, TEXT_DIM.2, &time_info,
     );
+
+    if looping {
+        canvas_text(
+            250.0, 580.0, 13.0, ORANGE.0, ORANGE.1, ORANGE.2, "LOOP",
+        );
+    }
 
     // ── Visualiser bar ──────────────────────────────────────────────
     if playing {
         let t = time_now_ms() as f32 / 200.0;
-        let bar_y = 550.0;
+        let bar_y = 600.0;
         let bar_count = 24;
         let bar_w = (w - 40.0) / bar_count as f32;
         for i in 0..bar_count {
@@ -297,6 +326,42 @@ fn generate_wav(frequency: f32, duration_secs: f32) -> Vec<u8> {
         };
 
         let s16 = (sample * envelope * 0.7 * 32767.0) as i16;
+        wav.extend_from_slice(&s16.to_le_bytes());
+    }
+
+    wav
+}
+
+fn generate_chirp() -> Vec<u8> {
+    let sample_rate: u32 = 44100;
+    let duration_secs: f32 = 0.15;
+    let num_samples = (sample_rate as f32 * duration_secs) as usize;
+    let data_size = (num_samples * 2) as u32;
+
+    let mut wav = Vec::with_capacity(44 + data_size as usize);
+
+    wav.extend_from_slice(b"RIFF");
+    wav.extend_from_slice(&(36 + data_size).to_le_bytes());
+    wav.extend_from_slice(b"WAVE");
+    wav.extend_from_slice(b"fmt ");
+    wav.extend_from_slice(&16u32.to_le_bytes());
+    wav.extend_from_slice(&1u16.to_le_bytes());
+    wav.extend_from_slice(&1u16.to_le_bytes());
+    wav.extend_from_slice(&sample_rate.to_le_bytes());
+    wav.extend_from_slice(&(sample_rate * 2).to_le_bytes());
+    wav.extend_from_slice(&2u16.to_le_bytes());
+    wav.extend_from_slice(&16u16.to_le_bytes());
+    wav.extend_from_slice(b"data");
+    wav.extend_from_slice(&data_size.to_le_bytes());
+
+    let two_pi = 2.0 * core::f32::consts::PI;
+    for i in 0..num_samples {
+        let t = i as f32 / sample_rate as f32;
+        let progress = i as f32 / num_samples as f32;
+        let freq = 400.0 + progress * 1600.0;
+        let envelope = 1.0 - progress;
+        let sample = (t * freq * two_pi).sin() * envelope * 0.7;
+        let s16 = (sample * 32767.0) as i16;
         wav.extend_from_slice(&s16.to_le_bytes());
     }
 
