@@ -1,0 +1,11 @@
+[package]
+name = "index"
+version = "0.1.0"
+edition = "2021"
+description = "Landing page for the Oxide platform — links to all demo apps"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+oxide-sdk = { path = "../../oxide-sdk" }

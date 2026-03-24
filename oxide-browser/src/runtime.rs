@@ -163,13 +163,14 @@ impl BrowserHost {
     /// Supports `http`/`https` (network fetch) and `file://` (local read) via [`OxideUrl`] parsing;
     /// other schemes error.
     pub async fn fetch_and_run(&mut self, url: &str) -> Result<Option<LiveModule>> {
+        let url = resolve_wasm_url(url);
         *self.status.lock().unwrap() = PageStatus::Loading(url.to_string());
         self.host_state.canvas.lock().unwrap().commands.clear();
         self.host_state.console.lock().unwrap().clear();
         self.host_state.hyperlinks.lock().unwrap().clear();
         *self.host_state.current_url.lock().unwrap() = url.to_string();
 
-        let parsed = OxideUrl::parse(url).map_err(|e| anyhow::anyhow!("{e}"))?;
+        let parsed = OxideUrl::parse(&url).map_err(|e| anyhow::anyhow!("{e}"))?;
 
         let wasm_bytes = if parsed.is_fetchable() {
             fetch_wasm(parsed.as_str()).await?
@@ -257,6 +258,34 @@ impl BrowserHost {
             }
         }
     }
+}
+
+/// If the URL path doesn't already end with `.wasm`, treat it as a directory
+/// and append `/index.wasm` (like `index.html` in a traditional web server).
+fn resolve_wasm_url(url: &str) -> String {
+    let trimmed = url.trim();
+    if trimmed.is_empty() {
+        return trimmed.to_string();
+    }
+    let path_part = if let Some(pos) = trimmed.find("://") {
+        &trimmed[pos + 3..]
+    } else {
+        trimmed
+    };
+    let path = if let Some(slash) = path_part.find('/') {
+        &path_part[slash..]
+    } else {
+        "/"
+    };
+    let path_no_query = path.split('?').next().unwrap_or(path);
+    let path_no_frag = path_no_query.split('#').next().unwrap_or(path_no_query);
+
+    if path_no_frag.ends_with(".wasm") {
+        return trimmed.to_string();
+    }
+
+    let base = trimmed.trim_end_matches('/');
+    format!("{base}/index.wasm")
 }
 
 /// Maximum size of a `.wasm` module that can be fetched over the network.

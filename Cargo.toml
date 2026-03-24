@@ -8,5 +8,6 @@ members = [
     "examples/timer-demo",
     "examples/fullstack-notes/frontend",
     "examples/fullstack-notes/backend",
+    "examples/index",
 ]
 resolver = "2"
