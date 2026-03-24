@@ -1,3 +1,15 @@
+//! Host capabilities and shared state for WebAssembly guests.
+//!
+//! This module defines [`HostState`] and the data structures the host and guest share
+//! (console, canvas, timers, input, widgets, navigation, and more).
+//! [`register_host_functions`] attaches the **`oxide`** Wasm import module to a Wasmtime
+//! [`Linker`]: every host function that guest modules may call—`api_log`, `api_canvas_*`,
+//! `api_storage_*`, `api_navigate`, audio and UI APIs, etc.—is registered there under the
+//! import module name `oxide`.
+//!
+//! Guest code imports these symbols from `oxide`; implementations run on the host and
+//! read or mutate the [`HostState`] held in the Wasmtime store attached to the linker.
+
 use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -18,8 +30,11 @@ struct AudioChannel {
     looping: bool,
 }
 
-/// Audio playback engine backed by rodio.
-/// Supports multiple simultaneous channels for layered audio (e.g. music + SFX).
+/// Multi-channel audio playback engine backed by [rodio](https://crates.io/crates/rodio).
+///
+/// Each logical channel has its own [`rodio::Player`] so guests can play overlapping
+/// sounds (for example music on one channel and effects on another). The default channel
+/// used by the single-channel `api_audio_*` imports is `0`.
 pub struct AudioEngine {
     _device_sink: rodio::stream::MixerDeviceSink,
     channels: HashMap<u32, AudioChannel>,
@@ -79,19 +94,37 @@ impl AudioEngine {
     }
 }
 
+/// All shared state between the browser host and a guest Wasm module (and dynamically loaded children).
+///
+/// Most fields are behind [`Arc`] and [`Mutex`] so the same state can be shared across
+/// threads and nested module loads. Host code sets fields like [`HostState::memory`] and
+/// [`HostState::current_url`] before or during execution; guest imports mutate the rest
+/// through the registered `oxide` functions.
 #[derive(Clone)]
 pub struct HostState {
+    /// Console log lines shown in the host UI, appended by [`console_log`] and `api_*` helpers.
     pub console: Arc<Mutex<Vec<ConsoleEntry>>>,
+    /// Raster canvas: queued draw commands and decoded images for the current frame.
     pub canvas: Arc<Mutex<CanvasState>>,
+    /// In-memory key/value session storage (string keys and values), similar to `localStorage` in scope.
     pub storage: Arc<Mutex<HashMap<String, String>>>,
+    /// Pending one-shot and interval timers; the host drains these and invokes `on_timer` on the guest.
     pub timers: Arc<Mutex<Vec<TimerEntry>>>,
+    /// Monotonic counter used to assign unique [`TimerEntry::id`] values for `api_set_timeout` / `api_set_interval`.
     pub timer_next_id: Arc<Mutex<u32>>,
+    /// Last text written to or read from the clipboard via the guest API (when permitted).
     pub clipboard: Arc<Mutex<String>>,
+    /// When `false`, `api_clipboard_read` / `api_clipboard_write` are blocked and log a warning.
     pub clipboard_allowed: Arc<Mutex<bool>>,
+    /// Optional embedded [`sled`] database for persistent per-origin key/value bytes (`api_kv_store_*`).
     pub kv_db: Option<Arc<sled::Db>>,
+    /// The guest’s exported linear memory, used to read/write pointers passed to host imports.
     pub memory: Option<Memory>,
+    /// Engine and limits used by `api_load_module` to fetch and instantiate child Wasm modules.
     pub module_loader: Option<Arc<ModuleLoader>>,
+    /// Session history stack for `api_push_state`, `api_replace_state`, and back/forward navigation.
     pub navigation: Arc<Mutex<NavigationStack>>,
+    /// Hit-test regions registered by the guest for link clicks in the canvas area.
     pub hyperlinks: Arc<Mutex<Vec<Hyperlink>>>,
     /// Set by guest `api_navigate` — consumed by the UI after module returns.
     pub pending_navigation: Arc<Mutex<Option<String>>>,
@@ -113,44 +146,60 @@ pub struct HostState {
     pub audio: Arc<Mutex<Option<AudioEngine>>>,
 }
 
+/// A single console log line: local time, severity, and message text.
 #[derive(Clone, Debug)]
 pub struct ConsoleEntry {
+    /// Time of day when the entry was recorded (`chrono` local format, e.g. `14:03:22.123`).
     pub timestamp: String,
+    /// Severity bucket for styling in the host console.
     pub level: ConsoleLevel,
+    /// UTF-8 message body.
     pub message: String,
 }
 
+/// Severity level for [`ConsoleEntry`] and [`console_log`].
 #[derive(Clone, Debug)]
 pub enum ConsoleLevel {
+    /// Informational message (maps to `api_log`).
     Log,
+    /// Warning (maps to `api_warn`).
     Warn,
+    /// Error (maps to `api_error`).
     Error,
 }
 
+/// Current canvas snapshot for one frame: command list, dimensions, image atlas, and invalidation generation.
 #[derive(Clone, Debug)]
 pub struct CanvasState {
+    /// Ordered draw operations accumulated since the last clear (or start of frame).
     pub commands: Vec<DrawCommand>,
+    /// Canvas width in pixels.
     pub width: u32,
+    /// Canvas height in pixels.
     pub height: u32,
+    /// Decoded images indexed by position in this vector; [`DrawCommand::Image`] references them by `image_id`.
     pub images: Vec<DecodedImage>,
+    /// Bumped when the canvas is cleared so the host can detect a full redraw.
     pub generation: u64,
 }
 
+/// An image decoded to RGBA8 pixels for compositing in the host canvas renderer.
 #[derive(Clone, Debug)]
 pub struct DecodedImage {
+    /// Width in pixels.
     pub width: u32,
+    /// Height in pixels.
     pub height: u32,
+    /// Raw RGBA bytes, row-major (`width * height * 4` elements when full frame).
     pub pixels: Vec<u8>,
 }
 
+/// One canvas drawing operation produced by guest `api_canvas_*` imports and consumed by the host renderer.
 #[derive(Clone, Debug)]
 pub enum DrawCommand {
-    Clear {
-        r: u8,
-        g: u8,
-        b: u8,
-        a: u8,
-    },
+    /// Fill the entire canvas with a solid RGBA color and reset the command list (see `api_canvas_clear`).
+    Clear { r: u8, g: u8, b: u8, a: u8 },
+    /// Axis-aligned filled rectangle in canvas coordinates with RGBA fill.
     Rect {
         x: f32,
         y: f32,
@@ -161,6 +210,7 @@ pub enum DrawCommand {
         b: u8,
         a: u8,
     },
+    /// Filled circle centered at `(cx, cy)` with the given radius and RGBA fill.
     Circle {
         cx: f32,
         cy: f32,
@@ -170,6 +220,7 @@ pub enum DrawCommand {
         b: u8,
         a: u8,
     },
+    /// Text baseline position `(x, y)`, font size in pixels, RGB color, and string payload.
     Text {
         x: f32,
         y: f32,
@@ -179,6 +230,7 @@ pub enum DrawCommand {
         b: u8,
         text: String,
     },
+    /// Line from `(x1, y1)` to `(x2, y2)` with RGB stroke color and stroke width in pixels.
     Line {
         x1: f32,
         y1: f32,
@@ -189,6 +241,7 @@ pub enum DrawCommand {
         b: u8,
         thickness: f32,
     },
+    /// Draw [`DecodedImage`] `image_id` from `images` into the axis-aligned rectangle `(x, y, w, h)`.
     Image {
         x: f32,
         y: f32,
@@ -198,16 +251,25 @@ pub enum DrawCommand {
     },
 }
 
+/// A scheduled timer: either a one-shot `setTimeout` or repeating `setInterval`.
 #[derive(Clone, Debug)]
 pub struct TimerEntry {
+    /// Host-assigned id returned by `api_set_timeout` / `api_set_interval` for `api_clear_timer`.
     pub id: u32,
+    /// Absolute time when this entry should fire next.
     pub fire_at: Instant,
+    /// `None` for a one-shot timer; `Some(duration)` for an interval (rescheduled after each fire).
     pub interval: Option<Duration>,
+    /// Guest-defined id passed to the exported `on_timer` callback when this timer fires.
     pub callback_id: u32,
 }
 
-/// Drain all expired timers, returning their callback IDs.
-/// One-shot timers are removed; interval timers are rescheduled.
+/// Remove due timers from `timers`, collect each fired entry’s [`TimerEntry::callback_id`], and return them.
+///
+/// Compares each [`TimerEntry::fire_at`] against `Instant::now()`. **One-shot** entries
+/// (`interval` is `None`) are removed from the vector after firing. **Interval** entries
+/// are kept and their `fire_at` is advanced by `interval` so they fire again later. The
+/// host typically calls the guest’s `on_timer` once per id in the returned vector.
 pub fn drain_expired_timers(timers: &Arc<Mutex<Vec<TimerEntry>>>) -> Vec<u32> {
     let now = Instant::now();
     let mut guard = timers.lock().unwrap();
@@ -229,35 +291,57 @@ pub fn drain_expired_timers(timers: &Arc<Mutex<Vec<TimerEntry>>>) -> Vec<u32> {
     fired
 }
 
-/// A clickable rectangular region on the canvas that acts as a hyperlink.
+/// A clickable axis-aligned rectangle on the canvas that navigates to a URL when hit-tested.
+///
+/// Populated by `api_register_hyperlink` and cleared with `api_clear_hyperlinks`. Coordinates
+/// are in the same space as canvas drawing (the host maps pointer position into this space).
 #[derive(Clone, Debug)]
 pub struct Hyperlink {
+    /// Left edge of the hit region in canvas coordinates.
     pub x: f32,
+    /// Top edge of the hit region in canvas coordinates.
     pub y: f32,
+    /// Width of the hit region.
     pub w: f32,
+    /// Height of the hit region.
     pub h: f32,
+    /// Target URL (already resolved relative to the current page URL when registered).
     pub url: String,
 }
 
-/// Per-frame input state captured from egui and exposed to the guest.
+/// Per-frame input snapshot from the host (egui) for guest polling via `api_mouse_*`, `api_key_*`, etc.
 #[derive(Clone, Debug, Default)]
 pub struct InputState {
+    /// Pointer horizontal position in window/content coordinates before canvas offset subtraction in APIs.
     pub mouse_x: f32,
+    /// Pointer vertical position in window/content coordinates before canvas offset subtraction in APIs.
     pub mouse_y: f32,
+    /// Mouse buttons currently held: index 0 = primary, 1 = secondary, 2 = middle.
     pub mouse_buttons_down: [bool; 3],
+    /// Mouse buttons that transitioned to pressed this frame (same indexing as `mouse_buttons_down`).
     pub mouse_buttons_clicked: [bool; 3],
+    /// Key codes currently held (host-defined `u32` values, polled by `api_key_down`).
     pub keys_down: Vec<u32>,
+    /// Key codes that registered a press this frame (`api_key_pressed`).
     pub keys_pressed: Vec<u32>,
+    /// Shift modifier held this frame.
     pub modifiers_shift: bool,
+    /// Control modifier held this frame.
     pub modifiers_ctrl: bool,
+    /// Alt modifier held this frame.
     pub modifiers_alt: bool,
+    /// Horizontal scroll delta for this frame.
     pub scroll_x: f32,
+    /// Vertical scroll delta for this frame.
     pub scroll_y: f32,
 }
 
-/// A widget the guest wants rendered this frame.
+/// UI control the guest requested for the current frame; the host egui layer renders these after canvas content.
+///
+/// Commands are queued during `on_frame`; stable `id` values tie widgets to [`WidgetValue`] state and click tracking.
 #[derive(Clone, Debug)]
 pub enum WidgetCommand {
+    /// Clickable button with label; `api_ui_button` returns whether this `id` was clicked this pass.
     Button {
         id: u32,
         x: f32,
@@ -266,12 +350,14 @@ pub enum WidgetCommand {
         h: f32,
         label: String,
     },
+    /// Toggle with label; checked state lives in [`WidgetValue::Bool`] for this `id`.
     Checkbox {
         id: u32,
         x: f32,
         y: f32,
         label: String,
     },
+    /// Horizontal slider between `min` and `max`; value stored in [`WidgetValue::Float`].
     Slider {
         id: u32,
         x: f32,
@@ -280,19 +366,18 @@ pub enum WidgetCommand {
         min: f32,
         max: f32,
     },
-    TextInput {
-        id: u32,
-        x: f32,
-        y: f32,
-        w: f32,
-    },
+    /// Single-line text field; current text stored in [`WidgetValue::Text`].
+    TextInput { id: u32, x: f32, y: f32, w: f32 },
 }
 
-/// Persistent widget state maintained by the host across frames.
+/// Persistent control state for interactive widgets, keyed by widget `id` across frames.
 #[derive(Clone, Debug)]
 pub enum WidgetValue {
+    /// Checkbox on/off.
     Bool(bool),
+    /// Slider current value.
     Float(f32),
+    /// Text field contents.
     Text(String),
 }
 
@@ -382,6 +467,9 @@ fn write_guest_bytes(
     Ok(())
 }
 
+/// Append a [`ConsoleEntry`] with the current local timestamp to the shared console buffer.
+///
+/// Used by `api_log` / `api_warn` / `api_error` and by other host helpers that surface messages to the UI.
 pub fn console_log(console: &Arc<Mutex<Vec<ConsoleEntry>>>, level: ConsoleLevel, message: String) {
     console.lock().unwrap().push(ConsoleEntry {
         timestamp: chrono::Local::now().format("%H:%M:%S%.3f").to_string(),
@@ -390,7 +478,16 @@ pub fn console_log(console: &Arc<Mutex<Vec<ConsoleEntry>>>, level: ConsoleLevel,
     });
 }
 
-/// Register all host-provided capabilities onto the linker.
+/// Register every `oxide` import on `linker` so guest modules can link against them.
+///
+/// This wires dozens of functions (console, canvas, storage, clipboard, timers, HTTP,
+/// dynamic module loading, crypto helpers, navigation, hyperlinks, input, audio, UI
+/// widgets, etc.) under the Wasm import module name **`oxide`**. Each closure captures
+/// [`Caller`] to read [`HostState`] from the store: guest pointers are resolved through
+/// [`HostState::memory`], and shared handles (`Arc<Mutex<…>>`) are updated in place.
+///
+/// Call this once when building the linker for a main or child instance; the dynamic loader
+/// path also invokes it when instantiating a child module (see the `api_load_module` import).
 pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
     // ── Console ──────────────────────────────────────────────────────
 

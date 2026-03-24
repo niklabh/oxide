@@ -2,6 +2,7 @@
 members = [
     "oxide-browser",
     "oxide-sdk",
+    "oxide-docs",
     "examples/hello-oxide",
     "examples/audio-player",
     "examples/timer-demo",

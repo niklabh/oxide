@@ -1,3 +1,11 @@
+//! Guest WebAssembly lifecycle for the Oxide browser.
+//!
+//! This module coordinates fetching `.wasm` binaries (HTTP/HTTPS and `file://`), compiling them
+//! with Wasmtime, applying the sandbox policy, and linking the `oxide` import module (memory,
+//! host capabilities). After `start_app()` runs, interactive guests may export `on_frame(dt_ms:
+//! u32)` for a per-frame render loop; optional `on_timer(callback_id: u32)` callbacks run when
+//! timers expire, immediately before each frame.
+
 use std::sync::{Arc, Mutex};
 
 use anyhow::{Context, Result};
@@ -8,17 +16,25 @@ use crate::capabilities::{drain_expired_timers, register_host_functions, HostSta
 use crate::engine::{ModuleLoader, SandboxPolicy, WasmEngine};
 use crate::url::OxideUrl;
 
+/// Current lifecycle state of a browser tab, reflected in the UI and shared across threads.
 #[derive(Clone, Debug, PartialEq)]
 pub enum PageStatus {
+    /// No navigation in progress; ready for a new load.
     Idle,
+    /// A URL is being resolved and the `.wasm` module fetched or read (the string is the URL or path being loaded).
     Loading(String),
+    /// Guest code is active after a successful load; the string identifies the page (URL or a local placeholder).
     Running(String),
+    /// Load, compile, or `start_app` failed; the string is a human-readable error message.
     Error(String),
 }
 
 const FRAME_FUEL_LIMIT: u64 = 50_000_000;
 
-/// A wasm instance kept alive across frames for interactive apps that export `on_frame`.
+/// A Wasmtime [`Store`] and typed guest exports kept alive across frames for interactive apps.
+///
+/// Constructed when the module exports `on_frame`. The store holds [`HostState`] (canvas, console,
+/// timers, etc.) for the lifetime of the tab.
 pub struct LiveModule {
     store: Store<HostState>,
     on_frame_fn: TypedFunc<u32, ()>,
@@ -26,6 +42,11 @@ pub struct LiveModule {
 }
 
 impl LiveModule {
+    /// Advances one frame: drains expired timers and invokes `on_timer(callback_id)` for each,
+    /// then calls `on_frame(dt_ms)` with the elapsed time in milliseconds.
+    ///
+    /// Timer and frame work each run with a bounded fuel budget; exhaustion is surfaced as an
+    /// error or logged to the guest console.
     pub fn tick(&mut self, dt_ms: u32) -> Result<()> {
         // Fire any expired timers before the frame update.
         if let Some(ref on_timer) = self.on_timer_fn {
@@ -60,13 +81,22 @@ impl LiveModule {
     }
 }
 
+/// Main host-side entry point: Wasmtime engine, shared tab status, and guest-facing host state.
+///
+/// Use [`BrowserHost::new`] on the UI thread, then [`BrowserHost::fetch_and_run`] or
+/// [`BrowserHost::run_bytes`] to load modules. [`BrowserHost::recreate`] builds a second host
+/// that shares [`HostState`] and [`PageStatus`] for background workers.
 pub struct BrowserHost {
     wasm_engine: WasmEngine,
+    /// Latest [`PageStatus`] for this tab, safe to share with worker threads via [`Arc`] and [`Mutex`].
     pub status: Arc<Mutex<PageStatus>>,
+    /// Sandbox resources and host imports: module loader, KV/bookmarks, canvas, timers, console, etc.
     pub host_state: HostState,
 }
 
 impl BrowserHost {
+    /// Creates a new host with default [`SandboxPolicy`], a persistent KV store under the platform
+    /// data directory, and an initialized [`BookmarkStore`].
     pub fn new() -> Result<Self> {
         let policy = SandboxPolicy::default();
         let wasm_engine = WasmEngine::new(policy.clone())?;
@@ -103,7 +133,10 @@ impl BrowserHost {
         })
     }
 
-    /// Recreate a BrowserHost sharing existing state (used by background worker threads).
+    /// Re-creates a [`BrowserHost`] that shares the given [`HostState`] and [`PageStatus`].
+    ///
+    /// Used when worker threads need their own [`WasmEngine`] / Wasmtime instance while keeping
+    /// bookmarks, KV, canvas handles, and tab status in sync with the main host.
     pub fn recreate(mut host_state: HostState, status: Arc<Mutex<PageStatus>>) -> Self {
         let policy = SandboxPolicy::default();
         let wasm_engine = WasmEngine::new(policy.clone()).expect("failed to create engine");
@@ -123,9 +156,12 @@ impl BrowserHost {
         }
     }
 
-    /// Fetch a .wasm binary from a URL, compile it, and run its `start_app`
-    /// entry point.  Supports http(s) and file:// URLs via WHATWG parsing.
-    /// Returns a `LiveModule` if the guest exports `on_frame`.
+    /// Fetches a `.wasm` from `url`, compiles it, links the `oxide` imports, runs `start_app()`,
+    /// and returns a [`LiveModule`] if the guest exports `on_frame`.
+    ///
+    /// Updates [`PageStatus`] to [`PageStatus::Loading`] then [`PageStatus::Running`] on success.
+    /// Supports `http`/`https` (network fetch) and `file://` (local read) via [`OxideUrl`] parsing;
+    /// other schemes error.
     pub async fn fetch_and_run(&mut self, url: &str) -> Result<Option<LiveModule>> {
         *self.status.lock().unwrap() = PageStatus::Loading(url.to_string());
         self.host_state.canvas.lock().unwrap().commands.clear();
@@ -154,8 +190,11 @@ impl BrowserHost {
         self.run_module(&wasm_bytes)
     }
 
-    /// Load a .wasm binary from raw bytes (useful for local files).
-    /// Returns a `LiveModule` if the guest exports `on_frame`.
+    /// Compiles and runs `wasm_bytes` like [`fetch_and_run`](Self::fetch_and_run), but without a
+    /// network fetch—useful for in-memory or locally read modules.
+    ///
+    /// Sets [`PageStatus::Running`] with a `"(local)"` label. Returns `Some` with a [`LiveModule`]
+    /// when `on_frame` is exported, otherwise [`None`].
     pub fn run_bytes(&mut self, wasm_bytes: &[u8]) -> Result<Option<LiveModule>> {
         self.host_state.canvas.lock().unwrap().commands.clear();
         self.host_state.console.lock().unwrap().clear();
