@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use wasmtime::*;
 
 use crate::bookmarks::BookmarkStore;
-use crate::capabilities::{register_host_functions, HostState};
+use crate::capabilities::{drain_expired_timers, register_host_functions, HostState};
 use crate::engine::{ModuleLoader, SandboxPolicy, WasmEngine};
 use crate::url::OxideUrl;
 
@@ -22,10 +22,34 @@ const FRAME_FUEL_LIMIT: u64 = 50_000_000;
 pub struct LiveModule {
     store: Store<HostState>,
     on_frame_fn: TypedFunc<u32, ()>,
+    on_timer_fn: Option<TypedFunc<u32, ()>>,
 }
 
 impl LiveModule {
     pub fn tick(&mut self, dt_ms: u32) -> Result<()> {
+        // Fire any expired timers before the frame update.
+        if let Some(ref on_timer) = self.on_timer_fn {
+            let timers = self.store.data().timers.clone();
+            let fired = drain_expired_timers(&timers);
+            for callback_id in fired {
+                self.store
+                    .set_fuel(FRAME_FUEL_LIMIT)
+                    .context("failed to set timer fuel")?;
+                if let Err(e) = on_timer.call(&mut self.store, callback_id) {
+                    let msg = if e.to_string().contains("fuel") {
+                        format!("on_timer({callback_id}) fuel limit exceeded")
+                    } else {
+                        format!("on_timer({callback_id}) trapped: {e}")
+                    };
+                    crate::capabilities::console_log(
+                        &self.store.data().console,
+                        crate::capabilities::ConsoleLevel::Error,
+                        msg,
+                    );
+                }
+            }
+        }
+
         self.store
             .set_fuel(FRAME_FUEL_LIMIT)
             .context("failed to set per-frame fuel")?;
@@ -169,10 +193,16 @@ impl BrowserHost {
 
         match start_app.call(&mut store, ()) {
             Ok(()) => {
-                // If the guest also exports on_frame, keep the instance alive for the frame loop.
                 if let Ok(on_frame_fn) = instance.get_typed_func::<u32, ()>(&mut store, "on_frame")
                 {
-                    Ok(Some(LiveModule { store, on_frame_fn }))
+                    let on_timer_fn = instance
+                        .get_typed_func::<u32, ()>(&mut store, "on_timer")
+                        .ok();
+                    Ok(Some(LiveModule {
+                        store,
+                        on_frame_fn,
+                        on_timer_fn,
+                    }))
                 } else {
                     Ok(None)
                 }

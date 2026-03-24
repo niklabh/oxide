@@ -139,9 +139,9 @@ The core architecture is live: a Rust-native browser that fetches and executes `
 
 ### Timer & Scheduling
 
-- [ ] `set_timeout(callback_id, delay_ms)` — one-shot timer
-- [ ] `set_interval(callback_id, interval_ms)` — repeating timer
-- [ ] `clear_timeout(id)` / `clear_interval(id)` — cancel timers
+- [x] `set_timeout(callback_id, delay_ms)` — one-shot timer
+- [x] `set_interval(callback_id, interval_ms)` — repeating timer
+- [x] `clear_timeout(id)` / `clear_interval(id)` — cancel timers
 - [ ] `request_animation_frame(callback_id)` — vsync-aligned frame callback
 - [ ] Cron-style scheduled tasks for long-running apps
 
