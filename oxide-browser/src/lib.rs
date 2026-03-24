@@ -1,7 +1,7 @@
 //! # Oxide Browser — Host Runtime
 //!
 //! `oxide-browser` is the native desktop host application for the
-//! [Oxide browser](https://github.com/nicklabh/oxide), a **binary-first browser**
+//! [Oxide browser](https://github.com/niklabh/oxide), a **binary-first browser**
 //! that fetches and executes `.wasm` (WebAssembly) modules instead of
 //! HTML/JavaScript.
 //!
