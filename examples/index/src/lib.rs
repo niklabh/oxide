@@ -73,40 +73,91 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
     }
 
     // ── Header region ────────────────────────────────────────────────
-    canvas_rect(0.0, 0.0, w, 120.0, HEADER_BG.0, HEADER_BG.1, HEADER_BG.2, 255);
+    canvas_rect(
+        0.0,
+        0.0,
+        w,
+        120.0,
+        HEADER_BG.0,
+        HEADER_BG.1,
+        HEADER_BG.2,
+        255,
+    );
 
     let glow_alpha = ((t * 2.0).sin() * 0.3 + 0.7) * 255.0;
-    canvas_rect(0.0, 118.0, w, 2.0, ACCENT.0, ACCENT.1, ACCENT.2, glow_alpha as u8);
+    canvas_rect(
+        0.0,
+        118.0,
+        w,
+        2.0,
+        ACCENT.0,
+        ACCENT.1,
+        ACCENT.2,
+        glow_alpha as u8,
+    );
 
     // Title with subtle glow effect
     canvas_text(
-        32.0, 28.0, 32.0,
-        ACCENT_GLOW.0, ACCENT_GLOW.1, ACCENT_GLOW.2,
+        32.0,
+        28.0,
+        32.0,
+        ACCENT_GLOW.0,
+        ACCENT_GLOW.1,
+        ACCENT_GLOW.2,
         "Oxide",
     );
     canvas_text(
-        32.0, 66.0, 14.0,
-        TEXT_DIM.0, TEXT_DIM.1, TEXT_DIM.2,
+        32.0,
+        66.0,
+        14.0,
+        TEXT_DIM.0,
+        TEXT_DIM.1,
+        TEXT_DIM.2,
         "A WebAssembly-native application platform",
     );
     canvas_text(
-        32.0, 88.0, 12.0,
-        TEXT_DIM.0, TEXT_DIM.1, TEXT_DIM.2,
+        32.0,
+        88.0,
+        12.0,
+        TEXT_DIM.0,
+        TEXT_DIM.1,
+        TEXT_DIM.2,
         "oxide.foundation",
     );
 
     // Version badge
     let badge_x = w - 120.0;
     canvas_rect(badge_x, 48.0, 88.0, 24.0, ACCENT.0, ACCENT.1, ACCENT.2, 60);
-    canvas_text(badge_x + 12.0, 52.0, 12.0, TEXT_BRIGHT.0, TEXT_BRIGHT.1, TEXT_BRIGHT.2, "v0.1.0");
+    canvas_text(
+        badge_x + 12.0,
+        52.0,
+        12.0,
+        TEXT_BRIGHT.0,
+        TEXT_BRIGHT.1,
+        TEXT_BRIGHT.2,
+        "v0.1.0",
+    );
 
     // ── Section title ────────────────────────────────────────────────
     canvas_text(
-        32.0, 142.0, 18.0,
-        TEXT_BRIGHT.0, TEXT_BRIGHT.1, TEXT_BRIGHT.2,
+        32.0,
+        142.0,
+        18.0,
+        TEXT_BRIGHT.0,
+        TEXT_BRIGHT.1,
+        TEXT_BRIGHT.2,
         "Demo Applications",
     );
-    canvas_line(32.0, 168.0, w - 32.0, 168.0, DIVIDER.0, DIVIDER.1, DIVIDER.2, 1.0);
+    canvas_line(
+        32.0,
+        168.0,
+        w - 32.0,
+        168.0,
+        DIVIDER.0,
+        DIVIDER.1,
+        DIVIDER.2,
+        1.0,
+    );
 
     // ── App cards ────────────────────────────────────────────────────
     let card_start_y = 185.0;
@@ -119,51 +170,88 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
 
     for (i, card) in CARDS.iter().enumerate() {
         let cy = card_start_y + (i as f32) * (card_h + card_gap);
-        let hovered = mx >= card_margin && mx <= card_margin + card_w
-            && my >= cy && my <= cy + card_h;
+        let hovered =
+            mx >= card_margin && mx <= card_margin + card_w && my >= cy && my <= cy + card_h;
 
         let bg = if hovered { CARD_HOVER } else { CARD_BG };
         canvas_rect(card_margin, cy, card_w, card_h, bg.0, bg.1, bg.2, 255);
 
         // Left color accent bar
-        canvas_rect(card_margin, cy, 4.0, card_h, card.color.0, card.color.1, card.color.2, 255);
+        canvas_rect(
+            card_margin,
+            cy,
+            4.0,
+            card_h,
+            card.color.0,
+            card.color.1,
+            card.color.2,
+            255,
+        );
 
         // Icon circle
         let icon_cx = card_margin + 36.0;
         let icon_cy = cy + card_h / 2.0;
-        canvas_circle(icon_cx, icon_cy, 18.0, card.color.0, card.color.1, card.color.2, 40);
+        canvas_circle(
+            icon_cx,
+            icon_cy,
+            18.0,
+            card.color.0,
+            card.color.1,
+            card.color.2,
+            40,
+        );
         canvas_text(
-            icon_cx - 7.0, icon_cy - 10.0, 18.0,
-            card.color.0, card.color.1, card.color.2,
+            icon_cx - 7.0,
+            icon_cy - 10.0,
+            18.0,
+            card.color.0,
+            card.color.1,
+            card.color.2,
             card.icon_char,
         );
 
         // Title
         canvas_text(
-            card_margin + 68.0, cy + 14.0, 16.0,
-            TEXT_BRIGHT.0, TEXT_BRIGHT.1, TEXT_BRIGHT.2,
+            card_margin + 68.0,
+            cy + 14.0,
+            16.0,
+            TEXT_BRIGHT.0,
+            TEXT_BRIGHT.1,
+            TEXT_BRIGHT.2,
             card.title,
         );
 
         // Subtitle (filename)
         canvas_text(
-            card_margin + 68.0, cy + 36.0, 11.0,
-            card.color.0, card.color.1, card.color.2,
+            card_margin + 68.0,
+            cy + 36.0,
+            11.0,
+            card.color.0,
+            card.color.1,
+            card.color.2,
             card.subtitle,
         );
 
         // Description
         canvas_text(
-            card_margin + 68.0, cy + 56.0, 12.0,
-            TEXT_DIM.0, TEXT_DIM.1, TEXT_DIM.2,
+            card_margin + 68.0,
+            cy + 56.0,
+            12.0,
+            TEXT_DIM.0,
+            TEXT_DIM.1,
+            TEXT_DIM.2,
             card.description,
         );
 
         // Arrow indicator on hover
         if hovered {
             canvas_text(
-                card_margin + card_w - 36.0, cy + card_h / 2.0 - 10.0, 18.0,
-                card.color.0, card.color.1, card.color.2,
+                card_margin + card_w - 36.0,
+                cy + card_h / 2.0 - 10.0,
+                18.0,
+                card.color.0,
+                card.color.1,
+                card.color.2,
                 ">",
             );
         }
@@ -173,16 +261,33 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
 
     // ── Footer ───────────────────────────────────────────────────────
     let footer_y = card_start_y + (CARDS.len() as f32) * (card_h + card_gap) + 20.0;
-    canvas_line(32.0, footer_y, w - 32.0, footer_y, DIVIDER.0, DIVIDER.1, DIVIDER.2, 1.0);
+    canvas_line(
+        32.0,
+        footer_y,
+        w - 32.0,
+        footer_y,
+        DIVIDER.0,
+        DIVIDER.1,
+        DIVIDER.2,
+        1.0,
+    );
 
     canvas_text(
-        32.0, footer_y + 16.0, 11.0,
-        TEXT_DIM.0, TEXT_DIM.1, TEXT_DIM.2,
+        32.0,
+        footer_y + 16.0,
+        11.0,
+        TEXT_DIM.0,
+        TEXT_DIM.1,
+        TEXT_DIM.2,
         "Built with Oxide SDK  |  Rust + WebAssembly  |  oxide.foundation",
     );
     canvas_text(
-        32.0, footer_y + 36.0, 11.0,
-        TEXT_DIM.0, TEXT_DIM.1, TEXT_DIM.2,
+        32.0,
+        footer_y + 36.0,
+        11.0,
+        TEXT_DIM.0,
+        TEXT_DIM.1,
+        TEXT_DIM.2,
         "Click any card to launch the demo in this browser.",
     );
 }
