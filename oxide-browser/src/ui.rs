@@ -912,18 +912,30 @@ impl OxideApp {
     }
 
     fn handle_keyboard_shortcuts(&mut self, ctx: &egui::Context) {
-        let (new_tab, close_tab, next_tab, prev_tab, toggle_bookmark, toggle_panel) =
-            ctx.input(|i| {
-                let cmd = i.modifiers.command;
-                (
-                    cmd && i.key_pressed(egui::Key::T),
-                    cmd && i.key_pressed(egui::Key::W),
-                    i.modifiers.ctrl && !i.modifiers.shift && i.key_pressed(egui::Key::Tab),
-                    i.modifiers.ctrl && i.modifiers.shift && i.key_pressed(egui::Key::Tab),
-                    cmd && i.key_pressed(egui::Key::D),
-                    cmd && i.key_pressed(egui::Key::B),
-                )
-            });
+        let (
+            new_tab,
+            close_tab,
+            next_tab,
+            prev_tab,
+            toggle_bookmark,
+            toggle_panel,
+            go_back,
+            go_forward,
+        ) = ctx.input(|i| {
+            let cmd = i.modifiers.command;
+            (
+                cmd && i.key_pressed(egui::Key::T),
+                cmd && i.key_pressed(egui::Key::W),
+                i.modifiers.ctrl && !i.modifiers.shift && i.key_pressed(egui::Key::Tab),
+                i.modifiers.ctrl && i.modifiers.shift && i.key_pressed(egui::Key::Tab),
+                cmd && i.key_pressed(egui::Key::D),
+                cmd && i.key_pressed(egui::Key::B),
+                i.modifiers.alt && i.key_pressed(egui::Key::ArrowLeft)&& !ctx.wants_keyboard_input(),
+                i.modifiers.alt
+                    && i.key_pressed(egui::Key::ArrowRight)
+                    && !ctx.wants_keyboard_input(),
+            )
+        });
 
         if new_tab {
             let idx = self.create_tab();
@@ -948,6 +960,12 @@ impl OxideApp {
         }
         if toggle_panel {
             self.show_bookmarks = !self.show_bookmarks;
+        }
+        if go_back {
+            self.tabs[self.active_tab].go_back();
+        }
+        if go_forward {
+            self.tabs[self.active_tab].go_forward();
         }
     }
 
