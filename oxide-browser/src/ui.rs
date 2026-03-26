@@ -920,7 +920,7 @@ impl OxideApp {
             toggle_bookmark,
             toggle_panel,
             go_back,
-            go_foward,
+            go_forward,
         ) = ctx.input(|i| {
             let cmd = i.modifiers.command;
             (
@@ -930,8 +930,10 @@ impl OxideApp {
                 i.modifiers.ctrl && i.modifiers.shift && i.key_pressed(egui::Key::Tab),
                 cmd && i.key_pressed(egui::Key::D),
                 cmd && i.key_pressed(egui::Key::B),
-                i.modifiers.alt && i.key_pressed(egui::Key::ArrowLeft),
-                i.modifiers.alt && i.key_pressed(egui::Key::ArrowRight),
+                i.modifiers.alt && i.key_pressed(egui::Key::ArrowLeft)&& !ctx.wants_keyboard_input(),
+                i.modifiers.alt
+                    && i.key_pressed(egui::Key::ArrowRight)
+                    && !ctx.wants_keyboard_input(),
             )
         });
 
@@ -962,7 +964,7 @@ impl OxideApp {
         if go_back {
             self.tabs[self.active_tab].go_back();
         }
-        if go_foward {
+        if go_forward {
             self.tabs[self.active_tab].go_forward();
         }
     }
