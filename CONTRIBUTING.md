@@ -24,6 +24,7 @@ Thank you for your interest in contributing to Oxide — the world's first decen
 
 - **Rust** (stable, latest) — [install via rustup](https://rustup.rs/)
 - **wasm32-unknown-unknown** target
+- **FFmpeg** development libraries (for video decode in `oxide-browser`): on macOS `brew install ffmpeg`; on Debian/Ubuntu `sudo apt-get install libavcodec-dev libavformat-dev libavutil-dev libavfilter-dev libavdevice-dev libswscale-dev libswresample-dev pkg-config`
 
 ```bash
 rustup toolchain install stable

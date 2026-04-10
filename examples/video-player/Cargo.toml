@@ -1,0 +1,11 @@
+[package]
+name = "video-player"
+version = "0.1.0"
+edition = "2021"
+description = "Video playback demo for the Oxide browser"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+oxide-sdk = { path = "../../oxide-sdk" }

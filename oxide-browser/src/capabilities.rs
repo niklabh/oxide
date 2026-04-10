@@ -23,7 +23,10 @@ use crate::audio_format;
 use crate::bookmarks::SharedBookmarkStore;
 use crate::engine::ModuleLoader;
 use crate::navigation::NavigationStack;
+use crate::subtitle;
 use crate::url as oxide_url;
+use crate::video::{self, VideoPlaybackState};
+use crate::video_format;
 
 /// Per-channel audio state: a rodio Player plus metadata.
 struct AudioChannel {
@@ -148,6 +151,12 @@ pub struct HostState {
     pub audio: Arc<Mutex<Option<AudioEngine>>>,
     /// `Content-Type` from the last `api_audio_play_url` response (UTF-8), for codec negotiation introspection.
     pub last_audio_url_content_type: Arc<Mutex<String>>,
+    /// Video playback, decode, subtitles, and HLS variant metadata (FFmpeg).
+    pub video: Arc<Mutex<VideoPlaybackState>>,
+    /// Last decoded video frame for picture-in-picture (RGBA, copied when PiP is enabled).
+    pub video_pip_frame: Arc<Mutex<Option<DecodedImage>>>,
+    /// Bumped when the PiP buffer is updated so the UI can refresh the floating texture.
+    pub video_pip_serial: Arc<Mutex<u64>>,
 }
 
 /// A single console log line: local time, severity, and message text.
@@ -416,8 +425,72 @@ impl Default for HostState {
             bookmark_store: crate::bookmarks::new_shared(),
             audio: Arc::new(Mutex::new(None)),
             last_audio_url_content_type: Arc::new(Mutex::new(String::new())),
+            video: Arc::new(Mutex::new(VideoPlaybackState::default())),
+            video_pip_frame: Arc::new(Mutex::new(None)),
+            video_pip_serial: Arc::new(Mutex::new(0)),
         }
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn video_render_at(
+    video: &Arc<Mutex<VideoPlaybackState>>,
+    pip_frame: &Arc<Mutex<Option<DecodedImage>>>,
+    pip_serial: &Arc<Mutex<u64>>,
+    canvas: &Arc<Mutex<CanvasState>>,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+) -> Result<(), String> {
+    let t = {
+        let g = video.lock().unwrap();
+        g.current_position_ms()
+    };
+    let mut g = video.lock().unwrap();
+    let player = g
+        .player
+        .as_mut()
+        .ok_or_else(|| "no video loaded".to_string())?;
+    let (pixels, pw, ph) = player.decode_frame_at(t)?;
+    let pip_on = g.pip;
+    let subtitle_text = subtitle::cue_text_at(&g.subtitles, t).map(|s| s.to_string());
+    drop(g);
+
+    let decoded = DecodedImage {
+        width: pw,
+        height: ph,
+        pixels,
+    };
+    if pip_on {
+        *pip_frame.lock().unwrap() = Some(decoded.clone());
+        if let Ok(mut s) = pip_serial.lock() {
+            *s = s.saturating_add(1);
+        }
+    }
+    let mut canvas = canvas.lock().unwrap();
+    let image_id = canvas.images.len();
+    canvas.images.push(decoded);
+    canvas.commands.push(DrawCommand::Image {
+        x,
+        y,
+        w,
+        h,
+        image_id,
+    });
+    if let Some(text) = subtitle_text {
+        let ty = (y + h - 24.0).max(y + 12.0);
+        canvas.commands.push(DrawCommand::Text {
+            x: x + 8.0,
+            y: ty,
+            size: 16.0,
+            r: 255,
+            g: 255,
+            b: 255,
+            text,
+        });
+    }
+    Ok(())
 }
 
 fn read_guest_string(
@@ -2320,6 +2393,359 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
                     ch.player.set_volume(level.clamp(0.0, 2.0));
                 }
             }
+        },
+    )?;
+
+    // ── Video (FFmpeg) ─────────────────────────────────────────────
+
+    linker.func_wrap(
+        "oxide",
+        "api_video_detect_format",
+        |caller: Caller<'_, HostState>, data_ptr: u32, data_len: u32| -> u32 {
+            let mem = caller.data().memory.expect("memory not set");
+            let data = read_guest_bytes(&mem, &caller, data_ptr, data_len).unwrap_or_default();
+            video_format::sniff_video_format(&data)
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_video_load",
+        |caller: Caller<'_, HostState>, data_ptr: u32, data_len: u32, format_hint: u32| -> i32 {
+            let mem = caller.data().memory.expect("memory not set");
+            let data = read_guest_bytes(&mem, &caller, data_ptr, data_len).unwrap_or_default();
+            if data.is_empty() {
+                return -1;
+            }
+            let mut guard = caller.data().video.lock().unwrap();
+            match guard.open_bytes(&data, format_hint) {
+                Ok(()) => {
+                    console_log(
+                        &caller.data().console,
+                        ConsoleLevel::Log,
+                        "[VIDEO] Loaded from bytes".into(),
+                    );
+                    0
+                }
+                Err(e) => {
+                    console_log(
+                        &caller.data().console,
+                        ConsoleLevel::Error,
+                        format!("[VIDEO] Load failed: {e}"),
+                    );
+                    -2
+                }
+            }
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_video_load_url",
+        |caller: Caller<'_, HostState>, url_ptr: u32, url_len: u32| -> i32 {
+            let mem = caller.data().memory.expect("memory not set");
+            let url = read_guest_string(&mem, &caller, url_ptr, url_len).unwrap_or_default();
+            if url.is_empty() {
+                return -1;
+            }
+            console_log(
+                &caller.data().console,
+                ConsoleLevel::Log,
+                format!("[VIDEO] Opening {url}"),
+            );
+
+            let client = match reqwest::blocking::Client::builder()
+                .timeout(Duration::from_secs(90))
+                .build()
+            {
+                Ok(c) => c,
+                Err(_) => return -3,
+            };
+
+            let mut ct = String::new();
+            if let Ok(resp) = client.head(&url).send() {
+                if let Some(h) = resp.headers().get(CONTENT_TYPE) {
+                    if let Ok(s) = h.to_str() {
+                        ct = s.to_string();
+                    }
+                }
+            }
+
+            let mut master_body: Option<String> = None;
+            let fetch_master = url.to_ascii_lowercase().contains("m3u8")
+                || ct.to_ascii_lowercase().contains("mpegurl")
+                || ct.to_ascii_lowercase().contains("m3u8");
+            if fetch_master {
+                if let Ok(resp) = client
+                    .get(&url)
+                    .header(ACCEPT, video_format::VIDEO_HTTP_ACCEPT)
+                    .timeout(Duration::from_secs(60))
+                    .send()
+                {
+                    if resp.status().is_success() {
+                        if let Ok(t) = resp.text() {
+                            master_body = Some(t);
+                        }
+                    }
+                }
+            }
+
+            let mut guard = caller.data().video.lock().unwrap();
+            guard.stop();
+            guard.last_url_content_type = ct.clone();
+            guard.hls_base_url = url.clone();
+            if let Some(ref body) = master_body {
+                guard.hls_variants = video::parse_hls_master_variants(body);
+            } else {
+                guard.hls_variants.clear();
+            }
+
+            match video::VideoPlayer::open_url(&url) {
+                Ok(p) => {
+                    guard.player = Some(p);
+                    let ctd = ct.as_str();
+                    console_log(
+                        &caller.data().console,
+                        ConsoleLevel::Log,
+                        format!("[VIDEO] Opened URL (Content-Type: {ctd})"),
+                    );
+                    0
+                }
+                Err(e) => {
+                    console_log(
+                        &caller.data().console,
+                        ConsoleLevel::Error,
+                        format!("[VIDEO] Open failed: {e}"),
+                    );
+                    -2
+                }
+            }
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_video_last_url_content_type",
+        |mut caller: Caller<'_, HostState>, out_ptr: u32, out_cap: u32| -> u32 {
+            let s = caller
+                .data()
+                .video
+                .lock()
+                .unwrap()
+                .last_url_content_type
+                .clone();
+            let bytes = s.as_bytes();
+            let write_len = bytes.len().min(out_cap as usize);
+            let mem = caller.data().memory.expect("memory not set");
+            write_guest_bytes(&mem, &mut caller, out_ptr, &bytes[..write_len]).ok();
+            write_len as u32
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_video_hls_variant_count",
+        |caller: Caller<'_, HostState>| -> u32 {
+            caller.data().video.lock().unwrap().hls_variants.len() as u32
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_video_hls_variant_url",
+        |mut caller: Caller<'_, HostState>, index: u32, out_ptr: u32, out_cap: u32| -> u32 {
+            let resolved = {
+                let g = caller.data().video.lock().unwrap();
+                g.hls_variants
+                    .get(index as usize)
+                    .and_then(|rel| video::resolve_against_base(&g.hls_base_url, rel))
+                    .or_else(|| g.hls_variants.get(index as usize).cloned())
+                    .unwrap_or_default()
+            };
+            let bytes = resolved.as_bytes();
+            let write_len = bytes.len().min(out_cap as usize);
+            let mem = caller.data().memory.expect("memory not set");
+            write_guest_bytes(&mem, &mut caller, out_ptr, &bytes[..write_len]).ok();
+            write_len as u32
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_video_hls_open_variant",
+        |caller: Caller<'_, HostState>, index: u32| -> i32 {
+            let url_opt = {
+                let g = caller.data().video.lock().unwrap();
+                g.hls_variants.get(index as usize).map(|rel| {
+                    video::resolve_against_base(&g.hls_base_url, rel).unwrap_or_else(|| rel.clone())
+                })
+            };
+            let Some(url) = url_opt else {
+                return -1;
+            };
+            let mut guard = caller.data().video.lock().unwrap();
+            guard.hls_base_url = url.clone();
+            guard.hls_variants.clear();
+            match video::VideoPlayer::open_url(&url) {
+                Ok(p) => {
+                    guard.player = Some(p);
+                    guard.reset_playback_clock();
+                    console_log(
+                        &caller.data().console,
+                        ConsoleLevel::Log,
+                        format!("[VIDEO] Opened HLS variant {index}"),
+                    );
+                    0
+                }
+                Err(e) => {
+                    console_log(
+                        &caller.data().console,
+                        ConsoleLevel::Error,
+                        format!("[VIDEO] Variant open failed: {e}"),
+                    );
+                    -2
+                }
+            }
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_video_play",
+        |caller: Caller<'_, HostState>| {
+            caller.data().video.lock().unwrap().play();
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_video_pause",
+        |caller: Caller<'_, HostState>| {
+            caller.data().video.lock().unwrap().pause();
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_video_stop",
+        |caller: Caller<'_, HostState>| {
+            caller.data().video.lock().unwrap().stop();
+            *caller.data().video_pip_frame.lock().unwrap() = None;
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_video_seek",
+        |caller: Caller<'_, HostState>, position_ms: u64| -> i32 {
+            caller.data().video.lock().unwrap().seek(position_ms);
+            0
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_video_position",
+        |caller: Caller<'_, HostState>| -> u64 {
+            caller.data().video.lock().unwrap().current_position_ms()
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_video_duration",
+        |caller: Caller<'_, HostState>| -> u64 {
+            caller.data().video.lock().unwrap().duration_ms()
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_video_render",
+        |caller: Caller<'_, HostState>, x: f32, y: f32, w: f32, h: f32| -> i32 {
+            match video_render_at(
+                &caller.data().video,
+                &caller.data().video_pip_frame,
+                &caller.data().video_pip_serial,
+                &caller.data().canvas,
+                x,
+                y,
+                w,
+                h,
+            ) {
+                Ok(()) => 0,
+                Err(e) => {
+                    console_log(
+                        &caller.data().console,
+                        ConsoleLevel::Error,
+                        format!("[VIDEO] Render: {e}"),
+                    );
+                    -1
+                }
+            }
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_video_set_volume",
+        |caller: Caller<'_, HostState>, level: f32| {
+            caller.data().video.lock().unwrap().volume = level.clamp(0.0, 2.0);
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_video_get_volume",
+        |caller: Caller<'_, HostState>| -> f32 { caller.data().video.lock().unwrap().volume },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_video_set_loop",
+        |caller: Caller<'_, HostState>, enabled: u32| {
+            caller.data().video.lock().unwrap().looping = enabled != 0;
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_video_set_pip",
+        |caller: Caller<'_, HostState>, enabled: u32| {
+            caller.data().video.lock().unwrap().pip = enabled != 0;
+            if enabled == 0 {
+                *caller.data().video_pip_frame.lock().unwrap() = None;
+            }
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_subtitle_load_srt",
+        |caller: Caller<'_, HostState>, ptr: u32, len: u32| -> i32 {
+            let mem = caller.data().memory.expect("memory not set");
+            let s = read_guest_string(&mem, &caller, ptr, len).unwrap_or_default();
+            caller.data().video.lock().unwrap().subtitles = subtitle::parse_srt(&s);
+            0
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_subtitle_load_vtt",
+        |caller: Caller<'_, HostState>, ptr: u32, len: u32| -> i32 {
+            let mem = caller.data().memory.expect("memory not set");
+            let s = read_guest_string(&mem, &caller, ptr, len).unwrap_or_default();
+            caller.data().video.lock().unwrap().subtitles = subtitle::parse_vtt(&s);
+            0
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_subtitle_clear",
+        |caller: Caller<'_, HostState>| {
+            caller.data().video.lock().unwrap().subtitles.clear();
         },
     )?;
 

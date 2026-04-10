@@ -67,5 +67,8 @@ pub mod capabilities;
 pub mod engine;
 pub mod navigation;
 pub mod runtime;
+pub mod subtitle;
 pub mod ui;
 pub mod url;
+pub mod video;
+pub mod video_format;

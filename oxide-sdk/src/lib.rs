@@ -66,6 +66,7 @@
 //! | **Protobuf** | [`proto::ProtoEncoder`], [`proto::ProtoDecoder`] |
 //! | **Storage** | [`storage_set`], [`storage_get`], [`storage_remove`], [`kv_store_set`], [`kv_store_get`], [`kv_store_delete`] |
 //! | **Audio** | [`audio_play`], [`audio_play_url`], [`audio_detect_format`], [`audio_play_with_format`], [`audio_last_url_content_type`], [`audio_pause`], [`audio_channel_play`] |
+//! | **Video** | [`video_load`], [`video_load_url`], [`video_render`], [`video_play`], [`video_hls_open_variant`], [`subtitle_load_srt`] |
 //! | **Timers** | [`set_timeout`], [`set_interval`], [`clear_timer`], [`time_now_ms`] |
 //! | **Navigation** | [`navigate`], [`push_state`], [`replace_state`], [`get_url`], [`history_back`], [`history_forward`] |
 //! | **Input** | [`mouse_position`], [`mouse_button_down`], [`key_down`], [`key_pressed`], [`scroll_delta`] |
@@ -360,6 +361,71 @@ extern "C" {
 
     #[link_name = "api_audio_channel_set_volume"]
     fn _api_audio_channel_set_volume(channel: u32, level: f32);
+
+    // ── Video ─────────────────────────────────────────────────────────
+
+    #[link_name = "api_video_detect_format"]
+    fn _api_video_detect_format(data_ptr: u32, data_len: u32) -> u32;
+
+    #[link_name = "api_video_load"]
+    fn _api_video_load(data_ptr: u32, data_len: u32, format_hint: u32) -> i32;
+
+    #[link_name = "api_video_load_url"]
+    fn _api_video_load_url(url_ptr: u32, url_len: u32) -> i32;
+
+    #[link_name = "api_video_last_url_content_type"]
+    fn _api_video_last_url_content_type(out_ptr: u32, out_cap: u32) -> u32;
+
+    #[link_name = "api_video_hls_variant_count"]
+    fn _api_video_hls_variant_count() -> u32;
+
+    #[link_name = "api_video_hls_variant_url"]
+    fn _api_video_hls_variant_url(index: u32, out_ptr: u32, out_cap: u32) -> u32;
+
+    #[link_name = "api_video_hls_open_variant"]
+    fn _api_video_hls_open_variant(index: u32) -> i32;
+
+    #[link_name = "api_video_play"]
+    fn _api_video_play();
+
+    #[link_name = "api_video_pause"]
+    fn _api_video_pause();
+
+    #[link_name = "api_video_stop"]
+    fn _api_video_stop();
+
+    #[link_name = "api_video_seek"]
+    fn _api_video_seek(position_ms: u64) -> i32;
+
+    #[link_name = "api_video_position"]
+    fn _api_video_position() -> u64;
+
+    #[link_name = "api_video_duration"]
+    fn _api_video_duration() -> u64;
+
+    #[link_name = "api_video_render"]
+    fn _api_video_render(x: f32, y: f32, w: f32, h: f32) -> i32;
+
+    #[link_name = "api_video_set_volume"]
+    fn _api_video_set_volume(level: f32);
+
+    #[link_name = "api_video_get_volume"]
+    fn _api_video_get_volume() -> f32;
+
+    #[link_name = "api_video_set_loop"]
+    fn _api_video_set_loop(enabled: u32);
+
+    #[link_name = "api_video_set_pip"]
+    fn _api_video_set_pip(enabled: u32);
+
+    #[link_name = "api_subtitle_load_srt"]
+    fn _api_subtitle_load_srt(ptr: u32, len: u32) -> i32;
+
+    #[link_name = "api_subtitle_load_vtt"]
+    fn _api_subtitle_load_vtt(ptr: u32, len: u32) -> i32;
+
+    #[link_name = "api_subtitle_clear"]
+    fn _api_subtitle_clear();
 
     // ── URL Utilities ───────────────────────────────────────────────
 
@@ -741,6 +807,152 @@ pub fn audio_channel_stop(channel: u32) {
 /// Set volume for a specific channel (0.0 silent, 1.0 normal, up to 2.0 boost).
 pub fn audio_channel_set_volume(channel: u32, level: f32) {
     unsafe { _api_audio_channel_set_volume(channel, level) }
+}
+
+// ─── Video API ─────────────────────────────────────────────────────────────
+
+/// Container or hint for [`video_load_with_format`] (host codes: 0 unknown, 1 MP4, 2 WebM, 3 AV1).
+#[repr(u32)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum VideoFormat {
+    Unknown = 0,
+    Mp4 = 1,
+    Webm = 2,
+    Av1 = 3,
+}
+
+impl From<u32> for VideoFormat {
+    fn from(code: u32) -> Self {
+        match code {
+            1 => VideoFormat::Mp4,
+            2 => VideoFormat::Webm,
+            3 => VideoFormat::Av1,
+            _ => VideoFormat::Unknown,
+        }
+    }
+}
+
+impl From<VideoFormat> for u32 {
+    fn from(f: VideoFormat) -> u32 {
+        f as u32
+    }
+}
+
+/// Sniff container from leading bytes (magic only; does not decode).
+pub fn video_detect_format(data: &[u8]) -> VideoFormat {
+    let code = unsafe { _api_video_detect_format(data.as_ptr() as u32, data.len() as u32) };
+    VideoFormat::from(code)
+}
+
+/// Load video from encoded bytes (MP4, WebM, etc.). Requires FFmpeg on the host.
+/// Returns 0 on success, negative on error.
+pub fn video_load(data: &[u8]) -> i32 {
+    unsafe {
+        _api_video_load(
+            data.as_ptr() as u32,
+            data.len() as u32,
+            VideoFormat::Unknown as u32,
+        )
+    }
+}
+
+/// Load with a [`VideoFormat`] hint (unknown = same as [`video_load`]).
+pub fn video_load_with_format(data: &[u8], format: VideoFormat) -> i32 {
+    unsafe { _api_video_load(data.as_ptr() as u32, data.len() as u32, u32::from(format)) }
+}
+
+/// Open a progressive or adaptive (HLS) URL. The host uses FFmpeg; master playlists may list variants.
+pub fn video_load_url(url: &str) -> i32 {
+    unsafe { _api_video_load_url(url.as_ptr() as u32, url.len() as u32) }
+}
+
+/// `Content-Type` from the last successful [`video_load_url`] (may be empty).
+pub fn video_last_url_content_type() -> String {
+    let mut buf = [0u8; 512];
+    let len =
+        unsafe { _api_video_last_url_content_type(buf.as_mut_ptr() as u32, buf.len() as u32) };
+    let n = (len as usize).min(buf.len());
+    String::from_utf8_lossy(&buf[..n]).to_string()
+}
+
+/// Number of variant stream URIs parsed from the last HLS master playlist (0 if not a master).
+pub fn video_hls_variant_count() -> u32 {
+    unsafe { _api_video_hls_variant_count() }
+}
+
+/// Resolved variant URL for `index`, written into `buf`-style API (use fixed buffer).
+pub fn video_hls_variant_url(index: u32) -> String {
+    let mut buf = [0u8; 2048];
+    let len =
+        unsafe { _api_video_hls_variant_url(index, buf.as_mut_ptr() as u32, buf.len() as u32) };
+    let n = (len as usize).min(buf.len());
+    String::from_utf8_lossy(&buf[..n]).to_string()
+}
+
+/// Open a variant playlist by index (after loading a master with [`video_load_url`]).
+pub fn video_hls_open_variant(index: u32) -> i32 {
+    unsafe { _api_video_hls_open_variant(index) }
+}
+
+pub fn video_play() {
+    unsafe { _api_video_play() }
+}
+
+pub fn video_pause() {
+    unsafe { _api_video_pause() }
+}
+
+pub fn video_stop() {
+    unsafe { _api_video_stop() }
+}
+
+pub fn video_seek(position_ms: u64) -> i32 {
+    unsafe { _api_video_seek(position_ms) }
+}
+
+pub fn video_position() -> u64 {
+    unsafe { _api_video_position() }
+}
+
+pub fn video_duration() -> u64 {
+    unsafe { _api_video_duration() }
+}
+
+/// Draw the current video frame into the given rectangle (same coordinate space as canvas).
+pub fn video_render(x: f32, y: f32, w: f32, h: f32) -> i32 {
+    unsafe { _api_video_render(x, y, w, h) }
+}
+
+/// Volume multiplier for the video track (0.0–2.0; embedded audio mixing may follow in future hosts).
+pub fn video_set_volume(level: f32) {
+    unsafe { _api_video_set_volume(level) }
+}
+
+pub fn video_get_volume() -> f32 {
+    unsafe { _api_video_get_volume() }
+}
+
+pub fn video_set_loop(enabled: bool) {
+    unsafe { _api_video_set_loop(if enabled { 1 } else { 0 }) }
+}
+
+/// Floating picture-in-picture preview (host mirrors the last rendered frame).
+pub fn video_set_pip(enabled: bool) {
+    unsafe { _api_video_set_pip(if enabled { 1 } else { 0 }) }
+}
+
+/// Load SubRip subtitles (cues rendered on [`video_render`]).
+pub fn subtitle_load_srt(text: &str) -> i32 {
+    unsafe { _api_subtitle_load_srt(text.as_ptr() as u32, text.len() as u32) }
+}
+
+/// Load WebVTT subtitles.
+pub fn subtitle_load_vtt(text: &str) -> i32 {
+    unsafe { _api_subtitle_load_vtt(text.as_ptr() as u32, text.len() as u32) }
+}
+
+pub fn subtitle_clear() {
+    unsafe { _api_subtitle_clear() }
 }
 
 // ─── HTTP Fetch API ─────────────────────────────────────────────────────────
