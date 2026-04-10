@@ -97,7 +97,7 @@ jobs:
             libglib2.0-dev libpango1.0-dev libgdk-pixbuf-2.0-dev \
             libasound2-dev \
             pkg-config libavcodec-dev libavformat-dev libavutil-dev libavfilter-dev \
-            libswscale-dev libswresample-dev
+            libavdevice-dev libswscale-dev libswresample-dev
 
       - uses: dtolnay/rust-toolchain@stable
         with:
