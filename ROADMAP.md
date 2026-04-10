@@ -46,15 +46,15 @@ The core architecture is live: a Rust-native browser that fetches and executes `
 
 ### Video
 
-- [ ] `video_load(data, format)` — load video from bytes (MP4, WebM, AV1)
-- [ ] `video_load_url(url)` — stream video from a URL
-- [ ] `video_play()` / `video_pause()` / `video_stop()` — playback control
-- [ ] `video_seek(position_ms)` / `video_position()` / `video_duration()`
-- [ ] `video_render(x, y, w, h)` — draw current video frame onto the canvas
-- [ ] `video_set_volume(level)` — control video audio track
-- [ ] Adaptive bitrate streaming (HLS/DASH support)
-- [ ] Subtitle/caption rendering (SRT, VTT)
-- [ ] Picture-in-picture mode
+- [x] `video_load(data, format)` — load video from bytes (MP4, WebM, AV1)
+- [x] `video_load_url(url)` — stream video from a URL
+- [x] `video_play()` / `video_pause()` / `video_stop()` — playback control
+- [x] `video_seek(position_ms)` / `video_position()` / `video_duration()`
+- [x] `video_render(x, y, w, h)` — draw current video frame onto the canvas
+- [x] `video_set_volume(level)` — control video audio track (volume stored; embedded audio mixing TBD)
+- [x] Adaptive bitrate streaming (HLS/DASH support) — HLS via FFmpeg; master playlist variant selection API
+- [x] Subtitle/caption rendering (SRT, VTT)
+- [x] Picture-in-picture mode
 
 ### Media Capture
 

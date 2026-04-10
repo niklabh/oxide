@@ -45,6 +45,9 @@ struct TabState {
     run_tx: std::sync::mpsc::Sender<RunRequest>,
     run_rx: Arc<Mutex<std::sync::mpsc::Receiver<RunResult>>>,
     image_textures: HashMap<usize, egui::TextureHandle>,
+    /// Picture-in-picture floating preview (video frame copy).
+    pip_texture: Option<egui::TextureHandle>,
+    pip_last_serial: u64,
     canvas_generation: u64,
     pending_history_url: Option<String>,
     hovered_link_url: Option<String>,
@@ -85,6 +88,8 @@ impl TabState {
             run_tx: req_tx,
             run_rx: Arc::new(Mutex::new(res_rx)),
             image_textures: HashMap::new(),
+            pip_texture: None,
+            pip_last_serial: 0,
             canvas_generation: 0,
             pending_history_url: None,
             hovered_link_url: None,
@@ -802,6 +807,47 @@ impl TabState {
         }
     }
 
+    fn render_video_pip(&mut self, ctx: &egui::Context) {
+        let pip = self.host_state.video.lock().unwrap().pip;
+        if !pip {
+            self.pip_texture = None;
+            self.pip_last_serial = 0;
+            return;
+        }
+
+        let serial = *self.host_state.video_pip_serial.lock().unwrap();
+        if serial != self.pip_last_serial {
+            self.pip_last_serial = serial;
+            let frame = self.host_state.video_pip_frame.lock().unwrap().clone();
+            if let Some(decoded) = frame {
+                let color_image = egui::ColorImage::from_rgba_unmultiplied(
+                    [decoded.width as usize, decoded.height as usize],
+                    &decoded.pixels,
+                );
+                let tex = ctx.load_texture(
+                    format!("oxide_pip_{}_{}", self.id, serial),
+                    color_image,
+                    egui::TextureOptions::LINEAR,
+                );
+                self.pip_texture = Some(tex);
+            }
+        }
+
+        let Some(tex) = self.pip_texture.as_ref() else {
+            return;
+        };
+        let size = tex.size_vec2();
+        let margin = egui::vec2(16.0, 16.0);
+        let br = ctx.screen_rect().right_bottom() - margin;
+        egui::Window::new("Picture in picture")
+            .resizable(true)
+            .default_pos(br - egui::vec2(320.0, 200.0))
+            .default_size(egui::vec2(320.0, 200.0))
+            .show(ctx, |ui| {
+                ui.image((tex.id(), size));
+            });
+    }
+
     fn render_console(&mut self, ctx: &egui::Context) {
         egui::TopBottomPanel::bottom("console")
             .resizable(true)
@@ -999,6 +1045,7 @@ impl eframe::App for OxideApp {
         }
 
         self.tabs[self.active_tab].render_canvas(ctx);
+        self.tabs[self.active_tab].render_video_pip(ctx);
 
         if self.tabs[self.active_tab].show_console {
             self.tabs[self.active_tab].render_console(ctx);
