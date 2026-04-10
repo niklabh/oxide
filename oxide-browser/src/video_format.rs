@@ -31,10 +31,7 @@ pub fn sniff_video_format(data: &[u8]) -> u32 {
     if data.len() >= 8 && &data[4..8] == b"ftyp" {
         return VIDEO_FORMAT_MP4;
     }
-    if data.len() >= 12
-        && data[0..4] == [0x00, 0x00, 0x00, 0x1c]
-        && &data[4..8] == b"ftyp"
-    {
+    if data.len() >= 12 && data[0..4] == [0x00, 0x00, 0x00, 0x1c] && &data[4..8] == b"ftyp" {
         return VIDEO_FORMAT_MP4;
     }
     // EBML / WebM / Matroska
