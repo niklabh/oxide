@@ -157,6 +157,8 @@ pub struct HostState {
     pub video_pip_frame: Arc<Mutex<Option<DecodedImage>>>,
     /// Bumped when the PiP buffer is updated so the UI can refresh the floating texture.
     pub video_pip_serial: Arc<Mutex<u64>>,
+    /// Camera, microphone, and screen capture (permission prompts + native APIs).
+    pub media_capture: Arc<Mutex<crate::media_capture::MediaCaptureState>>,
 }
 
 /// A single console log line: local time, severity, and message text.
@@ -428,6 +430,9 @@ impl Default for HostState {
             video: Arc::new(Mutex::new(VideoPlaybackState::default())),
             video_pip_frame: Arc::new(Mutex::new(None)),
             video_pip_serial: Arc::new(Mutex::new(0)),
+            media_capture: Arc::new(Mutex::new(
+                crate::media_capture::MediaCaptureState::default(),
+            )),
         }
     }
 }
@@ -527,7 +532,7 @@ fn read_guest_bytes(
     Ok(data.to_vec())
 }
 
-fn write_guest_bytes(
+pub(crate) fn write_guest_bytes(
     memory: &Memory,
     store: &mut impl AsContextMut,
     ptr: u32,
@@ -2898,6 +2903,8 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
             write_len as u32
         },
     )?;
+
+    crate::media_capture::register_media_capture_functions(linker)?;
 
     Ok(())
 }

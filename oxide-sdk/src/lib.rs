@@ -67,6 +67,7 @@
 //! | **Storage** | [`storage_set`], [`storage_get`], [`storage_remove`], [`kv_store_set`], [`kv_store_get`], [`kv_store_delete`] |
 //! | **Audio** | [`audio_play`], [`audio_play_url`], [`audio_detect_format`], [`audio_play_with_format`], [`audio_last_url_content_type`], [`audio_pause`], [`audio_channel_play`] |
 //! | **Video** | [`video_load`], [`video_load_url`], [`video_render`], [`video_play`], [`video_hls_open_variant`], [`subtitle_load_srt`] |
+//! | **Media capture** | [`camera_open`], [`camera_capture_frame`], [`microphone_open`], [`microphone_read_samples`], [`screen_capture`], [`media_pipeline_stats`] |
 //! | **Timers** | [`set_timeout`], [`set_interval`], [`clear_timer`], [`time_now_ms`] |
 //! | **Navigation** | [`navigate`], [`push_state`], [`replace_state`], [`get_url`], [`history_back`], [`history_forward`] |
 //! | **Input** | [`mouse_position`], [`mouse_button_down`], [`key_down`], [`key_pressed`], [`scroll_delta`] |
@@ -426,6 +427,41 @@ extern "C" {
 
     #[link_name = "api_subtitle_clear"]
     fn _api_subtitle_clear();
+
+    // ── Media capture ─────────────────────────────────────────────────
+
+    #[link_name = "api_camera_open"]
+    fn _api_camera_open() -> i32;
+
+    #[link_name = "api_camera_close"]
+    fn _api_camera_close();
+
+    #[link_name = "api_camera_capture_frame"]
+    fn _api_camera_capture_frame(out_ptr: u32, out_cap: u32) -> u32;
+
+    #[link_name = "api_camera_frame_dimensions"]
+    fn _api_camera_frame_dimensions() -> u64;
+
+    #[link_name = "api_microphone_open"]
+    fn _api_microphone_open() -> i32;
+
+    #[link_name = "api_microphone_close"]
+    fn _api_microphone_close();
+
+    #[link_name = "api_microphone_sample_rate"]
+    fn _api_microphone_sample_rate() -> u32;
+
+    #[link_name = "api_microphone_read_samples"]
+    fn _api_microphone_read_samples(out_ptr: u32, max_samples: u32) -> u32;
+
+    #[link_name = "api_screen_capture"]
+    fn _api_screen_capture(out_ptr: u32, out_cap: u32) -> i32;
+
+    #[link_name = "api_screen_capture_dimensions"]
+    fn _api_screen_capture_dimensions() -> u64;
+
+    #[link_name = "api_media_pipeline_stats"]
+    fn _api_media_pipeline_stats() -> u64;
 
     // ── URL Utilities ───────────────────────────────────────────────
 
@@ -953,6 +989,85 @@ pub fn subtitle_load_vtt(text: &str) -> i32 {
 
 pub fn subtitle_clear() {
     unsafe { _api_subtitle_clear() }
+}
+
+// ─── Media capture API ─────────────────────────────────────────────────────
+
+/// Opens the default camera after a host permission dialog.
+///
+/// Returns `0` on success. Negative codes: `-1` user denied, `-2` no camera, `-3` open failed.
+pub fn camera_open() -> i32 {
+    unsafe { _api_camera_open() }
+}
+
+/// Stops the camera stream opened by [`camera_open`].
+pub fn camera_close() {
+    unsafe { _api_camera_close() }
+}
+
+/// Captures one RGBA8 frame into `out`. Returns the number of bytes written (`0` if the camera
+/// is not open or capture failed). Query [`camera_frame_dimensions`] after a successful write.
+pub fn camera_capture_frame(out: &mut [u8]) -> u32 {
+    unsafe { _api_camera_capture_frame(out.as_mut_ptr() as u32, out.len() as u32) }
+}
+
+/// Width and height in pixels of the last [`camera_capture_frame`] buffer.
+pub fn camera_frame_dimensions() -> (u32, u32) {
+    let packed = unsafe { _api_camera_frame_dimensions() };
+    let w = (packed >> 32) as u32;
+    let h = packed as u32;
+    (w, h)
+}
+
+/// Starts microphone capture (mono `f32` ring buffer) after a host permission dialog.
+///
+/// Returns `0` on success. Negative codes: `-1` denied, `-2` no input device, `-3` stream error.
+pub fn microphone_open() -> i32 {
+    unsafe { _api_microphone_open() }
+}
+
+pub fn microphone_close() {
+    unsafe { _api_microphone_close() }
+}
+
+/// Sample rate of the opened input stream in Hz (`0` if the microphone is not open).
+pub fn microphone_sample_rate() -> u32 {
+    unsafe { _api_microphone_sample_rate() }
+}
+
+/// Dequeues up to `out.len()` mono `f32` samples from the microphone ring buffer.
+/// Returns how many samples were written.
+pub fn microphone_read_samples(out: &mut [f32]) -> u32 {
+    unsafe { _api_microphone_read_samples(out.as_mut_ptr() as u32, out.len() as u32) }
+}
+
+/// Captures the primary display as RGBA8 after permission dialogs (OS may prompt separately).
+///
+/// Returns `Ok(bytes_written)` or an error code: `-1` denied, `-2` no display, `-3` capture failed, `-4` buffer error.
+pub fn screen_capture(out: &mut [u8]) -> Result<usize, i32> {
+    let n = unsafe { _api_screen_capture(out.as_mut_ptr() as u32, out.len() as u32) };
+    if n >= 0 {
+        Ok(n as usize)
+    } else {
+        Err(n)
+    }
+}
+
+/// Width and height of the last [`screen_capture`] image.
+pub fn screen_capture_dimensions() -> (u32, u32) {
+    let packed = unsafe { _api_screen_capture_dimensions() };
+    let w = (packed >> 32) as u32;
+    let h = packed as u32;
+    (w, h)
+}
+
+/// Host-side pipeline counters: total camera frames captured (high 32 bits) and current microphone
+/// ring depth in samples (low 32 bits).
+pub fn media_pipeline_stats() -> (u64, u32) {
+    let packed = unsafe { _api_media_pipeline_stats() };
+    let camera_frames = packed >> 32;
+    let mic_ring = packed as u32;
+    (camera_frames, mic_ring)
 }
 
 // ─── HTTP Fetch API ─────────────────────────────────────────────────────────

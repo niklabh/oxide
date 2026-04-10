@@ -10,5 +10,6 @@ members = [
     "examples/fullstack-notes/backend",
     "examples/index",
     "examples/video-player",
+    "examples/media-capture",
 ]
 resolver = "2"
