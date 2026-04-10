@@ -61,6 +61,7 @@
 //! - **Capability-based I/O** — only explicitly provided `oxide::*` functions
 //!   are available to the guest
 
+pub mod audio_format;
 pub mod bookmarks;
 pub mod capabilities;
 pub mod engine;

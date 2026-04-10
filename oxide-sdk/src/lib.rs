@@ -65,7 +65,7 @@
 //! | **HTTP** | [`fetch`], [`fetch_get`], [`fetch_post`], [`fetch_post_proto`], [`fetch_put`], [`fetch_delete`] |
 //! | **Protobuf** | [`proto::ProtoEncoder`], [`proto::ProtoDecoder`] |
 //! | **Storage** | [`storage_set`], [`storage_get`], [`storage_remove`], [`kv_store_set`], [`kv_store_get`], [`kv_store_delete`] |
-//! | **Audio** | [`audio_play`], [`audio_play_url`], [`audio_pause`], [`audio_resume`], [`audio_stop`], [`audio_set_volume`], [`audio_channel_play`] |
+//! | **Audio** | [`audio_play`], [`audio_play_url`], [`audio_detect_format`], [`audio_play_with_format`], [`audio_last_url_content_type`], [`audio_pause`], [`audio_channel_play`] |
 //! | **Timers** | [`set_timeout`], [`set_interval`], [`clear_timer`], [`time_now_ms`] |
 //! | **Navigation** | [`navigate`], [`push_state`], [`replace_state`], [`get_url`], [`history_back`], [`history_forward`] |
 //! | **Input** | [`mouse_position`], [`mouse_button_down`], [`key_down`], [`key_pressed`], [`scroll_delta`] |
@@ -305,6 +305,15 @@ extern "C" {
     #[link_name = "api_audio_play_url"]
     fn _api_audio_play_url(url_ptr: u32, url_len: u32) -> i32;
 
+    #[link_name = "api_audio_detect_format"]
+    fn _api_audio_detect_format(data_ptr: u32, data_len: u32) -> u32;
+
+    #[link_name = "api_audio_play_with_format"]
+    fn _api_audio_play_with_format(data_ptr: u32, data_len: u32, format_hint: u32) -> i32;
+
+    #[link_name = "api_audio_last_url_content_type"]
+    fn _api_audio_last_url_content_type(out_ptr: u32, out_cap: u32) -> u32;
+
     #[link_name = "api_audio_pause"]
     fn _api_audio_pause();
 
@@ -337,6 +346,14 @@ extern "C" {
 
     #[link_name = "api_audio_channel_play"]
     fn _api_audio_channel_play(channel: u32, data_ptr: u32, data_len: u32) -> i32;
+
+    #[link_name = "api_audio_channel_play_with_format"]
+    fn _api_audio_channel_play_with_format(
+        channel: u32,
+        data_ptr: u32,
+        data_len: u32,
+        format_hint: u32,
+    ) -> i32;
 
     #[link_name = "api_audio_channel_stop"]
     fn _api_audio_channel_stop(channel: u32);
@@ -576,17 +593,71 @@ pub fn notify(title: &str, body: &str) {
 
 // ─── Audio Playback API ─────────────────────────────────────────────────────
 
+/// Detected or hinted audio container (host codes: 0 unknown, 1 WAV, 2 MP3, 3 Ogg, 4 FLAC).
+#[repr(u32)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AudioFormat {
+    /// Could not classify from bytes (try decode anyway).
+    Unknown = 0,
+    Wav = 1,
+    Mp3 = 2,
+    Ogg = 3,
+    Flac = 4,
+}
+
+impl From<u32> for AudioFormat {
+    fn from(code: u32) -> Self {
+        match code {
+            1 => AudioFormat::Wav,
+            2 => AudioFormat::Mp3,
+            3 => AudioFormat::Ogg,
+            4 => AudioFormat::Flac,
+            _ => AudioFormat::Unknown,
+        }
+    }
+}
+
+impl From<AudioFormat> for u32 {
+    fn from(f: AudioFormat) -> u32 {
+        f as u32
+    }
+}
+
 /// Play audio from encoded bytes (WAV, MP3, OGG, FLAC).
 /// The host decodes and plays the audio. Returns 0 on success, negative on error.
 pub fn audio_play(data: &[u8]) -> i32 {
     unsafe { _api_audio_play(data.as_ptr() as u32, data.len() as u32) }
 }
 
+/// Sniff the container/codec from raw bytes (magic bytes / MP3 sync). Does not decode audio.
+pub fn audio_detect_format(data: &[u8]) -> AudioFormat {
+    let code = unsafe { _api_audio_detect_format(data.as_ptr() as u32, data.len() as u32) };
+    AudioFormat::from(code)
+}
+
+/// Play with an optional format hint (`AudioFormat::Unknown` = same as [`audio_play`]).
+/// If the hint disagrees with what the host sniffs from the bytes, the host logs a warning but still decodes.
+pub fn audio_play_with_format(data: &[u8], format: AudioFormat) -> i32 {
+    unsafe {
+        _api_audio_play_with_format(data.as_ptr() as u32, data.len() as u32, u32::from(format))
+    }
+}
+
 /// Fetch audio from a URL and play it.
-/// The host performs the HTTP fetch and decodes the audio.
+/// The host sends an `Accept` header listing supported codecs, records the response `Content-Type`,
+/// and rejects obvious HTML/JSON error bodies when no audio signature is found (`-4`).
 /// Returns 0 on success, negative on error.
 pub fn audio_play_url(url: &str) -> i32 {
     unsafe { _api_audio_play_url(url.as_ptr() as u32, url.len() as u32) }
+}
+
+/// `Content-Type` header from the last successful [`audio_play_url`] response (may be empty).
+pub fn audio_last_url_content_type() -> String {
+    let mut buf = [0u8; 512];
+    let len =
+        unsafe { _api_audio_last_url_content_type(buf.as_mut_ptr() as u32, buf.len() as u32) };
+    let n = (len as usize).min(buf.len());
+    String::from_utf8_lossy(&buf[..n]).to_string()
 }
 
 /// Pause audio playback.
@@ -648,6 +719,18 @@ pub fn audio_set_loop(enabled: bool) {
 /// sound effects, background music, etc.
 pub fn audio_channel_play(channel: u32, data: &[u8]) -> i32 {
     unsafe { _api_audio_channel_play(channel, data.as_ptr() as u32, data.len() as u32) }
+}
+
+/// Like [`audio_channel_play`] with an optional [`AudioFormat`] hint.
+pub fn audio_channel_play_with_format(channel: u32, data: &[u8], format: AudioFormat) -> i32 {
+    unsafe {
+        _api_audio_channel_play_with_format(
+            channel,
+            data.as_ptr() as u32,
+            data.len() as u32,
+            u32::from(format),
+        )
+    }
 }
 
 /// Stop playback on a specific channel.
