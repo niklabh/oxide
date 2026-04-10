@@ -16,8 +16,10 @@ use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use image::GenericImageView;
+use reqwest::header::{ACCEPT, CONTENT_TYPE};
 use wasmtime::*;
 
+use crate::audio_format;
 use crate::bookmarks::SharedBookmarkStore;
 use crate::engine::ModuleLoader;
 use crate::navigation::NavigationStack;
@@ -144,6 +146,8 @@ pub struct HostState {
     pub bookmark_store: SharedBookmarkStore,
     /// Audio playback engine (lazily initialised on first audio API call).
     pub audio: Arc<Mutex<Option<AudioEngine>>>,
+    /// `Content-Type` from the last `api_audio_play_url` response (UTF-8), for codec negotiation introspection.
+    pub last_audio_url_content_type: Arc<Mutex<String>>,
 }
 
 /// A single console log line: local time, severity, and message text.
@@ -411,6 +415,7 @@ impl Default for HostState {
             canvas_offset: Arc::new(Mutex::new((0.0, 0.0))),
             bookmark_store: crate::bookmarks::new_shared(),
             audio: Arc::new(Mutex::new(None)),
+            last_audio_url_content_type: Arc::new(Mutex::new(String::new())),
         }
     }
 }
@@ -476,6 +481,28 @@ pub fn console_log(console: &Arc<Mutex<Vec<ConsoleEntry>>>, level: ConsoleLevel,
         level,
         message,
     });
+}
+
+fn audio_try_play(
+    engine: &mut AudioEngine,
+    channel: u32,
+    data: Vec<u8>,
+    format_hint: u32,
+    console: &Arc<Mutex<Vec<ConsoleEntry>>>,
+) -> bool {
+    let sniffed = audio_format::sniff_audio_format(&data);
+    if format_hint != 0
+        && format_hint != audio_format::AUDIO_FORMAT_UNKNOWN
+        && sniffed != audio_format::AUDIO_FORMAT_UNKNOWN
+        && sniffed != format_hint
+    {
+        console_log(
+            console,
+            ConsoleLevel::Warn,
+            format!("[AUDIO] Format hint {format_hint} does not match sniffed container {sniffed}"),
+        );
+    }
+    engine.play_bytes_on(channel, data)
 }
 
 /// Register every `oxide` import on `linker` so guest modules can link against them.
@@ -1843,6 +1870,61 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
 
     linker.func_wrap(
         "oxide",
+        "api_audio_detect_format",
+        |caller: Caller<'_, HostState>, data_ptr: u32, data_len: u32| -> u32 {
+            let mem = caller.data().memory.expect("memory not set");
+            let data = read_guest_bytes(&mem, &caller, data_ptr, data_len).unwrap_or_default();
+            audio_format::sniff_audio_format(&data)
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_audio_play_with_format",
+        |caller: Caller<'_, HostState>, data_ptr: u32, data_len: u32, format_hint: u32| -> i32 {
+            let mem = caller.data().memory.expect("memory not set");
+            let data = read_guest_bytes(&mem, &caller, data_ptr, data_len).unwrap_or_default();
+            if data.is_empty() {
+                return -1;
+            }
+
+            let audio = caller.data().audio.clone();
+            let mut guard = audio.lock().unwrap();
+            if guard.is_none() {
+                *guard = AudioEngine::try_new();
+            }
+            match guard.as_mut() {
+                Some(engine) => {
+                    if audio_try_play(engine, 0, data, format_hint, &caller.data().console) {
+                        console_log(
+                            &caller.data().console,
+                            ConsoleLevel::Log,
+                            "[AUDIO] Playing from bytes (with format hint)".into(),
+                        );
+                        0
+                    } else {
+                        console_log(
+                            &caller.data().console,
+                            ConsoleLevel::Error,
+                            "[AUDIO] Failed to decode audio data".into(),
+                        );
+                        -2
+                    }
+                }
+                None => {
+                    console_log(
+                        &caller.data().console,
+                        ConsoleLevel::Error,
+                        "[AUDIO] No audio device available".into(),
+                    );
+                    -3
+                }
+            }
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
         "api_audio_play_url",
         |caller: Caller<'_, HostState>, url_ptr: u32, url_len: u32| -> i32 {
             let mem = caller.data().memory.expect("memory not set");
@@ -1854,25 +1936,36 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
                 format!("[AUDIO] Fetching {url}"),
             );
 
-            let (tx, rx) = std::sync::mpsc::sync_channel::<Result<Vec<u8>, String>>(1);
+            let (tx, rx) =
+                std::sync::mpsc::sync_channel::<Result<(Vec<u8>, Option<String>), String>>(1);
             let fetch_url = url.clone();
             std::thread::spawn(move || {
-                let result = (|| -> Result<Vec<u8>, String> {
+                let result = (|| -> Result<(Vec<u8>, Option<String>), String> {
                     let client = reqwest::blocking::Client::builder()
                         .timeout(Duration::from_secs(30))
                         .build()
                         .map_err(|e| e.to_string())?;
-                    let resp = client.get(&fetch_url).send().map_err(|e| e.to_string())?;
+                    let resp = client
+                        .get(&fetch_url)
+                        .header(ACCEPT, audio_format::AUDIO_HTTP_ACCEPT)
+                        .send()
+                        .map_err(|e| e.to_string())?;
                     if !resp.status().is_success() {
                         return Err(format!("HTTP {}", resp.status()));
                     }
-                    resp.bytes().map(|b| b.to_vec()).map_err(|e| e.to_string())
+                    let ct = resp
+                        .headers()
+                        .get(CONTENT_TYPE)
+                        .and_then(|v| v.to_str().ok())
+                        .map(|s| s.to_string());
+                    let bytes = resp.bytes().map(|b| b.to_vec()).map_err(|e| e.to_string())?;
+                    Ok((bytes, ct))
                 })();
                 let _ = tx.send(result);
             });
 
-            let data = match rx.recv() {
-                Ok(Ok(bytes)) => bytes,
+            let (data, content_type) = match rx.recv() {
+                Ok(Ok(pair)) => pair,
                 Ok(Err(e)) => {
                     console_log(
                         &caller.data().console,
@@ -1884,6 +1977,37 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
                 Err(_) => return -1,
             };
 
+            *caller.data().last_audio_url_content_type.lock().unwrap() =
+                content_type.clone().unwrap_or_default();
+
+            let sniffed = audio_format::sniff_audio_format(&data);
+            if let Some(ref ct) = content_type {
+                if audio_format::is_likely_non_audio_document(ct)
+                    && sniffed == audio_format::AUDIO_FORMAT_UNKNOWN
+                {
+                    console_log(
+                        &caller.data().console,
+                        ConsoleLevel::Error,
+                        "[AUDIO] Response is not a supported audio resource (document MIME, no audio signature)"
+                            .into(),
+                    );
+                    return -4;
+                }
+                let mime_fmt = audio_format::mime_to_audio_format(ct);
+                if mime_fmt != audio_format::AUDIO_FORMAT_UNKNOWN
+                    && sniffed != audio_format::AUDIO_FORMAT_UNKNOWN
+                    && mime_fmt != sniffed
+                {
+                    console_log(
+                        &caller.data().console,
+                        ConsoleLevel::Warn,
+                        format!(
+                            "[AUDIO] Content-Type disagrees with sniffed container (MIME -> {mime_fmt}, sniff -> {sniffed})"
+                        ),
+                    );
+                }
+            }
+
             let audio = caller.data().audio.clone();
             let mut guard = audio.lock().unwrap();
             if guard.is_none() {
@@ -1892,10 +2016,11 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
             match guard.as_mut() {
                 Some(engine) => {
                     if engine.play_bytes_on(0, data) {
+                        let ct = content_type.as_deref().unwrap_or("(none)");
                         console_log(
                             &caller.data().console,
                             ConsoleLevel::Log,
-                            format!("[AUDIO] Playing from URL: {url}"),
+                            format!("[AUDIO] Playing from URL: {url} (Content-Type: {ct})"),
                         );
                         0
                     } else {
@@ -1916,6 +2041,24 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
                     -3
                 }
             }
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_audio_last_url_content_type",
+        |mut caller: Caller<'_, HostState>, out_ptr: u32, out_cap: u32| -> u32 {
+            let s = caller
+                .data()
+                .last_audio_url_content_type
+                .lock()
+                .unwrap()
+                .clone();
+            let bytes = s.as_bytes();
+            let write_len = bytes.len().min(out_cap as usize);
+            let mem = caller.data().memory.expect("memory not set");
+            write_guest_bytes(&mem, &mut caller, out_ptr, &bytes[..write_len]).ok();
+            write_len as u32
         },
     )?;
 
@@ -2093,6 +2236,49 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
                             &caller.data().console,
                             ConsoleLevel::Log,
                             format!("[AUDIO] Playing on channel {channel}"),
+                        );
+                        0
+                    } else {
+                        console_log(
+                            &caller.data().console,
+                            ConsoleLevel::Error,
+                            format!("[AUDIO] Failed to decode audio for channel {channel}"),
+                        );
+                        -2
+                    }
+                }
+                None => -3,
+            }
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_audio_channel_play_with_format",
+        |caller: Caller<'_, HostState>,
+         channel: u32,
+         data_ptr: u32,
+         data_len: u32,
+         format_hint: u32|
+         -> i32 {
+            let mem = caller.data().memory.expect("memory not set");
+            let data = read_guest_bytes(&mem, &caller, data_ptr, data_len).unwrap_or_default();
+            if data.is_empty() {
+                return -1;
+            }
+
+            let audio = caller.data().audio.clone();
+            let mut guard = audio.lock().unwrap();
+            if guard.is_none() {
+                *guard = AudioEngine::try_new();
+            }
+            match guard.as_mut() {
+                Some(engine) => {
+                    if audio_try_play(engine, channel, data, format_hint, &caller.data().console) {
+                        console_log(
+                            &caller.data().console,
+                            ConsoleLevel::Log,
+                            format!("[AUDIO] Playing on channel {channel} (with format hint)"),
                         );
                         0
                     } else {

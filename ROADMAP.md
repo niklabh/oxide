@@ -42,7 +42,7 @@ The core architecture is live: a Rust-native browser that fetches and executes `
 - [x] `audio_duration()` — get total duration of loaded track
 - [x] `audio_set_loop(enabled)` — loop playback toggle
 - [x] Multiple simultaneous audio channels for sound effects and background music
-- [ ] Audio format detection and codec negotiation
+- [x] Audio format detection and codec negotiation
 
 ### Video
 
