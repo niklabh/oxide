@@ -97,7 +97,29 @@ jobs:
             libglib2.0-dev libpango1.0-dev libgdk-pixbuf-2.0-dev \
             libasound2-dev \
             pkg-config libavcodec-dev libavformat-dev libavutil-dev libavfilter-dev \
-            libavdevice-dev libswscale-dev libswresample-dev
+            libavdevice-dev libswscale-dev libswresample-dev \
+            libv4l-dev
+
+      # ffmpeg-sys-next falls back to pkg-config for libavutil; runners do not ship FFmpeg.
+      - name: Install FFmpeg (macOS)
+        if: runner.os == 'macOS'
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: 1
+        run: |
+          brew install ffmpeg pkg-config
+          echo "PKG_CONFIG_PATH=$(brew --prefix ffmpeg)/lib/pkgconfig" >> "$GITHUB_ENV"
+
+      # MSVC: ffmpeg-sys-next uses vcpkg::find_package("ffmpeg") before pkg-config.
+      - name: Install FFmpeg (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $root = Join-Path $env:RUNNER_TEMP "vcpkg"
+          git clone --depth 1 https://github.com/microsoft/vcpkg $root
+          & "$root/bootstrap-vcpkg.bat"
+          & "$root/vcpkg.exe" install ffmpeg:x64-windows
+          Add-Content -Path $env:GITHUB_ENV -Value "VCPKG_ROOT=$root"
+          Add-Content -Path $env:GITHUB_ENV -Value "VCPKG_DEFAULT_TRIPLET=x64-windows"
 
       - uses: dtolnay/rust-toolchain@stable
         with:
