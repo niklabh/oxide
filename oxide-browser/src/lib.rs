@@ -44,6 +44,7 @@
 //! | [`engine`] | Wasmtime engine configuration, sandbox policy, memory bounds |
 //! | [`runtime`] | Module fetching, compilation, execution lifecycle |
 //! | [`capabilities`] | All host-imported functions exposed to guest wasm modules |
+//! | [`media_capture`] | Camera, microphone, and screen capture with permission prompts |
 //! | [`navigation`] | Browser history stack with back/forward traversal |
 //! | [`bookmarks`] | Persistent bookmark storage backed by sled |
 //! | [`url`] | WHATWG-compliant URL parsing with Oxide-specific schemes |
@@ -65,6 +66,7 @@ pub mod audio_format;
 pub mod bookmarks;
 pub mod capabilities;
 pub mod engine;
+pub mod media_capture;
 pub mod navigation;
 pub mod runtime;
 pub mod subtitle;

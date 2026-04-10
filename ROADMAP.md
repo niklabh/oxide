@@ -58,10 +58,10 @@ The core architecture is live: a Rust-native browser that fetches and executes `
 
 ### Media Capture
 
-- [ ] `camera_open()` / `camera_capture_frame()` — access device camera with user permission prompt
-- [ ] `microphone_open()` / `microphone_read_samples()` — access microphone input
-- [ ] `screen_capture()` — screenshot or screen recording with permission
-- [ ] Media stream pipelines for real-time processing
+- [x] `camera_open()` / `camera_capture_frame()` — access device camera with user permission prompt
+- [x] `microphone_open()` / `microphone_read_samples()` — access microphone input
+- [x] `screen_capture()` — screenshot or screen recording with permission
+- [x] Media stream pipelines for real-time processing (host `api_media_pipeline_stats`; guests compose frames/samples in Wasm)
 
 ---
 

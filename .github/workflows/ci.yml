@@ -25,7 +25,8 @@ jobs:
             libglib2.0-dev libpango1.0-dev libgdk-pixbuf-2.0-dev \
             libasound2-dev \
             pkg-config libavcodec-dev libavformat-dev libavutil-dev libavfilter-dev \
-            libavdevice-dev libswscale-dev libswresample-dev
+            libavdevice-dev libswscale-dev libswresample-dev \
+            libv4l-dev
 
       - uses: dtolnay/rust-toolchain@stable
         with:
@@ -60,5 +61,7 @@ jobs:
       - name: Check SDK
         run: cargo check -p oxide-sdk --target wasm32-unknown-unknown
 
-      - name: Check example
-        run: cargo check -p hello-oxide --target wasm32-unknown-unknown
+      - name: Check examples (wasm32)
+        run: |
+          cargo check -p hello-oxide --target wasm32-unknown-unknown
+          cargo check -p media-capture --target wasm32-unknown-unknown

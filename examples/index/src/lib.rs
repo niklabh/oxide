@@ -11,6 +11,7 @@ const CARD_HOVER: (u8, u8, u8) = (42, 38, 68);
 const GREEN: (u8, u8, u8) = (80, 220, 140);
 const BLUE: (u8, u8, u8) = (80, 160, 240);
 const ORANGE: (u8, u8, u8) = (240, 170, 60);
+const PURPLE: (u8, u8, u8) = (160, 90, 220);
 const DIVIDER: (u8, u8, u8) = (50, 45, 70);
 
 struct Card {
@@ -46,6 +47,14 @@ const CARDS: &[Card] = &[
         url: "https://oxide.foundation/timer_demo.wasm",
         color: ORANGE,
         icon_char: "T",
+    },
+    Card {
+        title: "Media Capture",
+        subtitle: "media_capture.wasm",
+        description: "Camera preview, microphone level, and screen screenshot.",
+        url: "https://oxide.foundation/media_capture.wasm",
+        color: PURPLE,
+        icon_char: "M",
     },
 ];
 
