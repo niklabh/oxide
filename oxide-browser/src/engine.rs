@@ -5,7 +5,7 @@
 //! [`SandboxPolicy`] that gates host capabilities (filesystem, environment variables, network
 //! sockets)—all denied unless explicitly enabled.
 //!
-//! Default [`SandboxPolicy`] limits: **16 MiB** linear memory (256 × 64 KiB pages) and **~500M**
+//! Default [`SandboxPolicy`] limits: **256 MiB** linear memory (4096 × 64 KiB pages) and **~500M**
 //! Wasm instructions of fuel per [`Store`] before the guest is halted.
 //!
 //! [`WasmEngine`] owns a shared [`Engine`] plus policy and is the main entry point for creating
@@ -15,7 +15,7 @@
 use anyhow::{Context, Result};
 use wasmtime::*;
 
-const MAX_MEMORY_PAGES: u32 = 256; // 256 * 64KB = 16MB
+const MAX_MEMORY_PAGES: u32 = 4096; // 4096 * 64KB = 256MB
 const FUEL_LIMIT: u64 = 500_000_000; // ~500M instructions before forced halt
 
 /// Policy describing what resources a Wasm guest may use and the hard limits applied at runtime.
@@ -27,7 +27,7 @@ const FUEL_LIMIT: u64 = 500_000_000; // ~500M instructions before forced halt
 #[allow(dead_code)]
 #[derive(Clone)]
 pub struct SandboxPolicy {
-    /// Maximum number of 64 KiB Wasm memory pages the guest may grow to (default: 256 → 16 MiB).
+    /// Maximum number of 64 KiB Wasm memory pages the guest may grow to (default: 4096 → 256 MiB).
     pub max_memory_pages: u32,
     /// Maximum Wasm “fuel” (instruction budget) for a single [`Store`] before execution stops.
     pub fuel_limit: u64,
@@ -53,7 +53,7 @@ pub struct ModuleLoader {
 }
 
 impl Default for SandboxPolicy {
-    /// Returns the default policy: 256 memory pages (16 MiB cap), ~500M instruction fuel, all
+    /// Returns the default policy: 4096 memory pages (256 MiB cap), ~500M instruction fuel, all
     /// `allow_*` flags `false`.
     fn default() -> Self {
         Self {
