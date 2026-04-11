@@ -15,7 +15,16 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
 
     // ── Title bar ───────────────────────────────────────────────────
     canvas_rect(0.0, 0.0, width as f32, 56.0, 50, 40, 80, 255);
-    canvas_text(20.0, 16.0, 24.0, 220, 200, 255, 255, "Oxide Interactive Widgets");
+    canvas_text(
+        20.0,
+        16.0,
+        24.0,
+        220,
+        200,
+        255,
+        255,
+        "Oxide Interactive Widgets",
+    );
 
     // ── Button demo ─────────────────────────────────────────────────
     canvas_text(20.0, 75.0, 16.0, 180, 140, 255, 255, "Button");
@@ -91,9 +100,27 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
 
     let name = ui_text_input(30, 20.0, 380.0, 300.0, "");
     if !name.is_empty() {
-        canvas_text(20.0, 415.0, 18.0, 160, 220, 160, 255, &format!("Hello, {name}!"));
+        canvas_text(
+            20.0,
+            415.0,
+            18.0,
+            160,
+            220,
+            160,
+            255,
+            &format!("Hello, {name}!"),
+        );
     } else {
-        canvas_text(20.0, 415.0, 14.0, 120, 120, 120, 255, "Type your name above...");
+        canvas_text(
+            20.0,
+            415.0,
+            14.0,
+            120,
+            120,
+            120,
+            255,
+            "Type your name above...",
+        );
     }
 
     // ── Mouse info ──────────────────────────────────────────────────

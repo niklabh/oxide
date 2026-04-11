@@ -392,7 +392,16 @@ fn render_offline(w: f32, err_code: i64) {
     canvas_clear(BG.0, BG.1, BG.2, 255);
     canvas_rect(0.0, 0.0, w, 50.0, TITLE_BG.0, TITLE_BG.1, TITLE_BG.2, 255);
     canvas_text(20.0, 14.0, 22.0, 220, 200, 255, 255, "Oxide Notes");
-    canvas_text(20.0, 38.0, 12.0, DIM.0, DIM.1, DIM.2, 255, "Full-stack demo");
+    canvas_text(
+        20.0,
+        38.0,
+        12.0,
+        DIM.0,
+        DIM.1,
+        DIM.2,
+        255,
+        "Full-stack demo",
+    );
 
     draw_text(
         20.0,

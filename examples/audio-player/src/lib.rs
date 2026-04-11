@@ -268,7 +268,16 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         ("Stopped", RED)
     };
 
-    canvas_text(20.0, 558.0, 14.0, color.0, color.1, color.2, 255, status_text);
+    canvas_text(
+        20.0,
+        558.0,
+        14.0,
+        color.0,
+        color.1,
+        color.2,
+        255,
+        status_text,
+    );
 
     let note = unsafe { LAST_NOTE };
     if !note.is_empty() {
@@ -294,7 +303,9 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
     );
 
     if looping {
-        canvas_text(250.0, 580.0, 13.0, ORANGE.0, ORANGE.1, ORANGE.2, 255, "LOOP");
+        canvas_text(
+            250.0, 580.0, 13.0, ORANGE.0, ORANGE.1, ORANGE.2, 255, "LOOP",
+        );
     }
 
     // ── Visualiser bar ──────────────────────────────────────────────

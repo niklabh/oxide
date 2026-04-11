@@ -145,10 +145,30 @@ extern "C" {
     fn _api_canvas_circle(cx: f32, cy: f32, radius: f32, r: u32, g: u32, b: u32, a: u32);
 
     #[link_name = "api_canvas_text"]
-    fn _api_canvas_text(x: f32, y: f32, size: f32, r: u32, g: u32, b: u32, a: u32, ptr: u32, len: u32);
+    fn _api_canvas_text(
+        x: f32,
+        y: f32,
+        size: f32,
+        r: u32,
+        g: u32,
+        b: u32,
+        a: u32,
+        ptr: u32,
+        len: u32,
+    );
 
     #[link_name = "api_canvas_line"]
-    fn _api_canvas_line(x1: f32, y1: f32, x2: f32, y2: f32, r: u32, g: u32, b: u32, a: u32, thickness: f32);
+    fn _api_canvas_line(
+        x1: f32,
+        y1: f32,
+        x2: f32,
+        y2: f32,
+        r: u32,
+        g: u32,
+        b: u32,
+        a: u32,
+        thickness: f32,
+    );
 
     #[link_name = "api_canvas_dimensions"]
     fn _api_canvas_dimensions() -> u64;
@@ -614,7 +634,11 @@ pub fn canvas_text(x: f32, y: f32, size: f32, r: u8, g: u8, b: u8, a: u8, text: 
 
 /// Draw a line between two points with RGBA color.
 pub fn canvas_line(x1: f32, y1: f32, x2: f32, y2: f32, r: u8, g: u8, b: u8, a: u8, thickness: f32) {
-    unsafe { _api_canvas_line(x1, y1, x2, y2, r as u32, g as u32, b as u32, a as u32, thickness) }
+    unsafe {
+        _api_canvas_line(
+            x1, y1, x2, y2, r as u32, g as u32, b as u32, a as u32, thickness,
+        )
+    }
 }
 
 /// Returns `(width, height)` of the canvas in pixels.

@@ -230,7 +230,16 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
                 &format!("{hz} Hz"),
             );
         } else {
-            canvas_text(meter_x + 8.0, meter_y - 2.0, 12.0, 100, 110, 125, 255, "closed");
+            canvas_text(
+                meter_x + 8.0,
+                meter_y - 2.0,
+                12.0,
+                100,
+                110,
+                125,
+                255,
+                "closed",
+            );
         }
     }
 
