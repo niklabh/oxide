@@ -34,6 +34,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
             220,
             120,
             120,
+            255,
             "video_render failed — load a video or check network / FFmpeg",
         );
         return;
@@ -47,6 +48,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         180,
         180,
         200,
+        255,
         &format!("{pos} / {dur} ms"),
     );
     if ui_button(1, 40.0, ch as f32 - 52.0, 120.0, 36.0, "Pause") {

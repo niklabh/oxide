@@ -19,7 +19,7 @@ cargo run -p oxide-browser
 # Build the example guest app
 cargo build --target wasm32-unknown-unknown --release -p hello-oxide
 
-# In the browser, click "Open File" and select:
+# In the browser, click "Open" and select:
 # target/wasm32-unknown-unknown/release/hello_oxide.wasm
 ```
 
@@ -40,7 +40,7 @@ cargo build --target wasm32-unknown-unknown --release -p hello-oxide
 │                               │                                  │
 │  ┌────────────────────────────▼───────────────────────────────┐  │
 │  │                  Capability Layer                          │  │
-│  │  "oxide" import module — ~50 host functions                │  │
+│  │  "oxide" import module — ~100 host functions                │  │
 │  │  canvas · console · storage · clipboard · fetch · crypto   │  │
 │  │  input · widgets · navigation · dynamic module loading     │  │
 │  └────────────────────────────┬───────────────────────────────┘  │
@@ -59,13 +59,13 @@ cargo build --target wasm32-unknown-unknown --release -p hello-oxide
 oxide/
 ├── oxide-browser/           # Host browser application
 │   └── src/
-│       ├── main.rs          # eframe bootstrap
+│       ├── main.rs          # GPUI entry — BrowserHost + run_browser
 │       ├── engine.rs        # WasmEngine, SandboxPolicy, compile & memory bounds
 │       ├── runtime.rs       # BrowserHost, fetch/load/instantiate pipeline
-│       ├── capabilities.rs  # ~50 host functions registered into the wasmtime Linker
+│       ├── capabilities.rs  # ~100 host functions registered into the wasmtime Linker
 │       ├── navigation.rs    # History stack, back/forward, push/replace state
 │       ├── url.rs           # WHATWG-style URL parser (http, https, file, oxide schemes)
-│       └── ui.rs            # egui UI — toolbar, canvas painter, console, widget renderer
+│       └── ui.rs            # GPUI shell — toolbar, canvas paint, console, widgets
 ├── oxide-sdk/               # Guest-side SDK (no dependencies, pure FFI wrappers)
 │   └── src/
 │       ├── lib.rs           # Safe Rust wrappers over host imports
@@ -126,8 +126,8 @@ Oxide uses an **immediate-mode rendering** approach — there is no retained sce
 
 1. Each frame, the guest issues draw commands (`canvas_clear`, `canvas_rect`, `canvas_text`, …) which push `DrawCommand` variants into `HostState.canvas.commands`.
 2. Widget calls (`ui_button`, `ui_slider`, …) push `WidgetCommand` entries.
-3. The egui `CentralPanel` in `ui.rs` drains both queues and paints them using egui primitives (`painter.rect_filled`, `painter.text`, etc.) on an 800×600 canvas.
-4. Images are decoded once and cached as egui textures.
+3. `ui.rs` drains both queues each frame and paints them with GPUI (`paint_quad`, `paint_path`, `paint_image`, text shaping) inside the canvas region.
+4. Images are decoded once and cached as GPUI [`RenderImage`](https://docs.rs/gpui) textures (same path for video frames).
 5. Widget interactions (clicks, drags, text edits) flow back through `widget_states` and `widget_clicked`, which the guest reads on the next frame call.
 
 No layout engine. No style cascade. The guest decides exactly where every pixel goes.
@@ -151,7 +151,7 @@ Security is **additive, not subtractive**: there is nothing to claw back because
 | Runtime     | `wasmtime` | WASM execution with fuel metering and memory limits |
 | Networking  | `reqwest`  | Fetch `.wasm` binaries from URLs |
 | Async       | `tokio`    | Async runtime for network operations |
-| UI          | `egui` / `eframe` | URL bar, canvas renderer, console panel |
+| UI          | [GPUI](https://www.gpui.rs/) | GPU-accelerated window; URL bar, canvas, console |
 | Storage     | `sled`     | Persistent key-value store (per-origin) |
 | File Picker | `rfd`      | Native OS file dialogs |
 | Clipboard   | `arboard`  | System clipboard access |

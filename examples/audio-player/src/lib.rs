@@ -52,7 +52,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
 
     // ── Header ──────────────────────────────────────────────────────
     canvas_rect(0.0, 0.0, w, 52.0, ACCENT.0, ACCENT.1, ACCENT.2, 255);
-    canvas_text(20.0, 14.0, 22.0, 255, 255, 255, "Oxide Audio Player");
+    canvas_text(20.0, 14.0, 22.0, 255, 255, 255, 255, "Oxide Audio Player");
 
     // ── Tone Pads ───────────────────────────────────────────────────
     canvas_text(
@@ -62,6 +62,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         TEXT_DIM.0,
         TEXT_DIM.1,
         TEXT_DIM.2,
+        255,
         "TONE PADS",
     );
 
@@ -94,6 +95,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         TEXT_DIM.0,
         TEXT_DIM.1,
         TEXT_DIM.2,
+        255,
         "CUSTOM TONE",
     );
 
@@ -104,6 +106,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         TEXT_BRIGHT.0,
         TEXT_BRIGHT.1,
         TEXT_BRIGHT.2,
+        255,
         "Frequency (Hz)",
     );
     let freq = ui_slider(WIDGET_FREQ, 140.0, 178.0, 250.0, 100.0, 2000.0, 440.0);
@@ -114,6 +117,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         GREEN.0,
         GREEN.1,
         GREEN.2,
+        255,
         &format!("{freq:.0} Hz"),
     );
 
@@ -124,6 +128,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         TEXT_BRIGHT.0,
         TEXT_BRIGHT.1,
         TEXT_BRIGHT.2,
+        255,
         "Duration (sec)",
     );
     let dur = ui_slider(WIDGET_DUR, 140.0, 208.0, 250.0, 0.1, 5.0, 1.0);
@@ -134,6 +139,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         GREEN.0,
         GREEN.1,
         GREEN.2,
+        255,
         &format!("{dur:.1} s"),
     );
 
@@ -153,6 +159,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         TEXT_DIM.0,
         TEXT_DIM.1,
         TEXT_DIM.2,
+        255,
         "PLAY FROM URL",
     );
 
@@ -165,10 +172,10 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
     }
 
     // ── Playback Controls ───────────────────────────────────────────
-    canvas_line(20.0, 355.0, w - 20.0, 355.0, 50, 45, 70, 1.0);
+    canvas_line(20.0, 355.0, w - 20.0, 355.0, 50, 45, 70, 255, 1.0);
 
     canvas_text(
-        20.0, 370.0, 14.0, TEXT_DIM.0, TEXT_DIM.1, TEXT_DIM.2, "CONTROLS",
+        20.0, 370.0, 14.0, TEXT_DIM.0, TEXT_DIM.1, TEXT_DIM.2, 255, "CONTROLS",
     );
 
     if ui_button(BTN_PAUSE, 20.0, 393.0, 80.0, 30.0, "Pause") {
@@ -188,6 +195,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         TEXT_BRIGHT.0,
         TEXT_BRIGHT.1,
         TEXT_BRIGHT.2,
+        255,
         "Volume",
     );
     let vol = ui_slider(WIDGET_VOL, 80.0, 438.0, 250.0, 0.0, 1.5, 1.0);
@@ -199,11 +207,12 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         GREEN.0,
         GREEN.1,
         GREEN.2,
+        255,
         &format!("{:.0}%", vol * 100.0),
     );
 
     // ── SFX Channel ─────────────────────────────────────────────────
-    canvas_line(20.0, 468.0, w - 20.0, 468.0, 50, 45, 70, 1.0);
+    canvas_line(20.0, 468.0, w - 20.0, 468.0, 50, 45, 70, 255, 1.0);
 
     canvas_text(
         20.0,
@@ -212,6 +221,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         TEXT_DIM.0,
         TEXT_DIM.1,
         TEXT_DIM.2,
+        255,
         "SFX CHANNEL (plays over main audio)",
     );
 
@@ -235,13 +245,14 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         TEXT_BRIGHT.0,
         TEXT_BRIGHT.1,
         TEXT_BRIGHT.2,
+        255,
         "SFX Vol",
     );
     let sfx_vol = ui_slider(WIDGET_SFX_VOL, 365.0, 506.0, 100.0, 0.0, 1.5, 0.8);
     audio_channel_set_volume(SFX_CHANNEL, sfx_vol);
 
     // ── Status ──────────────────────────────────────────────────────
-    canvas_line(20.0, 545.0, w - 20.0, 545.0, 50, 45, 70, 1.0);
+    canvas_line(20.0, 545.0, w - 20.0, 545.0, 50, 45, 70, 255, 1.0);
 
     let playing = audio_is_playing();
     let pos_ms = audio_position();
@@ -257,7 +268,16 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         ("Stopped", RED)
     };
 
-    canvas_text(20.0, 558.0, 14.0, color.0, color.1, color.2, status_text);
+    canvas_text(
+        20.0,
+        558.0,
+        14.0,
+        color.0,
+        color.1,
+        color.2,
+        255,
+        status_text,
+    );
 
     let note = unsafe { LAST_NOTE };
     if !note.is_empty() {
@@ -268,6 +288,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
             TEXT_DIM.0,
             TEXT_DIM.1,
             TEXT_DIM.2,
+            255,
             &format!("  {note}"),
         );
     }
@@ -278,11 +299,13 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         format!("Position: {pos_secs:.1}s")
     };
     canvas_text(
-        20.0, 580.0, 13.0, TEXT_DIM.0, TEXT_DIM.1, TEXT_DIM.2, &time_info,
+        20.0, 580.0, 13.0, TEXT_DIM.0, TEXT_DIM.1, TEXT_DIM.2, 255, &time_info,
     );
 
     if looping {
-        canvas_text(250.0, 580.0, 13.0, ORANGE.0, ORANGE.1, ORANGE.2, "LOOP");
+        canvas_text(
+            250.0, 580.0, 13.0, ORANGE.0, ORANGE.1, ORANGE.2, 255, "LOOP",
+        );
     }
 
     // ── Visualiser bar ──────────────────────────────────────────────

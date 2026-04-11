@@ -8,12 +8,17 @@
 //! variables, or raw network sockets. The browser exposes a rich set of
 //! **capability APIs** that guest modules import to interact with the host.
 //!
+//! The desktop shell is built on [GPUI](https://www.gpui.rs/) (Zed's
+//! GPU-accelerated UI framework). Guest draw commands map directly onto GPUI
+//! primitives — filled quads, GPU-shaped text, vector paths, and image
+//! textures — giving your canvas output full hardware acceleration.
+//!
 //! ## Crate Map
 //!
 //! | Crate | Purpose | Audience |
 //! |-------|---------|----------|
 //! | [`oxide_sdk`] | Guest SDK — safe Rust wrappers for the `"oxide"` host imports | App developers |
-//! | [`oxide_browser`] | Host runtime — Wasmtime engine, sandbox, egui UI | Browser contributors |
+//! | [`oxide_browser`] | Host runtime — Wasmtime engine, sandbox, GPUI shell | Browser contributors |
 //!
 //! ---
 //!
@@ -30,18 +35,53 @@
 //! crate-type = ["cdylib"]
 //!
 //! [dependencies]
-//! oxide-sdk = "0.2"
+//! oxide-sdk = "0.4"
 //! ```
 //!
+//! ### Static app (one-shot render)
+//!
 //! ```rust,ignore
-//! // src/lib.rs
 //! use oxide_sdk::*;
 //!
 //! #[no_mangle]
 //! pub extern "C" fn start_app() {
 //!     log("Hello from Oxide!");
 //!     canvas_clear(30, 30, 46, 255);
-//!     canvas_text(20.0, 40.0, 28.0, 255, 255, 255, "Welcome to Oxide");
+//!     canvas_text(20.0, 40.0, 28.0, 255, 255, 255, 255, "Welcome to Oxide");
+//! }
+//! ```
+//!
+//! ### Interactive app (frame loop with widgets)
+//!
+//! ```rust,ignore
+//! use oxide_sdk::*;
+//!
+//! #[no_mangle]
+//! pub extern "C" fn start_app() { log("Ready"); }
+//!
+//! #[no_mangle]
+//! pub extern "C" fn on_frame(_dt_ms: u32) {
+//!     canvas_clear(30, 30, 46, 255);
+//!     let (mx, my) = mouse_position();
+//!     canvas_circle(mx, my, 20.0, 255, 100, 100, 255);
+//!     if ui_button(1, 20.0, 20.0, 100.0, 30.0, "Click me!") {
+//!         log("Clicked!");
+//!     }
+//! }
+//! ```
+//!
+//! ### High-level drawing API
+//!
+//! ```rust,ignore
+//! use oxide_sdk::draw::*;
+//!
+//! #[no_mangle]
+//! pub extern "C" fn start_app() {
+//!     let c = Canvas::new();
+//!     c.clear(Color::hex(0x1e1e2e));
+//!     c.fill_rect(Rect::new(10.0, 10.0, 200.0, 100.0), Color::rgb(80, 120, 200));
+//!     c.fill_circle(Point2D::new(300.0, 200.0), 50.0, Color::RED);
+//!     c.text("Hello!", Point2D::new(20.0, 30.0), 24.0, Color::WHITE);
 //! }
 //! ```
 //!
@@ -74,8 +114,9 @@
 //! │  │          Capability Provider                  │  │
 //! │  │  "oxide" wasm import module                   │  │
 //! │  │  canvas · console · storage · clipboard       │  │
-//! │  │  fetch · audio · timers · crypto · navigation │  │
-//! │  │  widgets · input · hyperlinks · protobuf      │  │
+//! │  │  fetch · audio · video · media capture        │  │
+//! │  │  timers · crypto · navigation · widgets       │  │
+//! │  │  input · hyperlinks · protobuf                │  │
 //! │  └────────────────────┬──────────────────────────┘  │
 //! │                       │                             │
 //! │  ┌────────────────────▼──────────────────────────┐  │
@@ -93,10 +134,34 @@
 //! The [`oxide_sdk`] crate provides the full guest-side API. All functions
 //! are available via `use oxide_sdk::*;`.
 //!
-//! ## Canvas Drawing
+//! ## High-Level Drawing API (`oxide_sdk::draw`)
+//!
+//! The [`oxide_sdk::draw`] module provides GPUI-inspired ergonomic types
+//! that wrap the low-level canvas functions with less boilerplate:
+//!
+//! | Type | Description |
+//! |------|-------------|
+//! | [`oxide_sdk::draw::Color`] | sRGB + alpha with named constants and `hex()` constructor |
+//! | [`oxide_sdk::draw::Point2D`] | 2D point in canvas coordinates |
+//! | [`oxide_sdk::draw::Rect`] | Axis-aligned rectangle with hit-testing |
+//! | [`oxide_sdk::draw::Canvas`] | Zero-cost drawing facade |
+//!
+//! ```rust,ignore
+//! use oxide_sdk::draw::*;
+//!
+//! let c = Canvas::new();
+//! c.clear(Color::hex(0x1e1e2e));
+//! c.fill_rect(Rect::new(10.0, 10.0, 200.0, 100.0), Color::rgb(80, 120, 200));
+//! c.fill_circle(Point2D::new(300.0, 200.0), 50.0, Color::RED);
+//! c.text("Hello!", Point2D::new(20.0, 30.0), 24.0, Color::WHITE);
+//! c.line(Point2D::ZERO, Point2D::new(400.0, 300.0), 2.0, Color::YELLOW);
+//! let (w, h) = c.dimensions();
+//! ```
+//!
+//! ## Low-Level Canvas Drawing
 //!
 //! The canvas is the main rendering surface. Coordinates start at `(0, 0)`
-//! in the top-left corner.
+//! in the top-left corner. Each draw command maps to a GPUI GPU primitive.
 //!
 //! | Function | Description |
 //! |----------|-------------|
@@ -114,8 +179,8 @@
 //! canvas_clear(30, 30, 46, 255);
 //! canvas_rect(10.0, 10.0, 200.0, 100.0, 80, 120, 200, 255);
 //! canvas_circle(300.0, 200.0, 50.0, 200, 100, 150, 255);
-//! canvas_text(20.0, 30.0, 24.0, 255, 255, 255, "Hello!");
-//! canvas_line(0.0, 0.0, 400.0, 300.0, 255, 200, 0, 2.0);
+//! canvas_text(20.0, 30.0, 24.0, 255, 255, 255, 255, "Hello!");
+//! canvas_line(0.0, 0.0, 400.0, 300.0, 255, 200, 0, 255, 2.0);
 //!
 //! let (w, h) = canvas_dimensions();
 //! log(&format!("Canvas: {}x{}", w, h));
@@ -191,12 +256,42 @@
 //! |----------|-------------|
 //! | [`oxide_sdk::audio_play`] | Play audio from encoded bytes (WAV, MP3, OGG, FLAC) |
 //! | [`oxide_sdk::audio_play_url`] | Fetch audio from a URL and play it |
+//! | [`oxide_sdk::audio_play_with_format`] | Play with a format hint |
+//! | [`oxide_sdk::audio_detect_format`] | Sniff container from magic bytes |
 //! | [`oxide_sdk::audio_pause`] / [`oxide_sdk::audio_resume`] / [`oxide_sdk::audio_stop`] | Playback control |
 //! | [`oxide_sdk::audio_set_volume`] / [`oxide_sdk::audio_get_volume`] | Volume control (0.0 – 2.0) |
 //! | [`oxide_sdk::audio_is_playing`] | Check playback state |
 //! | [`oxide_sdk::audio_position`] / [`oxide_sdk::audio_seek`] / [`oxide_sdk::audio_duration`] | Seek and position |
 //! | [`oxide_sdk::audio_set_loop`] | Enable/disable looping |
 //! | [`oxide_sdk::audio_channel_play`] | Multi-channel simultaneous playback |
+//!
+//! ## Video
+//!
+//! Video decoding uses FFmpeg on the host. Frames are rendered as GPUI
+//! textures for GPU-accelerated compositing.
+//!
+//! | Function | Description |
+//! |----------|-------------|
+//! | [`oxide_sdk::video_load`] / [`oxide_sdk::video_load_url`] | Load video from bytes or URL |
+//! | [`oxide_sdk::video_play`] / [`oxide_sdk::video_pause`] / [`oxide_sdk::video_stop`] | Playback control |
+//! | [`oxide_sdk::video_render`] | Draw current frame to canvas rectangle |
+//! | [`oxide_sdk::video_seek`] / [`oxide_sdk::video_position`] / [`oxide_sdk::video_duration`] | Seek and timing |
+//! | [`oxide_sdk::video_set_volume`] / [`oxide_sdk::video_set_loop`] | Volume and looping |
+//! | [`oxide_sdk::video_set_pip`] | Picture-in-picture floating preview |
+//! | [`oxide_sdk::video_hls_variant_count`] / [`oxide_sdk::video_hls_open_variant`] | HLS adaptive streaming |
+//! | [`oxide_sdk::subtitle_load_srt`] / [`oxide_sdk::subtitle_load_vtt`] | Load subtitles |
+//!
+//! ## Media Capture
+//!
+//! The host shows permission dialogs before granting access to hardware.
+//!
+//! | Function | Description |
+//! |----------|-------------|
+//! | [`oxide_sdk::camera_open`] / [`oxide_sdk::camera_close`] | Camera stream |
+//! | [`oxide_sdk::camera_capture_frame`] / [`oxide_sdk::camera_frame_dimensions`] | Capture RGBA8 frames |
+//! | [`oxide_sdk::microphone_open`] / [`oxide_sdk::microphone_close`] | Microphone stream |
+//! | [`oxide_sdk::microphone_read_samples`] / [`oxide_sdk::microphone_sample_rate`] | Read mono f32 samples |
+//! | [`oxide_sdk::screen_capture`] / [`oxide_sdk::screen_capture_dimensions`] | Screenshot |
 //!
 //! ## Timers
 //!
@@ -283,8 +378,8 @@
 //!   persistent bookmark storage backed by sled.
 //! - **[`oxide_browser::url`]** — [`oxide_browser::url::OxideUrl`] wraps WHATWG URL parsing with
 //!   support for `http`, `https`, `file`, and `oxide://` schemes.
-//! - **[`oxide_browser::ui`]** — [`oxide_browser::ui::OxideApp`] is the egui/eframe application
-//!   with tabbed browsing, toolbar, canvas rendering, console panel, and bookmarks sidebar.
+//! - **[`oxide_browser::ui`]** — [`oxide_browser::ui::OxideBrowserView`] and [`oxide_browser::ui::run_browser`]
+//!   implement tabbed browsing, toolbar, canvas rendering, console panel, and bookmarks sidebar.
 //!
 //! ---
 //!

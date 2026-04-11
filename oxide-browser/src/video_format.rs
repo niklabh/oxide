@@ -41,7 +41,7 @@ pub fn sniff_video_format(data: &[u8]) -> u32 {
     VIDEO_FORMAT_UNKNOWN
 }
 
-/// Map `Content-Type` to [`VIDEO_FORMAT_*`].
+/// Map `Content-Type` to a `VIDEO_FORMAT_*` constant (for example [`VIDEO_FORMAT_MP4`]).
 pub fn mime_to_video_format(mime: &str) -> u32 {
     let s = mime
         .split(';')

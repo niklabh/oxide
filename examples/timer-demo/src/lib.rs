@@ -69,13 +69,14 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
 
     // ── Header ──────────────────────────────────────────────────────
     canvas_rect(0.0, 0.0, w, 52.0, ACCENT.0, ACCENT.1, ACCENT.2, 255);
-    canvas_text(20.0, 14.0, 22.0, 255, 255, 255, "Oxide Timer Demo");
+    canvas_text(20.0, 14.0, 22.0, 255, 255, 255, 255, "Oxide Timer Demo");
     canvas_text(
         20.0,
         36.0,
         11.0,
         200,
         220,
+        255,
         255,
         "set_timeout / set_interval / clear_timer",
     );
@@ -88,6 +89,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         DIM.0,
         DIM.1,
         DIM.2,
+        255,
         "COUNTDOWN (set_interval)",
     );
 
@@ -126,15 +128,16 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         count_color.0,
         count_color.1,
         count_color.2,
+        255,
         &count_text,
     );
 
     if countdown == 0 && !running {
-        canvas_text(260.0, 105.0, 14.0, DIM.0, DIM.1, DIM.2, "Done!");
+        canvas_text(260.0, 105.0, 14.0, DIM.0, DIM.1, DIM.2, 255, "Done!");
     }
 
     // ── Delayed Message (set_timeout) ───────────────────────────────
-    canvas_line(20.0, 145.0, w - 20.0, 145.0, 40, 35, 60, 1.0);
+    canvas_line(20.0, 145.0, w - 20.0, 145.0, 40, 35, 60, 255, 1.0);
     canvas_text(
         20.0,
         160.0,
@@ -142,6 +145,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         DIM.0,
         DIM.1,
         DIM.2,
+        255,
         "DELAYED MESSAGE (set_timeout)",
     );
 
@@ -157,11 +161,11 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         } else {
             GREEN
         };
-        canvas_text(220.0, 190.0, 14.0, color.0, color.1, color.2, msg);
+        canvas_text(220.0, 190.0, 14.0, color.0, color.1, color.2, 255, msg);
     }
 
     // ── Blink (set_interval + clear_timer) ──────────────────────────
-    canvas_line(20.0, 230.0, w - 20.0, 230.0, 40, 35, 60, 1.0);
+    canvas_line(20.0, 230.0, w - 20.0, 230.0, 40, 35, 60, 255, 1.0);
     canvas_text(
         20.0,
         245.0,
@@ -169,6 +173,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         DIM.0,
         DIM.1,
         DIM.2,
+        255,
         "BLINK (interval + clear)",
     );
 
@@ -205,6 +210,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         DIM.0,
         DIM.1,
         DIM.2,
+        255,
         if blinking {
             "Toggling every 500ms"
         } else {
@@ -213,7 +219,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
     );
 
     // ── Stopwatch (set_interval + clear_timer) ──────────────────────
-    canvas_line(20.0, 315.0, w - 20.0, 315.0, 40, 35, 60, 1.0);
+    canvas_line(20.0, 315.0, w - 20.0, 315.0, 40, 35, 60, 255, 1.0);
     canvas_text(
         20.0,
         330.0,
@@ -221,6 +227,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         DIM.0,
         DIM.1,
         DIM.2,
+        255,
         "STOPWATCH (100ms interval)",
     );
 
@@ -251,11 +258,12 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         BRIGHT.0,
         BRIGHT.1,
         BRIGHT.2,
+        255,
         &format!("{secs}.{tenths}s"),
     );
 
     // ── Info ─────────────────────────────────────────────────────────
-    canvas_line(20.0, 405.0, w - 20.0, 405.0, 40, 35, 60, 1.0);
+    canvas_line(20.0, 405.0, w - 20.0, 405.0, 40, 35, 60, 255, 1.0);
     canvas_text(
         20.0,
         420.0,
@@ -263,6 +271,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         DIM.0,
         DIM.1,
         DIM.2,
+        255,
         "Timers fire via exported on_timer(callback_id). Intervals repeat until cleared.",
     );
     canvas_text(
@@ -272,6 +281,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         DIM.0,
         DIM.1,
         DIM.2,
+        255,
         "Resolution is tied to the frame rate (~16ms at 60fps).",
     );
 }

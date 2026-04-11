@@ -59,7 +59,7 @@ pub fn sniff_audio_format(data: &[u8]) -> u32 {
     AUDIO_FORMAT_UNKNOWN
 }
 
-/// Map a `Content-Type` (or similar) value to [`AUDIO_FORMAT_*`], or [`AUDIO_FORMAT_UNKNOWN`].
+/// Map a `Content-Type` (or similar) value to an `AUDIO_FORMAT_*` constant, or [`AUDIO_FORMAT_UNKNOWN`].
 pub fn mime_to_audio_format(mime: &str) -> u32 {
     let s = mime
         .split(';')

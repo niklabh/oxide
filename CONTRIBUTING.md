@@ -66,15 +66,15 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 ```
 oxide/
-├── oxide-browser/              # Host browser application (Rust, egui)
+├── oxide-browser/              # Host browser application (Rust, GPUI)
 │   └── src/
-│       ├── main.rs             # eframe bootstrap
+│       ├── main.rs             # GPUI entry — BrowserHost + run_browser
 │       ├── engine.rs           # WasmEngine, SandboxPolicy
 │       ├── runtime.rs          # BrowserHost, fetch/load/instantiate
 │       ├── capabilities.rs     # Host functions registered into wasmtime Linker
 │       ├── navigation.rs       # History stack, back/forward
 │       ├── url.rs              # WHATWG-style URL parser
-│       └── ui.rs               # egui UI — toolbar, canvas, console, widgets
+│       └── ui.rs               # GPUI shell — toolbar, canvas, console, widgets
 ├── oxide-sdk/                  # Guest-side SDK (no_std compatible, pure FFI)
 │   └── src/
 │       ├── lib.rs              # Safe Rust wrappers over host imports
@@ -230,7 +230,7 @@ use oxide_sdk::*;
 #[no_mangle]
 pub extern "C" fn start_app() {
     canvas_clear(30, 30, 46, 255);
-    canvas_text(20.0, 40.0, 28.0, 255, 255, 255, "Hello, Oxide!");
+    canvas_text(20.0, 40.0, 28.0, 255, 255, 255, 255, "Hello, Oxide!");
 }
 ```
 

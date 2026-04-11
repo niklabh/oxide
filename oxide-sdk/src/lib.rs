@@ -5,19 +5,23 @@
 //! safe Rust wrappers around the raw host-imported functions exposed by the
 //! `"oxide"` wasm import module.
 //!
-//! ## Quick Start
+//! The desktop shell uses [GPUI](https://www.gpui.rs/) (Zed's GPU-accelerated
+//! UI framework) to render guest draw commands. The SDK exposes a drawing API
+//! that maps directly onto GPUI primitives — filled quads, GPU-shaped text,
+//! vector paths, and image textures — so your canvas output gets full GPU
+//! acceleration without you having to link GPUI itself.
 //!
-//! Add `oxide-sdk` to your `Cargo.toml` and set `crate-type = ["cdylib"]`:
+//! ## Quick Start
 //!
 //! ```toml
 //! [lib]
 //! crate-type = ["cdylib"]
 //!
 //! [dependencies]
-//! oxide-sdk = "0.2"
+//! oxide-sdk = "0.4"
 //! ```
 //!
-//! Then write your app:
+//! ### Static app (one-shot render)
 //!
 //! ```rust,ignore
 //! use oxide_sdk::*;
@@ -26,15 +30,11 @@
 //! pub extern "C" fn start_app() {
 //!     log("Hello from Oxide!");
 //!     canvas_clear(30, 30, 46, 255);
-//!     canvas_text(20.0, 40.0, 28.0, 255, 255, 255, "Welcome to Oxide");
+//!     canvas_text(20.0, 40.0, 28.0, 255, 255, 255, 255, "Welcome to Oxide");
 //! }
 //! ```
 //!
-//! Build with `cargo build --target wasm32-unknown-unknown --release`.
-//!
-//! ## Interactive Apps
-//!
-//! For apps that need a render loop, export `on_frame`:
+//! ### Interactive app (frame loop)
 //!
 //! ```rust,ignore
 //! use oxide_sdk::*;
@@ -56,30 +56,64 @@
 //! }
 //! ```
 //!
+//! ### High-level drawing API
+//!
+//! The [`draw`] module provides GPUI-inspired ergonomic types for less
+//! boilerplate:
+//!
+//! ```rust,ignore
+//! use oxide_sdk::draw::*;
+//!
+//! #[no_mangle]
+//! pub extern "C" fn start_app() {
+//!     let c = Canvas::new();
+//!     c.clear(Color::hex(0x1e1e2e));
+//!     c.fill_rect(Rect::new(10.0, 10.0, 200.0, 100.0), Color::rgb(80, 120, 200));
+//!     c.fill_circle(Point2D::new(300.0, 200.0), 50.0, Color::RED);
+//!     c.text("Hello!", Point2D::new(20.0, 30.0), 24.0, Color::WHITE);
+//! }
+//! ```
+//!
+//! Build with `cargo build --target wasm32-unknown-unknown --release`.
+//!
 //! ## API Categories
 //!
-//! | Category | Functions |
+//! | Category | Key types / functions |
 //! |----------|-----------|
-//! | **Canvas** | [`canvas_clear`], [`canvas_rect`], [`canvas_circle`], [`canvas_text`], [`canvas_line`], [`canvas_image`], [`canvas_dimensions`] |
+//! | **Drawing (high-level)** | [`draw::Canvas`], [`draw::Color`], [`draw::Rect`], [`draw::Point2D`] |
+//! | **Canvas (low-level)** | [`canvas_clear`], [`canvas_rect`], [`canvas_circle`], [`canvas_text`], [`canvas_line`], [`canvas_image`], [`canvas_dimensions`] |
 //! | **Console** | [`log`], [`warn`], [`error`] |
 //! | **HTTP** | [`fetch`], [`fetch_get`], [`fetch_post`], [`fetch_post_proto`], [`fetch_put`], [`fetch_delete`] |
 //! | **Protobuf** | [`proto::ProtoEncoder`], [`proto::ProtoDecoder`] |
 //! | **Storage** | [`storage_set`], [`storage_get`], [`storage_remove`], [`kv_store_set`], [`kv_store_get`], [`kv_store_delete`] |
-//! | **Audio** | [`audio_play`], [`audio_play_url`], [`audio_detect_format`], [`audio_play_with_format`], [`audio_last_url_content_type`], [`audio_pause`], [`audio_channel_play`] |
+//! | **Audio** | [`audio_play`], [`audio_play_url`], [`audio_detect_format`], [`audio_play_with_format`], [`audio_pause`], [`audio_channel_play`] |
 //! | **Video** | [`video_load`], [`video_load_url`], [`video_render`], [`video_play`], [`video_hls_open_variant`], [`subtitle_load_srt`] |
-//! | **Media capture** | [`camera_open`], [`camera_capture_frame`], [`microphone_open`], [`microphone_read_samples`], [`screen_capture`], [`media_pipeline_stats`] |
+//! | **Media capture** | [`camera_open`], [`camera_capture_frame`], [`microphone_open`], [`microphone_read_samples`], [`screen_capture`] |
 //! | **Timers** | [`set_timeout`], [`set_interval`], [`clear_timer`], [`time_now_ms`] |
 //! | **Navigation** | [`navigate`], [`push_state`], [`replace_state`], [`get_url`], [`history_back`], [`history_forward`] |
-//! | **Input** | [`mouse_position`], [`mouse_button_down`], [`key_down`], [`key_pressed`], [`scroll_delta`] |
+//! | **Input** | [`mouse_position`], [`mouse_button_down`], [`mouse_button_clicked`], [`key_down`], [`key_pressed`], [`scroll_delta`], [`modifiers`] |
 //! | **Widgets** | [`ui_button`], [`ui_checkbox`], [`ui_slider`], [`ui_text_input`] |
 //! | **Crypto** | [`hash_sha256`], [`hash_sha256_hex`], [`base64_encode`], [`base64_decode`] |
 //! | **Other** | [`clipboard_write`], [`clipboard_read`], [`random_u64`], [`random_f64`], [`notify`], [`upload_file`], [`load_module`] |
+//!
+//! ## Guest Module Contract
+//!
+//! Every `.wasm` module loaded by Oxide must:
+//!
+//! 1. **Export `start_app`** — `extern "C" fn()` entry point, called once on load.
+//! 2. **Optionally export `on_frame`** — `extern "C" fn(dt_ms: u32)` for
+//!    interactive apps with a render loop (called every frame, fuel replenished).
+//! 3. **Optionally export `on_timer`** — `extern "C" fn(callback_id: u32)`
+//!    to receive timer callbacks from [`set_timeout`] / [`set_interval`].
+//! 4. **Compile as `cdylib`** — `crate-type = ["cdylib"]` in `Cargo.toml`.
+//! 5. **Target `wasm32-unknown-unknown`** — no WASI, pure capability-based I/O.
 //!
 //! ## Full API Documentation
 //!
 //! See <https://docs.oxide.foundation/oxide_sdk/> for the complete API
 //! reference, or browse the individual function documentation below.
 
+pub mod draw;
 pub mod proto;
 
 // ─── Raw FFI imports from the host ──────────────────────────────────────────
@@ -111,10 +145,30 @@ extern "C" {
     fn _api_canvas_circle(cx: f32, cy: f32, radius: f32, r: u32, g: u32, b: u32, a: u32);
 
     #[link_name = "api_canvas_text"]
-    fn _api_canvas_text(x: f32, y: f32, size: f32, r: u32, g: u32, b: u32, ptr: u32, len: u32);
+    fn _api_canvas_text(
+        x: f32,
+        y: f32,
+        size: f32,
+        r: u32,
+        g: u32,
+        b: u32,
+        a: u32,
+        ptr: u32,
+        len: u32,
+    );
 
     #[link_name = "api_canvas_line"]
-    fn _api_canvas_line(x1: f32, y1: f32, x2: f32, y2: f32, r: u32, g: u32, b: u32, thickness: f32);
+    fn _api_canvas_line(
+        x1: f32,
+        y1: f32,
+        x2: f32,
+        y2: f32,
+        r: u32,
+        g: u32,
+        b: u32,
+        a: u32,
+        thickness: f32,
+    );
 
     #[link_name = "api_canvas_dimensions"]
     fn _api_canvas_dimensions() -> u64;
@@ -561,8 +615,8 @@ pub fn canvas_circle(cx: f32, cy: f32, radius: f32, r: u8, g: u8, b: u8, a: u8) 
     unsafe { _api_canvas_circle(cx, cy, radius, r as u32, g as u32, b as u32, a as u32) }
 }
 
-/// Draw text on the canvas.
-pub fn canvas_text(x: f32, y: f32, size: f32, r: u8, g: u8, b: u8, text: &str) {
+/// Draw text on the canvas with RGBA color.
+pub fn canvas_text(x: f32, y: f32, size: f32, r: u8, g: u8, b: u8, a: u8, text: &str) {
     unsafe {
         _api_canvas_text(
             x,
@@ -571,15 +625,20 @@ pub fn canvas_text(x: f32, y: f32, size: f32, r: u8, g: u8, b: u8, text: &str) {
             r as u32,
             g as u32,
             b as u32,
+            a as u32,
             text.as_ptr() as u32,
             text.len() as u32,
         )
     }
 }
 
-/// Draw a line between two points.
-pub fn canvas_line(x1: f32, y1: f32, x2: f32, y2: f32, r: u8, g: u8, b: u8, thickness: f32) {
-    unsafe { _api_canvas_line(x1, y1, x2, y2, r as u32, g as u32, b as u32, thickness) }
+/// Draw a line between two points with RGBA color.
+pub fn canvas_line(x1: f32, y1: f32, x2: f32, y2: f32, r: u8, g: u8, b: u8, a: u8, thickness: f32) {
+    unsafe {
+        _api_canvas_line(
+            x1, y1, x2, y2, r as u32, g as u32, b as u32, a as u32, thickness,
+        )
+    }
 }
 
 /// Returns `(width, height)` of the canvas in pixels.
