@@ -33,7 +33,7 @@ use oxide_sdk::*;
 pub extern "C" fn start_app() {
     log("Hello from Oxide!");
     canvas_clear(30, 30, 46, 255);
-    canvas_text(20.0, 40.0, 28.0, 255, 255, 255, "Welcome to Oxide");
+    canvas_text(20.0, 40.0, 28.0, 255, 255, 255, 255, "Welcome to Oxide");
 }
 ```
 

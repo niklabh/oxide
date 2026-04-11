@@ -19,7 +19,7 @@ cargo run -p oxide-browser
 # Build the example guest app
 cargo build --target wasm32-unknown-unknown --release -p hello-oxide
 
-# In the browser, click "Open File" and select:
+# In the browser, click "Open" and select:
 # target/wasm32-unknown-unknown/release/hello_oxide.wasm
 ```
 
@@ -40,7 +40,7 @@ cargo build --target wasm32-unknown-unknown --release -p hello-oxide
 │                               │                                  │
 │  ┌────────────────────────────▼───────────────────────────────┐  │
 │  │                  Capability Layer                          │  │
-│  │  "oxide" import module — ~50 host functions                │  │
+│  │  "oxide" import module — ~100 host functions                │  │
 │  │  canvas · console · storage · clipboard · fetch · crypto   │  │
 │  │  input · widgets · navigation · dynamic module loading     │  │
 │  └────────────────────────────┬───────────────────────────────┘  │
@@ -62,7 +62,7 @@ oxide/
 │       ├── main.rs          # GPUI entry — BrowserHost + run_browser
 │       ├── engine.rs        # WasmEngine, SandboxPolicy, compile & memory bounds
 │       ├── runtime.rs       # BrowserHost, fetch/load/instantiate pipeline
-│       ├── capabilities.rs  # ~50 host functions registered into the wasmtime Linker
+│       ├── capabilities.rs  # ~100 host functions registered into the wasmtime Linker
 │       ├── navigation.rs    # History stack, back/forward, push/replace state
 │       ├── url.rs           # WHATWG-style URL parser (http, https, file, oxide schemes)
 │       └── ui.rs            # GPUI shell — toolbar, canvas paint, console, widgets

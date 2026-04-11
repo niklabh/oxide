@@ -113,6 +113,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         ACCENT_GLOW.0,
         ACCENT_GLOW.1,
         ACCENT_GLOW.2,
+        255,
         "Oxide",
     );
     canvas_text(
@@ -122,6 +123,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         TEXT_DIM.0,
         TEXT_DIM.1,
         TEXT_DIM.2,
+        255,
         "A WebAssembly-native application platform",
     );
     canvas_text(
@@ -131,6 +133,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         TEXT_DIM.0,
         TEXT_DIM.1,
         TEXT_DIM.2,
+        255,
         "oxide.foundation",
     );
 
@@ -144,6 +147,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         TEXT_BRIGHT.0,
         TEXT_BRIGHT.1,
         TEXT_BRIGHT.2,
+        255,
         "v0.1.0",
     );
 
@@ -155,6 +159,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         TEXT_BRIGHT.0,
         TEXT_BRIGHT.1,
         TEXT_BRIGHT.2,
+        255,
         "Demo Applications",
     );
     canvas_line(
@@ -165,6 +170,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         DIVIDER.0,
         DIVIDER.1,
         DIVIDER.2,
+        255,
         1.0,
     );
 
@@ -216,6 +222,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
             card.color.0,
             card.color.1,
             card.color.2,
+            255,
             card.icon_char,
         );
 
@@ -227,6 +234,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
             TEXT_BRIGHT.0,
             TEXT_BRIGHT.1,
             TEXT_BRIGHT.2,
+            255,
             card.title,
         );
 
@@ -238,6 +246,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
             card.color.0,
             card.color.1,
             card.color.2,
+            255,
             card.subtitle,
         );
 
@@ -249,6 +258,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
             TEXT_DIM.0,
             TEXT_DIM.1,
             TEXT_DIM.2,
+            255,
             card.description,
         );
 
@@ -261,6 +271,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
                 card.color.0,
                 card.color.1,
                 card.color.2,
+                255,
                 ">",
             );
         }
@@ -278,6 +289,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         DIVIDER.0,
         DIVIDER.1,
         DIVIDER.2,
+        255,
         1.0,
     );
 
@@ -288,6 +300,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         TEXT_DIM.0,
         TEXT_DIM.1,
         TEXT_DIM.2,
+        255,
         "Built with Oxide SDK  |  Rust + WebAssembly  |  oxide.foundation",
     );
     canvas_text(
@@ -297,6 +310,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         TEXT_DIM.0,
         TEXT_DIM.1,
         TEXT_DIM.2,
+        255,
         "Click any card to launch the demo in this browser.",
     );
 }

@@ -230,7 +230,7 @@ use oxide_sdk::*;
 #[no_mangle]
 pub extern "C" fn start_app() {
     canvas_clear(30, 30, 46, 255);
-    canvas_text(20.0, 40.0, 28.0, 255, 255, 255, "Hello, Oxide!");
+    canvas_text(20.0, 40.0, 28.0, 255, 255, 255, 255, "Hello, Oxide!");
 }
 ```
 

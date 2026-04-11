@@ -51,7 +51,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
 
     canvas_clear(18, 20, 28, 255);
 
-    canvas_text(20.0, 16.0, 22.0, 220, 210, 255, "Media capture");
+    canvas_text(20.0, 16.0, 22.0, 220, 210, 255, 255, "Media capture");
     canvas_text(
         20.0,
         44.0,
@@ -59,6 +59,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         140,
         150,
         170,
+        255,
         "Camera / mic / screenshot use host dialogs + OS permissions.",
     );
 
@@ -144,6 +145,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
                 120,
                 128,
                 140,
+                255,
                 "Open camera to preview",
             );
         }
@@ -157,6 +159,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         160,
         165,
         180,
+        255,
         "Last screenshot",
     );
 
@@ -178,6 +181,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
                 100,
                 110,
                 125,
+                255,
                 "No grab yet",
             );
         }
@@ -193,6 +197,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         180,
         185,
         200,
+        255,
         "Microphone (mono)",
     );
     canvas_rect(meter_x, meter_y, meter_w, 14.0, 40, 44, 52, 255);
@@ -221,10 +226,11 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
                 130,
                 140,
                 155,
+                255,
                 &format!("{hz} Hz"),
             );
         } else {
-            canvas_text(meter_x + 8.0, meter_y - 2.0, 12.0, 100, 110, 125, "closed");
+            canvas_text(meter_x + 8.0, meter_y - 2.0, 12.0, 100, 110, 125, 255, "closed");
         }
     }
 
@@ -238,6 +244,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         90,
         95,
         105,
+        255,
         &format!("pipeline: cam_frames={frames} mic_ring~{ring}"),
     );
 }

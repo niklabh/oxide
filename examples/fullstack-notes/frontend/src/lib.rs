@@ -99,11 +99,11 @@ fn draw_section_bg(y: f32, h: f32, w: f32) {
 }
 
 fn draw_heading(x: f32, y: f32, label: &str) {
-    canvas_text(x, y, 16.0, HEADING.0, HEADING.1, HEADING.2, label);
+    canvas_text(x, y, 16.0, HEADING.0, HEADING.1, HEADING.2, 255, label);
 }
 
 fn draw_text(x: f32, y: f32, c: (u8, u8, u8), msg: &str) {
-    canvas_text(x, y, 14.0, c.0, c.1, c.2, msg);
+    canvas_text(x, y, 14.0, c.0, c.1, c.2, 255, msg);
 }
 
 fn draw_note_row(x: f32, y: f32, note: &Note, tag: &str) {
@@ -141,7 +141,7 @@ pub extern "C" fn start_app() {
 
     // ── Title bar ────────────────────────────────────────────────────
     canvas_rect(0.0, 0.0, w, 50.0, TITLE_BG.0, TITLE_BG.1, TITLE_BG.2, 255);
-    canvas_text(20.0, 14.0, 22.0, 220, 200, 255, "Oxide Notes");
+    canvas_text(20.0, 14.0, 22.0, 220, 200, 255, 255, "Oxide Notes");
     canvas_text(
         20.0,
         38.0,
@@ -149,6 +149,7 @@ pub extern "C" fn start_app() {
         DIM.0,
         DIM.1,
         DIM.2,
+        255,
         "Full-stack demo  \u{2022}  WASM frontend  \u{2022}  Rust backend  \u{2022}  Protobuf wire format",
     );
 
@@ -373,7 +374,7 @@ pub extern "C" fn start_app() {
     canvas_circle(w - 110.0, 170.0, 18.0, 180, 140, 255, 70);
 
     // ── Separator at bottom ──────────────────────────────────────────
-    canvas_line(20.0, y, w - 20.0, y, DIM.0, DIM.1, DIM.2, 1.0);
+    canvas_line(20.0, y, w - 20.0, y, DIM.0, DIM.1, DIM.2, 255, 1.0);
     y += 12.0;
     draw_text(
         20.0,
@@ -390,8 +391,8 @@ pub extern "C" fn start_app() {
 fn render_offline(w: f32, err_code: i64) {
     canvas_clear(BG.0, BG.1, BG.2, 255);
     canvas_rect(0.0, 0.0, w, 50.0, TITLE_BG.0, TITLE_BG.1, TITLE_BG.2, 255);
-    canvas_text(20.0, 14.0, 22.0, 220, 200, 255, "Oxide Notes");
-    canvas_text(20.0, 38.0, 12.0, DIM.0, DIM.1, DIM.2, "Full-stack demo");
+    canvas_text(20.0, 14.0, 22.0, 220, 200, 255, 255, "Oxide Notes");
+    canvas_text(20.0, 38.0, 12.0, DIM.0, DIM.1, DIM.2, 255, "Full-stack demo");
 
     draw_text(
         20.0,

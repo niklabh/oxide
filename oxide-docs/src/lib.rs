@@ -47,7 +47,7 @@
 //! pub extern "C" fn start_app() {
 //!     log("Hello from Oxide!");
 //!     canvas_clear(30, 30, 46, 255);
-//!     canvas_text(20.0, 40.0, 28.0, 255, 255, 255, "Welcome to Oxide");
+//!     canvas_text(20.0, 40.0, 28.0, 255, 255, 255, 255, "Welcome to Oxide");
 //! }
 //! ```
 //!
@@ -179,8 +179,8 @@
 //! canvas_clear(30, 30, 46, 255);
 //! canvas_rect(10.0, 10.0, 200.0, 100.0, 80, 120, 200, 255);
 //! canvas_circle(300.0, 200.0, 50.0, 200, 100, 150, 255);
-//! canvas_text(20.0, 30.0, 24.0, 255, 255, 255, "Hello!");
-//! canvas_line(0.0, 0.0, 400.0, 300.0, 255, 200, 0, 2.0);
+//! canvas_text(20.0, 30.0, 24.0, 255, 255, 255, 255, "Hello!");
+//! canvas_line(0.0, 0.0, 400.0, 300.0, 255, 200, 0, 255, 2.0);
 //!
 //! let (w, h) = canvas_dimensions();
 //! log(&format!("Canvas: {}x{}", w, h));

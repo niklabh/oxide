@@ -15,10 +15,10 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
 
     // ── Title bar ───────────────────────────────────────────────────
     canvas_rect(0.0, 0.0, width as f32, 56.0, 50, 40, 80, 255);
-    canvas_text(20.0, 16.0, 24.0, 220, 200, 255, "Oxide Interactive Widgets");
+    canvas_text(20.0, 16.0, 24.0, 220, 200, 255, 255, "Oxide Interactive Widgets");
 
     // ── Button demo ─────────────────────────────────────────────────
-    canvas_text(20.0, 75.0, 16.0, 180, 140, 255, "Button");
+    canvas_text(20.0, 75.0, 16.0, 180, 140, 255, 255, "Button");
 
     if ui_button(1, 20.0, 100.0, 120.0, 28.0, "Click Me!") {
         unsafe {
@@ -38,11 +38,12 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         160,
         220,
         160,
+        255,
         &format!("Count: {count}"),
     );
 
     // ── Checkbox demo ───────────────────────────────────────────────
-    canvas_text(20.0, 150.0, 16.0, 180, 140, 255, "Checkbox");
+    canvas_text(20.0, 150.0, 16.0, 180, 140, 255, 255, "Checkbox");
 
     let dark_mode = ui_checkbox(10, 20.0, 175.0, "Dark mode", false);
     let notifications = ui_checkbox(11, 20.0, 205.0, "Enable notifications", true);
@@ -54,11 +55,12 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         120,
         120,
         120,
+        255,
         &format!("dark={dark_mode}  notif={notifications}"),
     );
 
     // ── Slider demo ─────────────────────────────────────────────────
-    canvas_text(20.0, 250.0, 16.0, 180, 140, 255, "Slider");
+    canvas_text(20.0, 250.0, 16.0, 180, 140, 255, 255, "Slider");
 
     let volume = ui_slider(20, 20.0, 275.0, 300.0, 0.0, 100.0, 50.0);
     canvas_text(
@@ -68,6 +70,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         160,
         220,
         160,
+        255,
         &format!("Volume: {volume:.0}%"),
     );
 
@@ -79,17 +82,18 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         160,
         220,
         160,
+        255,
         &format!("Speed: {speed:.1}x"),
     );
 
     // ── Text input demo ─────────────────────────────────────────────
-    canvas_text(20.0, 355.0, 16.0, 180, 140, 255, "Text Input");
+    canvas_text(20.0, 355.0, 16.0, 180, 140, 255, 255, "Text Input");
 
     let name = ui_text_input(30, 20.0, 380.0, 300.0, "");
     if !name.is_empty() {
-        canvas_text(20.0, 415.0, 18.0, 160, 220, 160, &format!("Hello, {name}!"));
+        canvas_text(20.0, 415.0, 18.0, 160, 220, 160, 255, &format!("Hello, {name}!"));
     } else {
-        canvas_text(20.0, 415.0, 14.0, 120, 120, 120, "Type your name above...");
+        canvas_text(20.0, 415.0, 14.0, 120, 120, 120, 255, "Type your name above...");
     }
 
     // ── Mouse info ──────────────────────────────────────────────────
@@ -101,6 +105,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         100,
         100,
         120,
+        255,
         &format!(
             "Mouse: ({mx:.0}, {my:.0})  LMB: {}  RMB: {}",
             mouse_button_down(0),

@@ -43,6 +43,9 @@ struct RunResult {
     live_module: Option<LiveModule>,
 }
 
+// SAFETY: `LiveModule` contains a wasmtime `Store<HostState>` whose fields are
+// behind `Arc<Mutex<…>>`, making them safe to send across threads. The `error`
+// field is a plain `Option<String>`.
 unsafe impl Send for RunResult {}
 
 struct TabState {
@@ -251,13 +254,11 @@ impl TabState {
         input.scroll_y = 0.0;
     }
 
-    fn update_texture_cache(&mut self, window: &mut Window) {
+    fn update_texture_cache(&mut self, _window: &mut Window) {
         let tab_id = self.id;
         let canvas = self.host_state.canvas.lock().unwrap();
         if canvas.generation != self.canvas_generation {
-            for (_, img) in self.image_textures.drain() {
-                let _ = window.drop_image(img);
-            }
+            self.image_textures.clear();
             self.canvas_generation = canvas.generation;
         }
         for (i, decoded) in canvas.images.iter().enumerate() {
@@ -267,12 +268,10 @@ impl TabState {
         }
     }
 
-    fn refresh_pip_texture(&mut self, window: &mut Window) {
+    fn refresh_pip_texture(&mut self, _window: &mut Window) {
         let pip = self.host_state.video.lock().unwrap().pip;
         if !pip {
-            if let Some(old) = self.pip_texture.take() {
-                let _ = window.drop_image(old);
-            }
+            self.pip_texture = None;
             self.pip_last_serial = 0;
             return;
         }
@@ -280,9 +279,7 @@ impl TabState {
         let serial = *self.host_state.video_pip_serial.lock().unwrap();
         if serial != self.pip_last_serial {
             self.pip_last_serial = serial;
-            if let Some(old) = self.pip_texture.take() {
-                let _ = window.drop_image(old);
-            }
+            self.pip_texture = None;
             let frame = self.host_state.video_pip_frame.lock().unwrap().clone();
             if let Some(decoded) = frame {
                 self.pip_texture = Some(decoded_to_render_image(
@@ -315,13 +312,6 @@ fn rgba8(r: u8, g: u8, b: u8, a: u8) -> gpui::Hsla {
         b: b as f32 / 255.0,
         a: a as f32 / 255.0,
     })
-}
-
-/// Solid text color from sRGB bytes (GPUI `TextRun` uses [`Hsla`]).
-fn text_rgb_u8(r: u8, g: u8, b: u8) -> gpui::Hsla {
-    gpui::Hsla::from(gpui::rgb(
-        ((r as u32) << 16) | ((g as u32) << 8) | (b as u32),
-    ))
 }
 
 fn circle_polygon(cx: f32, cy: f32, radius: f32) -> Vec<Point<Pixels>> {
@@ -390,6 +380,7 @@ fn paint_draw_commands(
                 r,
                 g,
                 b,
+                a,
                 text,
             } => {
                 let origin = rect.origin + point(px(*x), px(*y));
@@ -397,7 +388,7 @@ fn paint_draw_commands(
                 let run = TextRun {
                     len: text_owned.len(),
                     font: font(".SystemUIFont"),
-                    color: text_rgb_u8(*r, *g, *b),
+                    color: rgba8(*r, *g, *b, *a),
                     background_color: None,
                     underline: None,
                     strikethrough: None,
@@ -418,6 +409,7 @@ fn paint_draw_commands(
                 r,
                 g,
                 b,
+                a,
                 thickness,
             } => {
                 let p1 = rect.origin + point(px(*x1), px(*y1));
@@ -426,7 +418,7 @@ fn paint_draw_commands(
                 pb.move_to(p1);
                 pb.line_to(p2);
                 if let Ok(path) = pb.build() {
-                    window.paint_path(path, rgba8(*r, *g, *b, 255));
+                    window.paint_path(path, rgba8(*r, *g, *b, *a));
                 }
             }
             DrawCommand::Image {
@@ -636,7 +628,7 @@ impl Render for OxideBrowserView {
             .lock()
             .unwrap()
             .can_go_back();
-        let _can_fwd = self.tabs[active]
+        let can_fwd = self.tabs[active]
             .host_state
             .navigation
             .lock()
@@ -832,16 +824,20 @@ impl Render for OxideBrowserView {
         );
 
         // Toolbar
-        let status_icon = match &*self.tabs[active].status.lock().unwrap() {
-            PageStatus::Idle => "○",
-            PageStatus::Loading(_) => "↻",
-            PageStatus::Running(_) => "●",
-            PageStatus::Error(_) => "●",
-        };
-        let status_color = match &*self.tabs[active].status.lock().unwrap() {
-            PageStatus::Error(_) => gpui::rgb(0xf05050),
-            PageStatus::Running(_) => gpui::rgb(0x50e070),
-            _ => gpui::rgb(0xa0a0a8),
+        let (status_icon, status_color) = {
+            let status = self.tabs[active].status.lock().unwrap();
+            let icon = match &*status {
+                PageStatus::Idle => "○",
+                PageStatus::Loading(_) => "↻",
+                PageStatus::Running(_) => "●",
+                PageStatus::Error(_) => "●",
+            };
+            let color = match &*status {
+                PageStatus::Error(_) => gpui::rgb(0xf05050),
+                PageStatus::Running(_) => gpui::rgb(0x50e070),
+                _ => gpui::rgb(0xa0a0a8),
+            };
+            (icon, color)
         };
 
         root = root.child(
@@ -857,11 +853,14 @@ impl Render for OxideBrowserView {
                 .child(
                     div()
                         .id("oxide_back")
-                        .cursor_pointer()
+                        .when(can_back, |el| el.cursor_pointer())
                         .text_sm()
-                        .text_color(gpui::rgb(0xb8b8c4))
+                        .text_color(if can_back {
+                            gpui::rgb(0xb8b8c4)
+                        } else {
+                            gpui::rgb(0x50505a)
+                        })
                         .child("◀")
-                        .when(can_back, |d| d)
                         .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                             this.tabs[this.active_tab].go_back();
                             cx.notify();
@@ -870,9 +869,13 @@ impl Render for OxideBrowserView {
                 .child(
                     div()
                         .id("oxide_forward")
-                        .cursor_pointer()
+                        .when(can_fwd, |el| el.cursor_pointer())
                         .text_sm()
-                        .text_color(gpui::rgb(0xb8b8c4))
+                        .text_color(if can_fwd {
+                            gpui::rgb(0xb8b8c4)
+                        } else {
+                            gpui::rgb(0x50505a)
+                        })
                         .child("▶")
                         .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                             this.tabs[this.active_tab].go_forward();

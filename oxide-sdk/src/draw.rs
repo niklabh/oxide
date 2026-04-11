@@ -1,6 +1,6 @@
 //! Higher-level drawing API inspired by GPUI's rendering model.
 //!
-//! This module provides ergonomic types and a builder-style [`Canvas`] facade
+//! This module provides ergonomic types and an immediate-mode [`Canvas`] facade
 //! that wraps the low-level `canvas_*` functions. Guest apps can choose between
 //! the raw functions (maximum control) and these helpers (less boilerplate).
 //!
@@ -9,7 +9,7 @@
 //! ```rust,ignore
 //! use oxide_sdk::draw::*;
 //!
-//! let mut c = Canvas::new();
+//! let c = Canvas::new();
 //! c.clear(Color::rgb(30, 30, 46));
 //! c.fill_rect(Rect::new(10.0, 10.0, 200.0, 100.0), Color::rgb(80, 120, 200));
 //! c.fill_circle(Point2D::new(300.0, 200.0), 50.0, Color::rgba(200, 100, 150, 200));
@@ -48,6 +48,7 @@ impl Color {
     }
 
     /// Return this color with a different alpha value.
+    #[must_use]
     pub const fn with_alpha(self, a: u8) -> Self {
         Self { a, ..self }
     }
@@ -108,9 +109,10 @@ impl Rect {
         }
     }
 
-    /// True if the point `(px, py)` is inside this rectangle.
+    /// True if the point `(px, py)` is inside this rectangle (half-open: inclusive on
+    /// the near edge, exclusive on the far edge).
     pub fn contains(&self, px: f32, py: f32) -> bool {
-        px >= self.x && py >= self.y && px <= self.x + self.w && py <= self.y + self.h
+        px >= self.x && py >= self.y && px < self.x + self.w && py < self.y + self.h
     }
 
     pub fn origin(&self) -> Point2D {
@@ -122,7 +124,7 @@ impl Rect {
     }
 }
 
-/// Builder-style canvas facade that wraps the low-level drawing functions.
+/// Immediate-mode canvas facade that wraps the low-level drawing functions.
 ///
 /// All methods paint immediately (no retained scene graph). Create one per
 /// frame or per `start_app` call and issue draw commands through it.
@@ -155,13 +157,13 @@ impl Canvas {
 
     /// Draw text at a position.
     pub fn text(&self, text: &str, pos: Point2D, size: f32, color: Color) {
-        crate::canvas_text(pos.x, pos.y, size, color.r, color.g, color.b, text);
+        crate::canvas_text(pos.x, pos.y, size, color.r, color.g, color.b, color.a, text);
     }
 
     /// Draw a line between two points.
     pub fn line(&self, from: Point2D, to: Point2D, thickness: f32, color: Color) {
         crate::canvas_line(
-            from.x, from.y, to.x, to.y, color.r, color.g, color.b, thickness,
+            from.x, from.y, to.x, to.y, color.r, color.g, color.b, color.a, thickness,
         );
     }
 

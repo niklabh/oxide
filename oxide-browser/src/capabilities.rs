@@ -235,7 +235,7 @@ pub enum DrawCommand {
         b: u8,
         a: u8,
     },
-    /// Text baseline position `(x, y)`, font size in pixels, RGB color, and string payload.
+    /// Text baseline position `(x, y)`, font size in pixels, RGBA color, and string payload.
     Text {
         x: f32,
         y: f32,
@@ -243,9 +243,10 @@ pub enum DrawCommand {
         r: u8,
         g: u8,
         b: u8,
+        a: u8,
         text: String,
     },
-    /// Line from `(x1, y1)` to `(x2, y2)` with RGB stroke color and stroke width in pixels.
+    /// Line from `(x1, y1)` to `(x2, y2)` with RGBA stroke color and stroke width in pixels.
     Line {
         x1: f32,
         y1: f32,
@@ -254,6 +255,7 @@ pub enum DrawCommand {
         r: u8,
         g: u8,
         b: u8,
+        a: u8,
         thickness: f32,
     },
     /// Draw [`DecodedImage`] `image_id` from `images` into the axis-aligned rectangle `(x, y, w, h)`.
@@ -492,6 +494,7 @@ fn video_render_at(
             r: 255,
             g: 255,
             b: 255,
+            a: 255,
             text,
         });
     }
@@ -770,6 +773,7 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
          r: u32,
          g: u32,
          b: u32,
+         a: u32,
          txt_ptr: u32,
          txt_len: u32| {
             let mem = caller.data().memory.expect("memory not set");
@@ -787,6 +791,7 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
                     r: r as u8,
                     g: g as u8,
                     b: b as u8,
+                    a: a as u8,
                     text,
                 });
         },
@@ -803,6 +808,7 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
          r: u32,
          g: u32,
          b: u32,
+         a: u32,
          thickness: f32| {
             caller
                 .data()
@@ -818,6 +824,7 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
                     r: r as u8,
                     g: g as u8,
                     b: b as u8,
+                    a: a as u8,
                     thickness,
                 });
         },

@@ -123,10 +123,10 @@ use oxide_sdk::*;
 pub extern "C" fn start_app() {
     log("App started!");
     canvas_clear(30, 30, 46, 255);
-    canvas_text(20.0, 30.0, 28.0, 255, 255, 255, "My Oxide App");
+    canvas_text(20.0, 30.0, 28.0, 255, 255, 255, 255, "My Oxide App");
     canvas_rect(20.0, 80.0, 200.0, 100.0, 80, 120, 200, 255);
     canvas_circle(400.0, 300.0, 60.0, 200, 100, 150, 255);
-    canvas_line(20.0, 200.0, 600.0, 200.0, 100, 100, 100, 2.0);
+    canvas_line(20.0, 200.0, 600.0, 200.0, 100, 100, 100, 255, 2.0);
 }
 ```
 
@@ -145,7 +145,7 @@ pub extern "C" fn start_app() {
 #[no_mangle]
 pub extern "C" fn on_frame(_dt_ms: u32) {
     canvas_clear(30, 30, 46, 255);
-    canvas_text(20.0, 30.0, 24.0, 255, 255, 255, "Counter App");
+    canvas_text(20.0, 30.0, 24.0, 255, 255, 255, 255, "Counter App");
 
     if ui_button(1, 20.0, 70.0, 120.0, 30.0, "Increment") {
         unsafe { COUNTER += 1; }
@@ -155,7 +155,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
     }
 
     let count = unsafe { COUNTER };
-    canvas_text(20.0, 120.0, 18.0, 160, 220, 160, &format!("Count: {count}"));
+    canvas_text(20.0, 120.0, 18.0, 160, 220, 160, 255, &format!("Count: {count}"));
 
     let (mx, my) = mouse_position();
     canvas_circle(mx, my, 10.0, 255, 100, 100, 180);
@@ -250,8 +250,8 @@ let (w, h) = c.dimensions();
 | `canvas_clear` | `fn(r, g, b, a: u8)` | Clear canvas with solid RGBA color |
 | `canvas_rect` | `fn(x, y, w, h: f32, r, g, b, a: u8)` | Draw filled rectangle |
 | `canvas_circle` | `fn(cx, cy, radius: f32, r, g, b, a: u8)` | Draw filled circle |
-| `canvas_text` | `fn(x, y, size: f32, r, g, b: u8, text: &str)` | Draw text |
-| `canvas_line` | `fn(x1, y1, x2, y2: f32, r, g, b: u8, thickness: f32)` | Draw a line |
+| `canvas_text` | `fn(x, y, size: f32, r, g, b, a: u8, text: &str)` | Draw text |
+| `canvas_line` | `fn(x1, y1, x2, y2: f32, r, g, b, a: u8, thickness: f32)` | Draw a line |
 | `canvas_image` | `fn(x, y, w, h: f32, data: &[u8])` | Draw encoded image (PNG/JPEG/GIF/WebP) |
 | `canvas_dimensions` | `fn() -> (u32, u32)` | Get canvas `(width, height)` in pixels |
 
@@ -259,8 +259,8 @@ let (w, h) = c.dimensions();
 canvas_clear(30, 30, 46, 255);
 canvas_rect(10.0, 10.0, 100.0, 50.0, 255, 0, 0, 255);
 canvas_circle(200.0, 200.0, 30.0, 0, 255, 0, 255);
-canvas_text(10.0, 80.0, 16.0, 255, 255, 255, "Hello!");
-canvas_line(0.0, 0.0, 100.0, 100.0, 255, 255, 0, 2.0);
+canvas_text(10.0, 80.0, 16.0, 255, 255, 255, 255, "Hello!");
+canvas_line(0.0, 0.0, 100.0, 100.0, 255, 255, 0, 255, 2.0);
 
 let (w, h) = canvas_dimensions();
 ```
@@ -509,7 +509,7 @@ pub extern "C" fn on_timer(callback_id: u32) {
 | `clear_hyperlinks` | `fn()` | Remove all hyperlinks |
 
 ```rust
-canvas_text(20.0, 100.0, 16.0, 100, 150, 255, "Visit Example");
+canvas_text(20.0, 100.0, 16.0, 100, 150, 255, 255, "Visit Example");
 register_hyperlink(20.0, 100.0, 200.0, 20.0, "https://example.com/app.wasm");
 ```
 
