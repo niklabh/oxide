@@ -71,7 +71,7 @@ The core architecture is live: a Rust-native browser that fetches and executes `
 
 ### 2D Acceleration
 
-- [ ] GPU-backed canvas renderer (replace CPU-painted egui primitives)
+- [x] GPUI desktop shell — draw commands rasterized via GPUI; images and video frames as GPU textures
 - [ ] `canvas_rounded_rect()`, `canvas_arc()`, `canvas_bezier()` — extended shape primitives
 - [ ] `canvas_gradient(type, stops)` — linear and radial gradients
 - [ ] `canvas_transform(matrix)` — 2D affine transformations (translate, rotate, scale, skew)
@@ -373,8 +373,8 @@ The core architecture is live: a Rust-native browser that fetches and executes `
 - [ ] macOS (shipped)
 - [ ] Linux (shipped)
 - [ ] Windows (shipped)
-- [ ] Android (via native Rust + egui)
-- [ ] iOS (via native Rust + egui)
+- [ ] Android (native Rust + platform or embedded UI toolkit)
+- [ ] iOS (native Rust + platform or embedded UI toolkit)
 - [ ] Web version (Oxide running inside a traditional browser via wasm-bindgen)
 
 ---

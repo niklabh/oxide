@@ -16,8 +16,6 @@ path = "src/main.rs"
 wasmtime = "29"
 tokio = { version = "1", features = ["full"] }
 reqwest = { version = "0.12", features = ["rustls-tls", "blocking"], default-features = false }
-eframe = "0.31"
-egui = "0.31"
 rfd = "0.15"
 arboard = "3"
 anyhow = "1"
@@ -38,6 +36,8 @@ tempfile = "3"
 nokhwa = { version = "0.10.10", features = ["input-native", "camera-sync-impl"] }
 cpal = "0.17.3"
 screenshots = "0.8.10"
+gpui = "0.2.2"
+smallvec = "1"
 
 [dev-dependencies]
 tempfile = "3"

@@ -143,7 +143,7 @@ pub struct HostState {
     pub widget_states: Arc<Mutex<HashMap<u32, WidgetValue>>>,
     /// Button IDs that were clicked during the last render pass.
     pub widget_clicked: Arc<Mutex<HashSet<u32>>>,
-    /// Top-left corner of the canvas panel in egui screen coords.
+    /// Top-left corner of the canvas panel in GPUI screen coords.
     pub canvas_offset: Arc<Mutex<(f32, f32)>>,
     /// Persistent bookmark storage shared across tabs.
     pub bookmark_store: SharedBookmarkStore,
@@ -324,7 +324,7 @@ pub struct Hyperlink {
     pub url: String,
 }
 
-/// Per-frame input snapshot from the host (egui) for guest polling via `api_mouse_*`, `api_key_*`, etc.
+/// Per-frame input snapshot from the host (GPUI) for guest polling via `api_mouse_*`, `api_key_*`, etc.
 #[derive(Clone, Debug, Default)]
 pub struct InputState {
     /// Pointer horizontal position in window/content coordinates before canvas offset subtraction in APIs.
@@ -351,7 +351,7 @@ pub struct InputState {
     pub scroll_y: f32,
 }
 
-/// UI control the guest requested for the current frame; the host egui layer renders these after canvas content.
+/// UI control the guest requested for the current frame; the host GPUI layer renders these after canvas content.
 ///
 /// Commands are queued during `on_frame`; stable `id` values tie widgets to [`WidgetValue`] state and click tracking.
 #[derive(Clone, Debug)]
