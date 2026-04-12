@@ -420,23 +420,21 @@ impl RtcState {
             .get_mut(&peer_id)
             .ok_or_else(|| anyhow::anyhow!("unknown peer"))?;
 
-        let track_id = format!("track-{kind}-{}", peer.next_channel_id);
+        let handle = peer.next_channel_id;
         peer.next_channel_id = peer.next_channel_id.wrapping_add(1).max(1);
 
-        let codec_type = if kind == 0 {
-            webrtc::rtp_transceiver::rtp_codec::RTPCodecType::Audio
+        let track_id = format!("track-{kind}-{handle}");
+
+        let mime = if kind == 0 {
+            webrtc::api::media_engine::MIME_TYPE_OPUS
         } else {
-            webrtc::rtp_transceiver::rtp_codec::RTPCodecType::Video
+            webrtc::api::media_engine::MIME_TYPE_VP8
         };
 
         let track = Arc::new(
             webrtc::track::track_local::track_local_static_rtp::TrackLocalStaticRTP::new(
                 webrtc::rtp_transceiver::rtp_codec::RTCRtpCodecCapability {
-                    mime_type: if kind == 0 {
-                        webrtc::api::media_engine::MIME_TYPE_OPUS.to_string()
-                    } else {
-                        webrtc::api::media_engine::MIME_TYPE_VP8.to_string()
-                    },
+                    mime_type: mime.to_string(),
                     ..Default::default()
                 },
                 track_id,
@@ -450,8 +448,7 @@ impl RtcState {
                 .await
         })?;
 
-        let _ = codec_type;
-        Ok(1)
+        Ok(handle)
     }
 
     // ── Signaling helpers ───────────────────────────────────────────
