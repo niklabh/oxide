@@ -193,7 +193,7 @@ impl RtcState {
             dc.on_message(Box::new(move |msg: DataChannelMessage| {
                 msgs2.lock().unwrap().push_back(IncomingMessage {
                     channel_id: ch_id,
-                    is_binary: msg.is_string,
+                    is_binary: !msg.is_string,
                     data: msg.data.to_vec(),
                 });
                 Box::pin(async {})
