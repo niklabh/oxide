@@ -1,8 +1,8 @@
 #![allow(dead_code)]
-/// Lightweight protobuf wire-format encoder/decoder.
-///
-/// Matches the wire format produced by `oxide_sdk::proto`, allowing the backend
-/// to speak the same binary protocol as WASM guest applications.
+//! Lightweight protobuf wire-format encoder/decoder.
+//!
+//! Matches the wire format produced by `oxide_sdk::proto`, allowing the backend
+//! to speak the same binary protocol as WASM guest applications.
 
 const WIRE_VARINT: u32 = 0;
 const WIRE_64BIT: u32 = 1;

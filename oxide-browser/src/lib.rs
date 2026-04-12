@@ -97,8 +97,10 @@
 pub mod audio_format;
 pub mod bookmarks;
 pub mod capabilities;
+pub mod download;
 pub mod engine;
 pub mod gpu;
+pub mod history;
 pub mod media_capture;
 pub mod navigation;
 pub mod rtc;

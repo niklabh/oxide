@@ -62,7 +62,7 @@ pub extern "C" fn on_frame(dt_ms: u32) {
     c.text("Arcs", Point2D::new(20.0, sy), 14.0, Color::hex(0xf9a825));
 
     let arc_colors = [0x00bcd4, 0xff5722, 0x8bc34a];
-    for i in 0..3 {
+    for (i, &arc_color) in arc_colors.iter().enumerate() {
         let cx = 70.0 + i as f32 * 130.0;
         let cy = sy + 56.0;
         let sweep = core::f32::consts::PI * (0.6 + i as f32 * 0.4);
@@ -76,7 +76,7 @@ pub extern "C" fn on_frame(dt_ms: u32) {
             0.0,
             core::f32::consts::TAU,
             1.0,
-            Color::hex(arc_colors[i]),
+            Color::hex(arc_color),
         );
         c.restore();
         // Animated arc
@@ -86,7 +86,7 @@ pub extern "C" fn on_frame(dt_ms: u32) {
             start,
             start + sweep,
             3.0,
-            Color::hex(arc_colors[i]),
+            Color::hex(arc_color),
         );
     }
 
