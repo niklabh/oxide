@@ -583,15 +583,18 @@ fn paint_draw_commands(
                 by: _,
                 stops,
             } => {
-                paint_gradient(window, &GradientParams {
-                    x: off_x + *x,
-                    y: off_y + *y,
-                    w: *w,
-                    h: *h,
-                    kind: *kind,
-                    stops: stops.clone(),
-                    opacity,
-                });
+                paint_gradient(
+                    window,
+                    &GradientParams {
+                        x: off_x + *x,
+                        y: off_y + *y,
+                        w: *w,
+                        h: *h,
+                        kind: *kind,
+                        stops: stops.clone(),
+                        opacity,
+                    },
+                );
             }
         }
     }
