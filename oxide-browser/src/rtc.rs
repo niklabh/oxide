@@ -298,9 +298,10 @@ impl RtcState {
         let opts = if ordered {
             None
         } else {
-            let mut opts = webrtc::data_channel::data_channel_init::RTCDataChannelInit::default();
-            opts.ordered = Some(false);
-            Some(opts)
+            Some(webrtc::data_channel::data_channel_init::RTCDataChannelInit {
+                ordered: Some(false),
+                ..Default::default()
+            })
         };
 
         let dc = self.runtime.block_on(async {
