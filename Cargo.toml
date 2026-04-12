@@ -11,5 +11,6 @@ members = [
     "examples/index",
     "examples/video-player",
     "examples/media-capture",
+    "examples/gpu-graphics-demo",
 ]
 resolver = "2"

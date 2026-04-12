@@ -80,8 +80,11 @@
 //!
 //! | Category | Key types / functions |
 //! |----------|-----------|
-//! | **Drawing (high-level)** | [`draw::Canvas`], [`draw::Color`], [`draw::Rect`], [`draw::Point2D`] |
+//! | **Drawing (high-level)** | [`draw::Canvas`], [`draw::Color`], [`draw::Rect`], [`draw::Point2D`], [`draw::GradientStop`] |
 //! | **Canvas (low-level)** | [`canvas_clear`], [`canvas_rect`], [`canvas_circle`], [`canvas_text`], [`canvas_line`], [`canvas_image`], [`canvas_dimensions`] |
+//! | **Extended shapes** | [`canvas_rounded_rect`], [`canvas_arc`], [`canvas_bezier`], [`canvas_gradient`] |
+//! | **Canvas state** | [`canvas_save`], [`canvas_restore`], [`canvas_transform`], [`canvas_clip`], [`canvas_opacity`] |
+//! | **GPU** | [`gpu_create_buffer`], [`gpu_create_texture`], [`gpu_create_shader`], [`gpu_create_pipeline`], [`gpu_draw`], [`gpu_dispatch_compute`] |
 //! | **Console** | [`log`], [`warn`], [`error`] |
 //! | **HTTP** | [`fetch`], [`fetch_get`], [`fetch_post`], [`fetch_post_proto`], [`fetch_put`], [`fetch_delete`] |
 //! | **Protobuf** | [`proto::ProtoEncoder`], [`proto::ProtoDecoder`] |
@@ -175,6 +178,57 @@ extern "C" {
 
     #[link_name = "api_canvas_image"]
     fn _api_canvas_image(x: f32, y: f32, w: f32, h: f32, data_ptr: u32, data_len: u32);
+
+    // ── Extended Shape Primitives ──────────────────────────────────
+
+    #[link_name = "api_canvas_rounded_rect"]
+    fn _api_canvas_rounded_rect(
+        x: f32, y: f32, w: f32, h: f32, radius: f32,
+        r: u32, g: u32, b: u32, a: u32,
+    );
+
+    #[link_name = "api_canvas_arc"]
+    fn _api_canvas_arc(
+        cx: f32, cy: f32, radius: f32,
+        start_angle: f32, end_angle: f32,
+        r: u32, g: u32, b: u32, a: u32,
+        thickness: f32,
+    );
+
+    #[link_name = "api_canvas_bezier"]
+    fn _api_canvas_bezier(
+        x1: f32, y1: f32,
+        cp1x: f32, cp1y: f32,
+        cp2x: f32, cp2y: f32,
+        x2: f32, y2: f32,
+        r: u32, g: u32, b: u32, a: u32,
+        thickness: f32,
+    );
+
+    #[link_name = "api_canvas_gradient"]
+    fn _api_canvas_gradient(
+        x: f32, y: f32, w: f32, h: f32,
+        kind: u32,
+        ax: f32, ay: f32, bx: f32, by: f32,
+        stops_ptr: u32, stops_len: u32,
+    );
+
+    // ── Canvas State (transform / clip / opacity) ─────────────────
+
+    #[link_name = "api_canvas_save"]
+    fn _api_canvas_save();
+
+    #[link_name = "api_canvas_restore"]
+    fn _api_canvas_restore();
+
+    #[link_name = "api_canvas_transform"]
+    fn _api_canvas_transform(a: f32, b: f32, c: f32, d: f32, tx: f32, ty: f32);
+
+    #[link_name = "api_canvas_clip"]
+    fn _api_canvas_clip(x: f32, y: f32, w: f32, h: f32);
+
+    #[link_name = "api_canvas_opacity"]
+    fn _api_canvas_opacity(alpha: f32);
 
     #[link_name = "api_storage_set"]
     fn _api_storage_set(key_ptr: u32, key_len: u32, val_ptr: u32, val_len: u32);
@@ -517,6 +571,46 @@ extern "C" {
     #[link_name = "api_media_pipeline_stats"]
     fn _api_media_pipeline_stats() -> u64;
 
+    // ── GPU / WebGPU-style API ────────────────────────────────────
+
+    #[link_name = "api_gpu_create_buffer"]
+    fn _api_gpu_create_buffer(size_lo: u32, size_hi: u32, usage: u32) -> u32;
+
+    #[link_name = "api_gpu_create_texture"]
+    fn _api_gpu_create_texture(width: u32, height: u32) -> u32;
+
+    #[link_name = "api_gpu_create_shader"]
+    fn _api_gpu_create_shader(src_ptr: u32, src_len: u32) -> u32;
+
+    #[link_name = "api_gpu_create_render_pipeline"]
+    fn _api_gpu_create_render_pipeline(
+        shader: u32,
+        vs_ptr: u32, vs_len: u32,
+        fs_ptr: u32, fs_len: u32,
+    ) -> u32;
+
+    #[link_name = "api_gpu_create_compute_pipeline"]
+    fn _api_gpu_create_compute_pipeline(shader: u32, ep_ptr: u32, ep_len: u32) -> u32;
+
+    #[link_name = "api_gpu_write_buffer"]
+    fn _api_gpu_write_buffer(
+        handle: u32,
+        offset_lo: u32, offset_hi: u32,
+        data_ptr: u32, data_len: u32,
+    ) -> u32;
+
+    #[link_name = "api_gpu_draw"]
+    fn _api_gpu_draw(pipeline: u32, target: u32, vertex_count: u32, instance_count: u32) -> u32;
+
+    #[link_name = "api_gpu_dispatch_compute"]
+    fn _api_gpu_dispatch_compute(pipeline: u32, x: u32, y: u32, z: u32) -> u32;
+
+    #[link_name = "api_gpu_destroy_buffer"]
+    fn _api_gpu_destroy_buffer(handle: u32) -> u32;
+
+    #[link_name = "api_gpu_destroy_texture"]
+    fn _api_gpu_destroy_texture(handle: u32) -> u32;
+
     // ── URL Utilities ───────────────────────────────────────────────
 
     #[link_name = "api_url_resolve"]
@@ -651,6 +745,214 @@ pub fn canvas_dimensions() -> (u32, u32) {
 /// The browser decodes the image and renders it at the given rectangle.
 pub fn canvas_image(x: f32, y: f32, w: f32, h: f32, data: &[u8]) {
     unsafe { _api_canvas_image(x, y, w, h, data.as_ptr() as u32, data.len() as u32) }
+}
+
+// ─── Extended Shape Primitives ──────────────────────────────────────────────
+
+/// Draw a filled rounded rectangle with uniform corner radius.
+pub fn canvas_rounded_rect(
+    x: f32, y: f32, w: f32, h: f32, radius: f32,
+    r: u8, g: u8, b: u8, a: u8,
+) {
+    unsafe {
+        _api_canvas_rounded_rect(
+            x, y, w, h, radius,
+            r as u32, g as u32, b as u32, a as u32,
+        )
+    }
+}
+
+/// Draw a circular arc stroke from `start_angle` to `end_angle` (in radians, clockwise from +X).
+pub fn canvas_arc(
+    cx: f32, cy: f32, radius: f32,
+    start_angle: f32, end_angle: f32,
+    r: u8, g: u8, b: u8, a: u8,
+    thickness: f32,
+) {
+    unsafe {
+        _api_canvas_arc(
+            cx, cy, radius,
+            start_angle, end_angle,
+            r as u32, g as u32, b as u32, a as u32,
+            thickness,
+        )
+    }
+}
+
+/// Draw a cubic Bézier curve stroke from `(x1,y1)` to `(x2,y2)` with two control points.
+pub fn canvas_bezier(
+    x1: f32, y1: f32,
+    cp1x: f32, cp1y: f32,
+    cp2x: f32, cp2y: f32,
+    x2: f32, y2: f32,
+    r: u8, g: u8, b: u8, a: u8,
+    thickness: f32,
+) {
+    unsafe {
+        _api_canvas_bezier(
+            x1, y1, cp1x, cp1y, cp2x, cp2y, x2, y2,
+            r as u32, g as u32, b as u32, a as u32,
+            thickness,
+        )
+    }
+}
+
+/// Gradient type constants.
+pub const GRADIENT_LINEAR: u32 = 0;
+pub const GRADIENT_RADIAL: u32 = 1;
+
+/// Draw a gradient-filled rectangle.
+///
+/// `kind`: [`GRADIENT_LINEAR`] or [`GRADIENT_RADIAL`].
+/// For linear gradients, `(ax,ay)` and `(bx,by)` define the gradient axis.
+/// For radial gradients, `(ax,ay)` is the center and `by` is the radius.
+/// `stops` is a slice of `(offset, r, g, b, a)` tuples.
+pub fn canvas_gradient(
+    x: f32, y: f32, w: f32, h: f32,
+    kind: u32,
+    ax: f32, ay: f32, bx: f32, by: f32,
+    stops: &[(f32, u8, u8, u8, u8)],
+) {
+    let mut buf = Vec::with_capacity(stops.len() * 8);
+    for &(offset, r, g, b, a) in stops {
+        buf.extend_from_slice(&offset.to_le_bytes());
+        buf.push(r);
+        buf.push(g);
+        buf.push(b);
+        buf.push(a);
+    }
+    unsafe {
+        _api_canvas_gradient(
+            x, y, w, h, kind,
+            ax, ay, bx, by,
+            buf.as_ptr() as u32, buf.len() as u32,
+        )
+    }
+}
+
+// ─── Canvas State API ───────────────────────────────────────────────────────
+
+/// Push the current canvas state (transform, clip, opacity) onto an internal stack.
+/// Use with [`canvas_restore`] to scope transformations and effects.
+pub fn canvas_save() {
+    unsafe { _api_canvas_save() }
+}
+
+/// Pop and restore the most recently saved canvas state.
+pub fn canvas_restore() {
+    unsafe { _api_canvas_restore() }
+}
+
+/// Apply a 2D affine transformation to subsequent draw commands.
+///
+/// The six values represent a column-major 3×2 matrix:
+/// ```text
+/// | a  c  tx |
+/// | b  d  ty |
+/// | 0  0   1 |
+/// ```
+///
+/// For a simple translation, use `canvas_transform(1.0, 0.0, 0.0, 1.0, tx, ty)`.
+pub fn canvas_transform(a: f32, b: f32, c: f32, d: f32, tx: f32, ty: f32) {
+    unsafe { _api_canvas_transform(a, b, c, d, tx, ty) }
+}
+
+/// Intersect the current clipping region with an axis-aligned rectangle.
+/// Coordinates are in the current (possibly transformed) canvas space.
+pub fn canvas_clip(x: f32, y: f32, w: f32, h: f32) {
+    unsafe { _api_canvas_clip(x, y, w, h) }
+}
+
+/// Set the layer opacity for subsequent draw commands (0.0 = transparent, 1.0 = opaque).
+/// Multiplied with any parent opacity set via nested [`canvas_save`]/[`canvas_opacity`].
+pub fn canvas_opacity(alpha: f32) {
+    unsafe { _api_canvas_opacity(alpha) }
+}
+
+// ─── GPU / WebGPU-style API ─────────────────────────────────────────────────
+
+/// GPU buffer usage flags (matches WebGPU `GPUBufferUsage`).
+pub mod gpu_usage {
+    pub const VERTEX: u32 = 0x0020;
+    pub const INDEX: u32 = 0x0010;
+    pub const UNIFORM: u32 = 0x0040;
+    pub const STORAGE: u32 = 0x0080;
+}
+
+/// Create a GPU buffer of `size` bytes. Returns a handle (0 = failure).
+///
+/// `usage` is a bitmask of [`gpu_usage`] flags.
+pub fn gpu_create_buffer(size: u64, usage: u32) -> u32 {
+    unsafe { _api_gpu_create_buffer(size as u32, (size >> 32) as u32, usage) }
+}
+
+/// Create a 2D RGBA8 texture. Returns a handle (0 = failure).
+pub fn gpu_create_texture(width: u32, height: u32) -> u32 {
+    unsafe { _api_gpu_create_texture(width, height) }
+}
+
+/// Compile a WGSL shader module. Returns a handle (0 = failure).
+pub fn gpu_create_shader(source: &str) -> u32 {
+    unsafe { _api_gpu_create_shader(source.as_ptr() as u32, source.len() as u32) }
+}
+
+/// Create a render pipeline from a shader. Returns a handle (0 = failure).
+///
+/// `vertex_entry` and `fragment_entry` are the WGSL function names.
+pub fn gpu_create_pipeline(shader: u32, vertex_entry: &str, fragment_entry: &str) -> u32 {
+    unsafe {
+        _api_gpu_create_render_pipeline(
+            shader,
+            vertex_entry.as_ptr() as u32,
+            vertex_entry.len() as u32,
+            fragment_entry.as_ptr() as u32,
+            fragment_entry.len() as u32,
+        )
+    }
+}
+
+/// Create a compute pipeline from a shader. Returns a handle (0 = failure).
+pub fn gpu_create_compute_pipeline(shader: u32, entry_point: &str) -> u32 {
+    unsafe {
+        _api_gpu_create_compute_pipeline(
+            shader,
+            entry_point.as_ptr() as u32,
+            entry_point.len() as u32,
+        )
+    }
+}
+
+/// Write data to a GPU buffer at the given byte offset.
+pub fn gpu_write_buffer(handle: u32, offset: u64, data: &[u8]) -> bool {
+    unsafe {
+        _api_gpu_write_buffer(
+            handle,
+            offset as u32,
+            (offset >> 32) as u32,
+            data.as_ptr() as u32,
+            data.len() as u32,
+        ) != 0
+    }
+}
+
+/// Submit a render pass: draw `vertex_count` vertices with `instance_count` instances.
+pub fn gpu_draw(pipeline: u32, target_texture: u32, vertex_count: u32, instance_count: u32) -> bool {
+    unsafe { _api_gpu_draw(pipeline, target_texture, vertex_count, instance_count) != 0 }
+}
+
+/// Submit a compute dispatch with the given workgroup counts.
+pub fn gpu_dispatch_compute(pipeline: u32, x: u32, y: u32, z: u32) -> bool {
+    unsafe { _api_gpu_dispatch_compute(pipeline, x, y, z) != 0 }
+}
+
+/// Destroy a GPU buffer.
+pub fn gpu_destroy_buffer(handle: u32) -> bool {
+    unsafe { _api_gpu_destroy_buffer(handle) != 0 }
+}
+
+/// Destroy a GPU texture.
+pub fn gpu_destroy_texture(handle: u32) -> bool {
+    unsafe { _api_gpu_destroy_texture(handle) != 0 }
 }
 
 // ─── Local Storage API ──────────────────────────────────────────────────────

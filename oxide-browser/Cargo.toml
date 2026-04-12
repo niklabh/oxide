@@ -38,6 +38,8 @@ cpal = "0.17.3"
 screenshots = "0.8.10"
 gpui = "0.2.2"
 smallvec = "1"
+wgpu = "25"
+pollster = "0.4"
 
 [dev-dependencies]
 tempfile = "3"
