@@ -577,33 +577,28 @@ fn paint_draw_commands(
                 w,
                 h,
                 kind,
-                ax,
-                ay,
-                bx,
-                by,
+                ax: _,
+                ay: _,
+                bx: _,
+                by: _,
                 stops,
             } => {
-                paint_gradient(
-                    window,
-                    off_x + *x,
-                    off_y + *y,
-                    *w,
-                    *h,
-                    *kind,
-                    *ax,
-                    *ay,
-                    *bx,
-                    *by,
-                    stops,
+                paint_gradient(window, &GradientParams {
+                    x: off_x + *x,
+                    y: off_y + *y,
+                    w: *w,
+                    h: *h,
+                    kind: *kind,
+                    stops: stops.clone(),
                     opacity,
-                );
+                });
             }
         }
     }
 }
 
 fn apply_opacity(a: u8, opacity: f32) -> u8 {
-    (a as f32 * opacity).round().min(255.0).max(0.0) as u8
+    (a as f32 * opacity).round().clamp(0.0, 255.0) as u8
 }
 
 fn clipped_out(clip: Option<Bounds<Pixels>>, target: Bounds<Pixels>) -> bool {
@@ -678,21 +673,18 @@ fn arc_polyline(cx: f32, cy: f32, radius: f32, start: f32, end: f32) -> Vec<Poin
         .collect()
 }
 
-fn paint_gradient(
-    window: &mut Window,
+struct GradientParams {
     x: f32,
     y: f32,
     w: f32,
     h: f32,
     kind: u8,
-    _ax: f32,
-    _ay: f32,
-    _bx: f32,
-    _by: f32,
-    stops: &[GradientStop],
+    stops: Vec<GradientStop>,
     opacity: f32,
-) {
-    if stops.is_empty() {
+}
+
+fn paint_gradient(window: &mut Window, p: &GradientParams) {
+    if p.stops.is_empty() {
         return;
     }
 
@@ -702,16 +694,16 @@ fn paint_gradient(
     let bands: usize = 8;
     for i in 0..bands {
         let t = i as f32 / (bands - 1).max(1) as f32;
-        let (sr, sg, sb, sa) = sample_gradient(stops, t);
-        let ca = apply_opacity(sa, opacity);
+        let (sr, sg, sb, sa) = sample_gradient(&p.stops, t);
+        let ca = apply_opacity(sa, p.opacity);
 
-        if kind == 1 {
+        if p.kind == 1 {
             // Radial: concentric rectangles from outside in.
             let frac = 1.0 - t;
-            let bx = x + w * 0.5 * t;
-            let by = y + h * 0.5 * t;
-            let bw = w * frac;
-            let bh = h * frac;
+            let bx = p.x + p.w * 0.5 * t;
+            let by = p.y + p.h * 0.5 * t;
+            let bw = p.w * frac;
+            let bh = p.h * frac;
             if bw > 0.0 && bh > 0.0 {
                 let min = point(px(bx), px(by));
                 let band_bounds = Bounds::from_corners(min, min + point(px(bw), px(bh)));
@@ -719,10 +711,10 @@ fn paint_gradient(
             }
         } else {
             // Linear: vertical bands along the gradient axis.
-            let band_h = h / bands as f32;
-            let by = y + i as f32 * band_h;
-            let min = point(px(x), px(by));
-            let band_bounds = Bounds::from_corners(min, min + point(px(w), px(band_h.ceil())));
+            let band_h = p.h / bands as f32;
+            let by = p.y + i as f32 * band_h;
+            let min = point(px(p.x), px(by));
+            let band_bounds = Bounds::from_corners(min, min + point(px(p.w), px(band_h.ceil())));
             window.paint_quad(gpui::fill(band_bounds, rgba8(sr, sg, sb, ca)));
         }
     }
