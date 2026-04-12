@@ -51,7 +51,7 @@ struct PendingTrack {
 /// Per-peer state: the connection object plus event queues polled by the guest.
 struct PeerState {
     conn: Arc<RTCPeerConnection>,
-    data_channels: HashMap<u32, Arc<RTCDataChannel>>,
+    data_channels: Arc<Mutex<HashMap<u32, Arc<RTCDataChannel>>>>,
     incoming_messages: Arc<Mutex<VecDeque<IncomingMessage>>>,
     pending_channels: Arc<Mutex<VecDeque<PendingChannel>>>,
     pending_tracks: Arc<Mutex<VecDeque<PendingTrack>>>,
@@ -150,6 +150,8 @@ impl RtcState {
             Arc::new(Mutex::new(VecDeque::new()));
         let pending_tracks: Arc<Mutex<VecDeque<PendingTrack>>> =
             Arc::new(Mutex::new(VecDeque::new()));
+        let data_channels: Arc<Mutex<HashMap<u32, Arc<RTCDataChannel>>>> =
+            Arc::new(Mutex::new(HashMap::new()));
 
         // Wire up connection state callback.
         let cs = connection_state.clone();
@@ -172,6 +174,7 @@ impl RtcState {
         // Wire up incoming data channels from the remote peer.
         let pending = pending_channels.clone();
         let msgs = incoming_messages.clone();
+        let dc_map = data_channels.clone();
         let next_ch = Arc::new(Mutex::new(1u32));
         conn.on_data_channel(Box::new(move |dc| {
             let ch_id = {
@@ -196,6 +199,8 @@ impl RtcState {
                 Box::pin(async {})
             }));
 
+            dc_map.lock().unwrap().insert(ch_id, dc);
+
             Box::pin(async {})
         }));
 
@@ -219,7 +224,7 @@ impl RtcState {
             peer_id,
             PeerState {
                 conn,
-                data_channels: HashMap::new(),
+                data_channels,
                 incoming_messages,
                 pending_channels,
                 pending_tracks,
@@ -355,7 +360,7 @@ impl RtcState {
             Box::pin(async {})
         }));
 
-        peer.data_channels.insert(ch_id, dc);
+        peer.data_channels.lock().unwrap().insert(ch_id, dc);
         Ok(ch_id)
     }
 
@@ -366,7 +371,10 @@ impl RtcState {
             .ok_or_else(|| anyhow::anyhow!("unknown peer"))?;
         let dc = peer
             .data_channels
+            .lock()
+            .unwrap()
             .get(&channel_id)
+            .cloned()
             .ok_or_else(|| anyhow::anyhow!("unknown channel"))?;
         if is_binary {
             self.runtime
