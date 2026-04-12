@@ -92,6 +92,7 @@
 //! | **Audio** | [`audio_play`], [`audio_play_url`], [`audio_detect_format`], [`audio_play_with_format`], [`audio_pause`], [`audio_channel_play`] |
 //! | **Video** | [`video_load`], [`video_load_url`], [`video_render`], [`video_play`], [`video_hls_open_variant`], [`subtitle_load_srt`] |
 //! | **Media capture** | [`camera_open`], [`camera_capture_frame`], [`microphone_open`], [`microphone_read_samples`], [`screen_capture`] |
+//! | **WebRTC** | [`rtc_create_peer`], [`rtc_create_offer`], [`rtc_create_answer`], [`rtc_create_data_channel`], [`rtc_send`], [`rtc_recv`], [`rtc_signal_connect`] |
 //! | **Timers** | [`set_timeout`], [`set_interval`], [`clear_timer`], [`time_now_ms`] |
 //! | **Navigation** | [`navigate`], [`push_state`], [`replace_state`], [`get_url`], [`history_back`], [`history_forward`] |
 //! | **Input** | [`mouse_position`], [`mouse_button_down`], [`mouse_button_clicked`], [`key_down`], [`key_pressed`], [`scroll_delta`], [`modifiers`] |
@@ -641,6 +642,86 @@ extern "C" {
 
     #[link_name = "api_gpu_destroy_texture"]
     fn _api_gpu_destroy_texture(handle: u32) -> u32;
+
+    // ── WebRTC / Real-Time Communication ─────────────────────────
+
+    #[link_name = "api_rtc_create_peer"]
+    fn _api_rtc_create_peer(stun_ptr: u32, stun_len: u32) -> u32;
+
+    #[link_name = "api_rtc_close_peer"]
+    fn _api_rtc_close_peer(peer_id: u32) -> u32;
+
+    #[link_name = "api_rtc_create_offer"]
+    fn _api_rtc_create_offer(peer_id: u32, out_ptr: u32, out_cap: u32) -> i32;
+
+    #[link_name = "api_rtc_create_answer"]
+    fn _api_rtc_create_answer(peer_id: u32, out_ptr: u32, out_cap: u32) -> i32;
+
+    #[link_name = "api_rtc_set_local_description"]
+    fn _api_rtc_set_local_description(
+        peer_id: u32,
+        sdp_ptr: u32,
+        sdp_len: u32,
+        is_offer: u32,
+    ) -> i32;
+
+    #[link_name = "api_rtc_set_remote_description"]
+    fn _api_rtc_set_remote_description(
+        peer_id: u32,
+        sdp_ptr: u32,
+        sdp_len: u32,
+        is_offer: u32,
+    ) -> i32;
+
+    #[link_name = "api_rtc_add_ice_candidate"]
+    fn _api_rtc_add_ice_candidate(peer_id: u32, cand_ptr: u32, cand_len: u32) -> i32;
+
+    #[link_name = "api_rtc_connection_state"]
+    fn _api_rtc_connection_state(peer_id: u32) -> u32;
+
+    #[link_name = "api_rtc_poll_ice_candidate"]
+    fn _api_rtc_poll_ice_candidate(peer_id: u32, out_ptr: u32, out_cap: u32) -> i32;
+
+    #[link_name = "api_rtc_create_data_channel"]
+    fn _api_rtc_create_data_channel(
+        peer_id: u32,
+        label_ptr: u32,
+        label_len: u32,
+        ordered: u32,
+    ) -> u32;
+
+    #[link_name = "api_rtc_send"]
+    fn _api_rtc_send(
+        peer_id: u32,
+        channel_id: u32,
+        data_ptr: u32,
+        data_len: u32,
+        is_binary: u32,
+    ) -> i32;
+
+    #[link_name = "api_rtc_recv"]
+    fn _api_rtc_recv(peer_id: u32, channel_id: u32, out_ptr: u32, out_cap: u32) -> i64;
+
+    #[link_name = "api_rtc_poll_data_channel"]
+    fn _api_rtc_poll_data_channel(peer_id: u32, out_ptr: u32, out_cap: u32) -> i32;
+
+    #[link_name = "api_rtc_add_track"]
+    fn _api_rtc_add_track(peer_id: u32, kind: u32) -> u32;
+
+    #[link_name = "api_rtc_poll_track"]
+    fn _api_rtc_poll_track(peer_id: u32, out_ptr: u32, out_cap: u32) -> i32;
+
+    #[link_name = "api_rtc_signal_connect"]
+    fn _api_rtc_signal_connect(url_ptr: u32, url_len: u32) -> u32;
+
+    #[link_name = "api_rtc_signal_join_room"]
+    fn _api_rtc_signal_join_room(room_ptr: u32, room_len: u32) -> i32;
+
+    #[link_name = "api_rtc_signal_send"]
+    fn _api_rtc_signal_send(data_ptr: u32, data_len: u32) -> i32;
+
+    #[link_name = "api_rtc_signal_recv"]
+    fn _api_rtc_signal_recv(out_ptr: u32, out_cap: u32) -> i32;
 
     // ── URL Utilities ───────────────────────────────────────────────
 
@@ -1499,6 +1580,312 @@ pub fn media_pipeline_stats() -> (u64, u32) {
     let camera_frames = packed >> 32;
     let mic_ring = packed as u32;
     (camera_frames, mic_ring)
+}
+
+// ─── WebRTC / Real-Time Communication API ───────────────────────────────────
+
+/// Connection state returned by [`rtc_connection_state`].
+pub const RTC_STATE_NEW: u32 = 0;
+/// Peer is attempting to connect.
+pub const RTC_STATE_CONNECTING: u32 = 1;
+/// Peer connection is established.
+pub const RTC_STATE_CONNECTED: u32 = 2;
+/// Transport was temporarily interrupted.
+pub const RTC_STATE_DISCONNECTED: u32 = 3;
+/// Connection attempt failed.
+pub const RTC_STATE_FAILED: u32 = 4;
+/// Peer connection has been closed.
+pub const RTC_STATE_CLOSED: u32 = 5;
+
+/// Track kind: audio.
+pub const RTC_TRACK_AUDIO: u32 = 0;
+/// Track kind: video.
+pub const RTC_TRACK_VIDEO: u32 = 1;
+
+/// Received data channel message.
+pub struct RtcMessage {
+    /// Channel on which the message arrived.
+    pub channel_id: u32,
+    /// `true` when the payload is raw bytes, `false` for UTF-8 text.
+    pub is_binary: bool,
+    /// Message payload.
+    pub data: Vec<u8>,
+}
+
+impl RtcMessage {
+    /// Interpret the payload as UTF-8 text.
+    pub fn text(&self) -> String {
+        String::from_utf8_lossy(&self.data).to_string()
+    }
+}
+
+/// Information about a newly opened remote data channel.
+pub struct RtcDataChannelInfo {
+    /// Handle to use with [`rtc_send`] and [`rtc_recv`].
+    pub channel_id: u32,
+    /// Label chosen by the remote peer.
+    pub label: String,
+}
+
+/// Create a new WebRTC peer connection.
+///
+/// `stun_servers` is a comma-separated list of STUN/TURN URLs (e.g.
+/// `"stun:stun.l.google.com:19302"`). Pass `""` for the built-in default.
+///
+/// Returns a peer handle (`> 0`) or `0` on failure.
+pub fn rtc_create_peer(stun_servers: &str) -> u32 {
+    unsafe { _api_rtc_create_peer(stun_servers.as_ptr() as u32, stun_servers.len() as u32) }
+}
+
+/// Close and release a peer connection.
+pub fn rtc_close_peer(peer_id: u32) -> bool {
+    unsafe { _api_rtc_close_peer(peer_id) != 0 }
+}
+
+/// Generate an SDP offer for the peer and set it as the local description.
+///
+/// Returns the SDP string or an error code.
+pub fn rtc_create_offer(peer_id: u32) -> Result<String, i32> {
+    let mut buf = vec![0u8; 16 * 1024];
+    let n = unsafe { _api_rtc_create_offer(peer_id, buf.as_mut_ptr() as u32, buf.len() as u32) };
+    if n < 0 {
+        Err(n)
+    } else {
+        Ok(String::from_utf8_lossy(&buf[..n as usize]).to_string())
+    }
+}
+
+/// Generate an SDP answer (after setting the remote offer) and set it as the local description.
+pub fn rtc_create_answer(peer_id: u32) -> Result<String, i32> {
+    let mut buf = vec![0u8; 16 * 1024];
+    let n = unsafe { _api_rtc_create_answer(peer_id, buf.as_mut_ptr() as u32, buf.len() as u32) };
+    if n < 0 {
+        Err(n)
+    } else {
+        Ok(String::from_utf8_lossy(&buf[..n as usize]).to_string())
+    }
+}
+
+/// Set the local SDP description explicitly.
+///
+/// `is_offer` — `true` for an offer, `false` for an answer.
+pub fn rtc_set_local_description(peer_id: u32, sdp: &str, is_offer: bool) -> i32 {
+    unsafe {
+        _api_rtc_set_local_description(
+            peer_id,
+            sdp.as_ptr() as u32,
+            sdp.len() as u32,
+            if is_offer { 1 } else { 0 },
+        )
+    }
+}
+
+/// Set the remote SDP description received from the other peer.
+pub fn rtc_set_remote_description(peer_id: u32, sdp: &str, is_offer: bool) -> i32 {
+    unsafe {
+        _api_rtc_set_remote_description(
+            peer_id,
+            sdp.as_ptr() as u32,
+            sdp.len() as u32,
+            if is_offer { 1 } else { 0 },
+        )
+    }
+}
+
+/// Add a trickled ICE candidate (JSON string from the remote peer).
+pub fn rtc_add_ice_candidate(peer_id: u32, candidate_json: &str) -> i32 {
+    unsafe {
+        _api_rtc_add_ice_candidate(
+            peer_id,
+            candidate_json.as_ptr() as u32,
+            candidate_json.len() as u32,
+        )
+    }
+}
+
+/// Poll the current connection state of a peer.
+pub fn rtc_connection_state(peer_id: u32) -> u32 {
+    unsafe { _api_rtc_connection_state(peer_id) }
+}
+
+/// Poll for a locally gathered ICE candidate (JSON). Returns `None` when the
+/// queue is empty.
+pub fn rtc_poll_ice_candidate(peer_id: u32) -> Option<String> {
+    let mut buf = vec![0u8; 4096];
+    let n =
+        unsafe { _api_rtc_poll_ice_candidate(peer_id, buf.as_mut_ptr() as u32, buf.len() as u32) };
+    if n <= 0 {
+        None
+    } else {
+        Some(String::from_utf8_lossy(&buf[..n as usize]).to_string())
+    }
+}
+
+/// Create a data channel on a peer connection.
+///
+/// `ordered` — `true` for reliable ordered delivery (TCP-like), `false` for
+/// unordered (UDP-like). Returns a channel handle (`> 0`) or `0` on failure.
+pub fn rtc_create_data_channel(peer_id: u32, label: &str, ordered: bool) -> u32 {
+    unsafe {
+        _api_rtc_create_data_channel(
+            peer_id,
+            label.as_ptr() as u32,
+            label.len() as u32,
+            if ordered { 1 } else { 0 },
+        )
+    }
+}
+
+/// Send a UTF-8 text message on a data channel.
+pub fn rtc_send_text(peer_id: u32, channel_id: u32, text: &str) -> i32 {
+    unsafe {
+        _api_rtc_send(
+            peer_id,
+            channel_id,
+            text.as_ptr() as u32,
+            text.len() as u32,
+            0,
+        )
+    }
+}
+
+/// Send binary data on a data channel.
+pub fn rtc_send_binary(peer_id: u32, channel_id: u32, data: &[u8]) -> i32 {
+    unsafe {
+        _api_rtc_send(
+            peer_id,
+            channel_id,
+            data.as_ptr() as u32,
+            data.len() as u32,
+            1,
+        )
+    }
+}
+
+/// Send data on a channel, choosing text or binary mode.
+pub fn rtc_send(peer_id: u32, channel_id: u32, data: &[u8], is_binary: bool) -> i32 {
+    unsafe {
+        _api_rtc_send(
+            peer_id,
+            channel_id,
+            data.as_ptr() as u32,
+            data.len() as u32,
+            if is_binary { 1 } else { 0 },
+        )
+    }
+}
+
+/// Poll for an incoming message on any channel of the peer (pass `channel_id = 0`)
+/// or on a specific channel.
+///
+/// Returns `None` when no message is queued.
+pub fn rtc_recv(peer_id: u32, channel_id: u32) -> Option<RtcMessage> {
+    let mut buf = vec![0u8; 64 * 1024];
+    let packed = unsafe {
+        _api_rtc_recv(
+            peer_id,
+            channel_id,
+            buf.as_mut_ptr() as u32,
+            buf.len() as u32,
+        )
+    };
+    if packed <= 0 {
+        return None;
+    }
+    let packed = packed as u64;
+    let data_len = (packed & 0xFFFF_FFFF) as usize;
+    let is_binary = (packed >> 32) & 1 != 0;
+    let ch = (packed >> 48) as u32;
+    Some(RtcMessage {
+        channel_id: ch,
+        is_binary,
+        data: buf[..data_len].to_vec(),
+    })
+}
+
+/// Poll for a remotely-created data channel that the peer opened.
+///
+/// Returns `None` when no new channels are pending.
+pub fn rtc_poll_data_channel(peer_id: u32) -> Option<RtcDataChannelInfo> {
+    let mut buf = vec![0u8; 1024];
+    let n =
+        unsafe { _api_rtc_poll_data_channel(peer_id, buf.as_mut_ptr() as u32, buf.len() as u32) };
+    if n <= 0 {
+        return None;
+    }
+    let info = String::from_utf8_lossy(&buf[..n as usize]).to_string();
+    let (id_str, label) = info.split_once(':').unwrap_or(("0", ""));
+    Some(RtcDataChannelInfo {
+        channel_id: id_str.parse().unwrap_or(0),
+        label: label.to_string(),
+    })
+}
+
+/// Attach a media track (audio or video) to a peer connection.
+///
+/// `kind` — [`RTC_TRACK_AUDIO`] or [`RTC_TRACK_VIDEO`].
+/// Returns a track handle (`> 0`) or `0` on failure.
+pub fn rtc_add_track(peer_id: u32, kind: u32) -> u32 {
+    unsafe { _api_rtc_add_track(peer_id, kind) }
+}
+
+/// Information about a remote media track received from a peer.
+pub struct RtcTrackInfo {
+    /// `RTC_TRACK_AUDIO` (0) or `RTC_TRACK_VIDEO` (1).
+    pub kind: u32,
+    /// Track identifier chosen by the remote peer.
+    pub id: String,
+    /// Media stream identifier the track belongs to.
+    pub stream_id: String,
+}
+
+/// Poll for a remote media track added by the peer.
+///
+/// Returns `None` when no new tracks are pending.
+pub fn rtc_poll_track(peer_id: u32) -> Option<RtcTrackInfo> {
+    let mut buf = vec![0u8; 1024];
+    let n = unsafe { _api_rtc_poll_track(peer_id, buf.as_mut_ptr() as u32, buf.len() as u32) };
+    if n <= 0 {
+        return None;
+    }
+    let info = String::from_utf8_lossy(&buf[..n as usize]).to_string();
+    let mut parts = info.splitn(3, ':');
+    let kind = parts.next().unwrap_or("2").parse().unwrap_or(2);
+    let id = parts.next().unwrap_or("").to_string();
+    let stream_id = parts.next().unwrap_or("").to_string();
+    Some(RtcTrackInfo {
+        kind,
+        id,
+        stream_id,
+    })
+}
+
+/// Connect to a signaling server at `url` for bootstrapping peer connections.
+///
+/// Returns `1` on success, `0` on failure.
+pub fn rtc_signal_connect(url: &str) -> bool {
+    unsafe { _api_rtc_signal_connect(url.as_ptr() as u32, url.len() as u32) != 0 }
+}
+
+/// Join (or create) a signaling room for peer discovery.
+pub fn rtc_signal_join_room(room: &str) -> i32 {
+    unsafe { _api_rtc_signal_join_room(room.as_ptr() as u32, room.len() as u32) }
+}
+
+/// Send a signaling message (JSON bytes) to the connected signaling server.
+pub fn rtc_signal_send(data: &[u8]) -> i32 {
+    unsafe { _api_rtc_signal_send(data.as_ptr() as u32, data.len() as u32) }
+}
+
+/// Poll for an incoming signaling message.
+pub fn rtc_signal_recv() -> Option<Vec<u8>> {
+    let mut buf = vec![0u8; 16 * 1024];
+    let n = unsafe { _api_rtc_signal_recv(buf.as_mut_ptr() as u32, buf.len() as u32) };
+    if n <= 0 {
+        None
+    } else {
+        Some(buf[..n as usize].to_vec())
+    }
 }
 
 // ─── HTTP Fetch API ─────────────────────────────────────────────────────────

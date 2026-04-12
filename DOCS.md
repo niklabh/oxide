@@ -4,7 +4,7 @@
 
 Oxide is a **binary-first browser** that fetches and executes `.wasm` (WebAssembly) modules instead of HTML/JavaScript. Guest applications run in a secure, sandboxed environment with zero access to the host filesystem, environment variables, or arbitrary network sockets.
 
-The browser provides a set of **capability APIs** that guest modules can import to interact with the host — drawing on a GPU-accelerated canvas, reading/writing storage, making HTTP requests, playing audio/video, capturing media, and more.
+The browser provides a set of **capability APIs** that guest modules can import to interact with the host — drawing on a GPU-accelerated canvas, reading/writing storage, making HTTP requests, playing audio/video, capturing media, WebRTC peer-to-peer communication, GPU compute, and more.
 
 The desktop shell is built on [GPUI](https://www.gpui.rs/) (Zed's GPU-accelerated UI framework). Guest draw commands map directly onto GPUI primitives — filled quads, GPU-shaped text, vector paths, and image textures — so your canvas output gets full hardware acceleration.
 
@@ -30,8 +30,8 @@ The desktop shell is built on [GPUI](https://www.gpui.rs/) (Zed's GPU-accelerate
 │  │  "oxide" import module                     │      │
 │  │  canvas, console, storage, clipboard,      │      │
 │  │  fetch, audio, video, media capture,       │      │
-│  │  crypto, timers, navigation, widgets,      │      │
-│  │  input, hyperlinks, dynamic loading        │      │
+│  │  WebRTC, crypto, timers, navigation,       │      │
+│  │  widgets, input, hyperlinks, GPU           │      │
 │  └────────────────────┬───────────────────────┘      │
 │                       │                              │
 │  ┌────────────────────▼───────────────────────┐      │
@@ -467,6 +467,114 @@ if camera_open() == 0 {
 }
 ```
 
+### WebRTC / Real-Time Communication
+
+The RTC API enables peer-to-peer communication for video calls, multiplayer games, collaborative tools, and decentralized messaging. Connections use the [webrtc-rs](https://github.com/webrtc-rs/webrtc) stack on the host; guests interact through handle-based APIs. Events (incoming messages, ICE candidates, state changes) are polled each frame rather than using callbacks.
+
+#### Peer Connection
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `rtc_create_peer` | `fn(stun_servers: &str) -> u32` | Create a peer connection (comma-separated STUN/TURN URLs, `""` for default) |
+| `rtc_close_peer` | `fn(peer_id: u32) -> bool` | Close and release a peer |
+| `rtc_connection_state` | `fn(peer_id: u32) -> u32` | Poll connection state (`RTC_STATE_*` constants) |
+
+Connection state constants: `RTC_STATE_NEW` (0), `RTC_STATE_CONNECTING` (1), `RTC_STATE_CONNECTED` (2), `RTC_STATE_DISCONNECTED` (3), `RTC_STATE_FAILED` (4), `RTC_STATE_CLOSED` (5).
+
+#### SDP Offer/Answer Exchange
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `rtc_create_offer` | `fn(peer_id: u32) -> Result<String, i32>` | Generate SDP offer and set as local description |
+| `rtc_create_answer` | `fn(peer_id: u32) -> Result<String, i32>` | Generate SDP answer (after setting remote offer) |
+| `rtc_set_local_description` | `fn(peer_id: u32, sdp: &str, is_offer: bool) -> i32` | Set local SDP explicitly |
+| `rtc_set_remote_description` | `fn(peer_id: u32, sdp: &str, is_offer: bool) -> i32` | Set remote SDP from the other peer |
+
+#### ICE Candidates
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `rtc_add_ice_candidate` | `fn(peer_id: u32, candidate_json: &str) -> i32` | Add a trickled ICE candidate (JSON) |
+| `rtc_poll_ice_candidate` | `fn(peer_id: u32) -> Option<String>` | Poll for locally gathered ICE candidates |
+
+#### Data Channels
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `rtc_create_data_channel` | `fn(peer_id: u32, label: &str, ordered: bool) -> u32` | Create a data channel (ordered=TCP-like, unordered=UDP-like) |
+| `rtc_send_text` | `fn(peer_id: u32, channel_id: u32, text: &str) -> i32` | Send UTF-8 text |
+| `rtc_send_binary` | `fn(peer_id: u32, channel_id: u32, data: &[u8]) -> i32` | Send binary data |
+| `rtc_send` | `fn(peer_id: u32, channel_id: u32, data: &[u8], is_binary: bool) -> i32` | Send with explicit mode |
+| `rtc_recv` | `fn(peer_id: u32, channel_id: u32) -> Option<RtcMessage>` | Poll for incoming messages (channel_id=0 for any) |
+| `rtc_poll_data_channel` | `fn(peer_id: u32) -> Option<RtcDataChannelInfo>` | Poll for remotely-created data channels |
+
+`RtcMessage` has fields: `channel_id: u32`, `is_binary: bool`, `data: Vec<u8>`, and a `.text()` helper.
+
+#### Media Tracks
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `rtc_add_track` | `fn(peer_id: u32, kind: u32) -> u32` | Attach a media track (`RTC_TRACK_AUDIO`=0, `RTC_TRACK_VIDEO`=1) |
+| `rtc_poll_track` | `fn(peer_id: u32) -> Option<RtcTrackInfo>` | Poll for remote media tracks added by the peer |
+
+`RtcTrackInfo` has fields: `kind: u32`, `id: String`, `stream_id: String`.
+
+#### Signaling
+
+The built-in signaling client bootstraps connections via HTTP. Guests can also use the `fetch` API with any custom signaling server.
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `rtc_signal_connect` | `fn(url: &str) -> bool` | Connect to a signaling server |
+| `rtc_signal_join_room` | `fn(room: &str) -> i32` | Join a signaling room |
+| `rtc_signal_send` | `fn(data: &[u8]) -> i32` | Send a signaling message |
+| `rtc_signal_recv` | `fn() -> Option<Vec<u8>>` | Poll for incoming signaling messages |
+
+#### Example: P2P Chat
+
+```rust
+use oxide_sdk::*;
+
+static mut PEER: u32 = 0;
+static mut CHANNEL: u32 = 0;
+static mut GREETED: bool = false;
+
+#[no_mangle]
+pub extern "C" fn start_app() {
+    let peer = rtc_create_peer("");
+    unsafe { PEER = peer; }
+
+    let ch = rtc_create_data_channel(peer, "chat", true);
+    unsafe { CHANNEL = ch; }
+
+    match rtc_create_offer(peer) {
+        Ok(sdp) => log(&format!("Share this offer:\n{sdp}")),
+        Err(e) => error(&format!("Offer failed: {e}")),
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn on_frame(_dt_ms: u32) {
+    let (peer, ch) = unsafe { (PEER, CHANNEL) };
+
+    if rtc_connection_state(peer) == RTC_STATE_CONNECTED {
+        // Send a greeting once on connect
+        if !unsafe { GREETED } {
+            rtc_send_text(peer, ch, "Hello from Oxide!");
+            unsafe { GREETED = true; }
+        }
+
+        while let Some(msg) = rtc_recv(peer, 0) {
+            log(&format!("Received: {}", msg.text()));
+        }
+    }
+
+    while let Some(candidate) = rtc_poll_ice_candidate(peer) {
+        log(&format!("ICE: {candidate}"));
+    }
+}
+```
+
 ### Timers
 
 Timer callbacks fire via the guest-exported `on_timer(callback_id)` function.
@@ -620,7 +728,7 @@ oxide/
 │       ├── main.rs               # Entry point (BrowserHost + run_browser)
 │       ├── engine.rs             # WasmEngine, SandboxPolicy, fuel/memory
 │       ├── runtime.rs            # BrowserHost, fetch_and_run, module lifecycle
-│       ├── capabilities.rs       # ~100 host functions ("oxide" import module)
+│       ├── capabilities.rs       # Host functions ("oxide" import module)
 │       ├── ui.rs                 # GPUI shell (toolbar, canvas, console, tabs)
 │       ├── navigation.rs         # History stack with back/forward
 │       ├── bookmarks.rs          # Persistent bookmarks (sled)
@@ -629,7 +737,9 @@ oxide/
 │       ├── video.rs              # FFmpeg video pipeline
 │       ├── video_format.rs       # Video format sniffing
 │       ├── subtitle.rs           # SRT/VTT subtitle parsing
-│       └── media_capture.rs      # Camera, mic, screen capture
+│       ├── media_capture.rs      # Camera, mic, screen capture
+│       ├── rtc.rs                # WebRTC peer connections, data channels, signaling
+│       └── gpu.rs                # WebGPU-style GPU resource management
 ├── oxide-sdk/                    # Guest SDK (no dependencies)
 │   ├── Cargo.toml
 │   └── src/
@@ -643,6 +753,8 @@ oxide/
     ├── video-player/             # Video playback example
     ├── timer-demo/               # Timer callbacks
     ├── media-capture/            # Camera/mic/screen capture
+    ├── gpu-graphics-demo/        # GPU/WebGPU rendering demo
+    ├── rtc-chat/                 # WebRTC peer-to-peer chat demo
     ├── index/                    # Demo hub (links to other examples)
     └── fullstack-notes/          # Full-stack example (Rust frontend + backend)
 ```

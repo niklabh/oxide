@@ -1,0 +1,11 @@
+[package]
+name = "rtc-chat"
+version = "0.1.0"
+edition = "2021"
+description = "WebRTC peer-to-peer chat demo for the Oxide browser"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+oxide-sdk = { path = "../../oxide-sdk" }

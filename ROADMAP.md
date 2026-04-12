@@ -56,6 +56,22 @@ The core architecture is live: a Rust-native browser that fetches and executes `
 - [x] Subtitle/caption rendering (SRT, VTT)
 - [x] Picture-in-picture mode
 
+### Spatial Audio
+
+- [ ] `audio_set_listener(x, y, z, orientation)` — position the listener in 3D space
+- [ ] `audio_set_source_position(channel, x, y, z)` — position an audio source for 3D panning
+- [ ] HRTF-based binaural rendering for headphone spatialization
+- [ ] Distance attenuation and Doppler effect models
+- [ ] Room reverb and occlusion effects
+
+### MIDI
+
+- [ ] `midi_list_devices()` — enumerate connected MIDI input/output devices
+- [ ] `midi_open(device_id, direction)` — open a MIDI port for reading or writing
+- [ ] `midi_send(port, message)` — send MIDI messages (note on/off, CC, pitch bend)
+- [ ] `midi_on_message(port)` — poll incoming MIDI messages from hardware controllers
+- [ ] MIDI clock sync for tempo-aligned applications
+
 ### Media Capture
 
 - [x] `camera_open()` / `camera_capture_frame()` — access device camera with user permission prompt
@@ -96,6 +112,26 @@ The core architecture is live: a Rust-native browser that fetches and executes `
 - [ ] Shared memory and workgroup synchronization
 - [ ] Use cases: ML inference, physics simulation, image processing, cryptography
 
+### Pen, Stylus & Touch Pressure
+
+- [ ] `input_pen_pressure()` — read pressure level (0.0–1.0) from Apple Pencil, Wacom, Surface Pen
+- [ ] `input_pen_tilt(altitude, azimuth)` — read pen tilt angles for calligraphy and shading
+- [ ] `input_pen_hover(x, y, distance)` — detect pen hovering above the surface before contact
+- [ ] Palm rejection and simultaneous pen + touch disambiguation
+
+### HDR & Wide Color
+
+- [ ] `canvas_set_color_space(space)` — switch between sRGB, Display P3, and Rec. 2020
+- [ ] HDR tone-mapping for content authored in PQ or HLG transfer functions
+- [ ] EDR (Extended Dynamic Range) support on capable displays
+- [ ] `display_capabilities()` — query peak brightness, color gamut, and HDR support
+
+### Multi-Display
+
+- [ ] `display_enumerate()` — list connected displays with resolution, scale factor, and position
+- [ ] `window_move_to_display(display_id)` — move app window to a specific display
+- [ ] Per-display DPI-aware rendering and layout adaptation
+
 ---
 
 ## Phase 3 — Real-Time Communication (RTC)
@@ -104,32 +140,32 @@ The core architecture is live: a Rust-native browser that fetches and executes `
 
 ### WebRTC-style API
 
-- [ ] `rtc_create_peer()` — create a peer connection
-- [ ] `rtc_create_offer()` / `rtc_create_answer()` — SDP offer/answer exchange
-- [ ] `rtc_set_local_description()` / `rtc_set_remote_description()`
-- [ ] `rtc_add_ice_candidate()` — ICE candidate trickle
-- [ ] `rtc_on_connection_state_change(callback)` — connection lifecycle events
-- [ ] STUN/TURN server configuration
+- [x] `rtc_create_peer()` — create a peer connection
+- [x] `rtc_create_offer()` / `rtc_create_answer()` — SDP offer/answer exchange
+- [x] `rtc_set_local_description()` / `rtc_set_remote_description()`
+- [x] `rtc_add_ice_candidate()` — ICE candidate trickle
+- [x] `rtc_on_connection_state_change(callback)` — connection lifecycle events (poll-based via `rtc_connection_state`)
+- [x] STUN/TURN server configuration
 
 ### Data Channels
 
-- [ ] `rtc_create_data_channel(label, options)` — reliable or unreliable data channels
-- [ ] `rtc_send(channel, data)` / `rtc_on_message(channel, callback)`
-- [ ] Ordered and unordered delivery modes
-- [ ] Binary and text message support
+- [x] `rtc_create_data_channel(label, options)` — reliable or unreliable data channels
+- [x] `rtc_send(channel, data)` / `rtc_on_message(channel, callback)` (poll-based via `rtc_recv`)
+- [x] Ordered and unordered delivery modes
+- [x] Binary and text message support
 
 ### Media Streams
 
-- [ ] `rtc_add_track(stream, track)` — attach audio/video tracks to peer connections
-- [ ] `rtc_on_track(callback)` — receive remote media tracks
-- [ ] Codec negotiation (VP8, VP9, AV1, Opus)
-- [ ] Bandwidth estimation and adaptive quality
+- [x] `rtc_add_track(stream, track)` — attach audio/video tracks to peer connections
+- [x] `rtc_on_track(callback)` — receive remote media tracks (poll-based via `rtc_poll_track`)
+- [x] Codec negotiation (VP8, VP9, AV1, Opus)
+- [x] Bandwidth estimation and adaptive quality
 
 ### Signaling
 
-- [ ] Built-in signaling relay for bootstrapping connections
-- [ ] Support for custom signaling servers
-- [ ] Room-based connection management
+- [x] Built-in signaling relay for bootstrapping connections
+- [x] Support for custom signaling servers
+- [x] Room-based connection management
 
 ---
 
@@ -161,6 +197,61 @@ The core architecture is live: a Rust-native browser that fetches and executes `
 - [ ] Shared memory regions between main module and workers (opt-in)
 - [ ] Worker pool management and load balancing
 - [ ] `worker_terminate(worker_id)` — graceful and forced termination
+
+### System APIs
+
+- [ ] `file_pick(options)` — open native OS file picker; returns file handle(s) accessible from WASM (single/multiple, file type filters)
+- [ ] `folder_pick()` — open native OS folder picker; returns a directory handle for reading entries from WASM
+- [ ] `file_read(handle)` / `file_read_range(handle, offset, len)` — read file contents (full or partial) from a picked handle
+- [ ] `file_metadata(handle)` — retrieve name, size, MIME type, and last-modified for a picked file
+- [ ] `geolocation_request()` — request real device location via system APIs (Core Location on macOS/iOS, platform equivalents elsewhere)
+- [ ] `geolocation_get_position()` — return current latitude, longitude, altitude, accuracy, and timestamp
+- [ ] `geolocation_watch(interval_ms)` / `geolocation_clear_watch()` — continuous position updates at a given interval
+
+### Device & Hardware APIs
+
+- [ ] `bluetooth_request_device(filters)` — scan for and pair with Bluetooth LE peripherals (with user permission)
+- [ ] `bluetooth_connect(device_id)` / `bluetooth_disconnect(device_id)` — manage BLE connections
+- [ ] `bluetooth_read_characteristic(service, characteristic)` / `bluetooth_write_characteristic(...)` — GATT read/write
+- [ ] `bluetooth_subscribe(characteristic)` — receive BLE notifications and indications
+- [ ] `usb_enumerate()` — list connected USB devices (vendor/product ID, class)
+- [ ] `usb_open(device_id)` / `usb_close(device_id)` — claim a USB device interface
+- [ ] `usb_transfer_in(endpoint, len)` / `usb_transfer_out(endpoint, data)` — bulk/interrupt transfers
+- [ ] `serial_list_ports()` — enumerate available serial ports
+- [ ] `serial_open(port, baud_rate, options)` / `serial_close(port)` — open serial connections for IoT and embedded devices
+- [ ] `serial_read(port)` / `serial_write(port, data)` — bidirectional serial I/O
+- [ ] `nfc_scan()` — read NFC tags (NDEF records) on supported devices
+- [ ] `nfc_write(tag, records)` — write NDEF data to writable NFC tags
+- [ ] `battery_status()` — query battery level, charging state, and estimated time remaining
+- [ ] `battery_on_change()` — poll for battery status changes
+- [ ] `haptic_vibrate(pattern)` — trigger haptic feedback patterns (single pulse, sequences, intensity levels)
+- [ ] `haptic_impact(style)` — fire precise impact feedback (light, medium, heavy) on supported hardware
+
+### Sensor APIs
+
+- [ ] `accelerometer_start(interval_ms)` / `accelerometer_read()` — linear acceleration on x/y/z axes
+- [ ] `gyroscope_start(interval_ms)` / `gyroscope_read()` — rotational velocity on x/y/z axes
+- [ ] `magnetometer_start(interval_ms)` / `magnetometer_read()` — magnetic field for compass heading
+- [ ] `barometer_read()` — atmospheric pressure and relative altitude changes
+- [ ] `ambient_light_read()` — ambient light level in lux for adaptive UI brightness
+- [ ] `proximity_read()` — proximity sensor state (near/far) for hands-free interactions
+- [ ] Sensor fusion: combined orientation quaternion from accelerometer + gyroscope + magnetometer
+
+### Biometric & Security Hardware
+
+- [ ] `biometric_authenticate(reason)` — authenticate via Face ID, Touch ID, or Windows Hello (returns success/failure)
+- [ ] `biometric_available()` — query which biometric methods the device supports
+- [ ] `secure_enclave_sign(key_id, data)` — sign data using a hardware-bound key (Secure Enclave / TPM)
+- [ ] `secure_enclave_generate_key(algorithm)` — generate a key pair that never leaves the hardware
+- [ ] `keychain_store(key, value)` / `keychain_load(key)` — OS keychain integration for secrets and credentials
+
+### On-Device ML & AI
+
+- [ ] `ml_load_model(data, format)` — load an ML model (ONNX, Core ML, TFLite) for on-device inference
+- [ ] `ml_infer(model_id, input_tensor)` — run inference, automatically dispatched to NPU/Neural Engine/GPU
+- [ ] `ml_device_capabilities()` — query available accelerators (CPU, GPU, NPU) and supported ops
+- [ ] WASM SIMD intrinsics pass-through for vectorized computation in guest modules
+- [ ] `ml_unload_model(model_id)` — release model resources
 
 ### Async I/O
 
@@ -386,7 +477,7 @@ The core architecture is live: a Rust-native browser that fetches and executes `
 | Phase 0 — Foundation | Q1 2026 | **Shipped** |
 | Phase 1 — Media & Rich Content | Q2 2026 | In Progress |
 | Phase 2 — GPU & Graphics | Q3 2026 | **In Progress** |
-| Phase 3 — Real-Time Communication | Q3 2026 | Planned |
+| Phase 3 — Real-Time Communication | Q3 2026 | **Shipped** |
 | Phase 4 — Tasks, Events & Background | Q4 2026 | Planned |
 | Phase 5 — Plugin Framework | Q4 2026 | Planned |
 | Phase 6 — Decentralized Infrastructure | Q1 2027 | Planned |
