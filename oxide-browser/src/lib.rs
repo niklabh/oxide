@@ -47,6 +47,7 @@
 //! | [`capabilities`] | All host-imported functions exposed to guest wasm modules |
 //! | [`gpu`] | WebGPU-style GPU resource management (buffers, textures, shaders, pipelines) |
 //! | [`media_capture`] | Camera, microphone, and screen capture with permission prompts |
+//! | [`rtc`] | WebRTC peer connections, data channels, media tracks, and signaling |
 //! | [`navigation`] | Browser history stack with back/forward traversal |
 //! | [`bookmarks`] | Persistent bookmark storage backed by sled |
 //! | [`url`] | WHATWG-compliant URL parsing with Oxide-specific schemes |
@@ -100,6 +101,7 @@ pub mod engine;
 pub mod gpu;
 pub mod media_capture;
 pub mod navigation;
+pub mod rtc;
 pub mod runtime;
 pub mod subtitle;
 pub mod ui;

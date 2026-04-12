@@ -12,5 +12,6 @@ members = [
     "examples/video-player",
     "examples/media-capture",
     "examples/gpu-graphics-demo",
+    "examples/rtc-chat",
 ]
 resolver = "2"

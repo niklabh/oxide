@@ -161,6 +161,8 @@ pub struct HostState {
     pub media_capture: Arc<Mutex<crate::media_capture::MediaCaptureState>>,
     /// WebGPU-style GPU resource state (lazily initialised on first GPU API call).
     pub gpu: Arc<Mutex<Option<crate::gpu::GpuState>>>,
+    /// WebRTC peer connections, data channels, and signaling (lazily initialised on first RTC call).
+    pub rtc: Arc<Mutex<Option<crate::rtc::RtcState>>>,
 }
 
 /// A single console log line: local time, severity, and message text.
@@ -526,6 +528,7 @@ impl Default for HostState {
                 crate::media_capture::MediaCaptureState::default(),
             )),
             gpu: Arc::new(Mutex::new(None)),
+            rtc: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -592,7 +595,7 @@ fn video_render_at(
     Ok(())
 }
 
-fn read_guest_string(
+pub(crate) fn read_guest_string(
     memory: &Memory,
     store: &impl AsContext,
     ptr: u32,
@@ -609,7 +612,7 @@ fn read_guest_string(
     String::from_utf8(data.to_vec()).context("guest string is not valid utf-8")
 }
 
-fn read_guest_bytes(
+pub(crate) fn read_guest_bytes(
     memory: &Memory,
     store: &impl AsContext,
     ptr: u32,
@@ -3452,6 +3455,9 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
             }
         },
     )?;
+
+    // ── WebRTC / Real-Time Communication API ─────────────────────────
+    crate::rtc::register_rtc_functions(linker)?;
 
     Ok(())
 }
