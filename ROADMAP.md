@@ -72,27 +72,27 @@ The core architecture is live: a Rust-native browser that fetches and executes `
 ### 2D Acceleration
 
 - [x] GPUI desktop shell — draw commands rasterized via GPUI; images and video frames as GPU textures
-- [ ] `canvas_rounded_rect()`, `canvas_arc()`, `canvas_bezier()` — extended shape primitives
-- [ ] `canvas_gradient(type, stops)` — linear and radial gradients
-- [ ] `canvas_transform(matrix)` — 2D affine transformations (translate, rotate, scale, skew)
-- [ ] `canvas_clip(region)` — clipping regions
-- [ ] `canvas_opacity(alpha)` — layer-level opacity
+- [x] `canvas_rounded_rect()`, `canvas_arc()`, `canvas_bezier()` — extended shape primitives
+- [x] `canvas_gradient(type, stops)` — linear and radial gradients
+- [x] `canvas_transform(matrix)` — 2D affine transformations (translate, rotate, scale, skew)
+- [x] `canvas_clip(region)` — clipping regions
+- [x] `canvas_opacity(alpha)` — layer-level opacity
 - [ ] Sprite batching and texture atlases for game-like workloads
 - [ ] Font rendering with glyph caching (variable fonts, custom font loading)
 
 ### 3D / WebGPU-style API
 
-- [ ] `gpu_create_buffer()` / `gpu_create_texture()` / `gpu_create_shader()` — low-level GPU resource creation
-- [ ] `gpu_create_pipeline()` — configurable render and compute pipelines
-- [ ] `gpu_draw()` / `gpu_dispatch_compute()` — submit draw calls and compute dispatches
-- [ ] WGSL (WebGPU Shading Language) shader support
+- [x] `gpu_create_buffer()` / `gpu_create_texture()` / `gpu_create_shader()` — low-level GPU resource creation
+- [x] `gpu_create_pipeline()` — configurable render and compute pipelines
+- [x] `gpu_draw()` / `gpu_dispatch_compute()` — submit draw calls and compute dispatches
+- [x] WGSL (WebGPU Shading Language) shader support
 - [ ] Depth buffer, stencil operations, and blending modes
-- [ ] Instanced rendering for large scenes
+- [x] Instanced rendering for large scenes
 - [ ] GPU readback for compute results
 
 ### GPU Compute
 
-- [ ] General-purpose GPU compute via compute shaders
+- [x] General-purpose GPU compute via compute shaders
 - [ ] Shared memory and workgroup synchronization
 - [ ] Use cases: ML inference, physics simulation, image processing, cryptography
 
@@ -385,7 +385,7 @@ The core architecture is live: a Rust-native browser that fetches and executes `
 |-------|--------|--------|
 | Phase 0 — Foundation | Q1 2026 | **Shipped** |
 | Phase 1 — Media & Rich Content | Q2 2026 | In Progress |
-| Phase 2 — GPU & Graphics | Q3 2026 | Planned |
+| Phase 2 — GPU & Graphics | Q3 2026 | **In Progress** |
 | Phase 3 — Real-Time Communication | Q3 2026 | Planned |
 | Phase 4 — Tasks, Events & Background | Q4 2026 | Planned |
 | Phase 5 — Plugin Framework | Q4 2026 | Planned |

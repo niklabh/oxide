@@ -26,7 +26,8 @@
 //! │  │  canvas, console, storage, clipboard,      │  │
 //! │  │  fetch, images, crypto, base64, protobuf,  │  │
 //! │  │  dynamic module loading, audio, timers,    │  │
-//! │  │  navigation, widgets, input, hyperlinks    │  │
+//! │  │  navigation, widgets, input, hyperlinks,   │  │
+//! │  │  GPU/WebGPU-style resource management      │  │
 //! │  └────────────────────┬───────────────────────┘  │
 //! │                       │                          │
 //! │  ┌────────────────────▼───────────────────────┐  │
@@ -44,6 +45,7 @@
 //! | [`engine`] | Wasmtime engine configuration, sandbox policy, memory bounds |
 //! | [`runtime`] | Module fetching, compilation, execution lifecycle |
 //! | [`capabilities`] | All host-imported functions exposed to guest wasm modules |
+//! | [`gpu`] | WebGPU-style GPU resource management (buffers, textures, shaders, pipelines) |
 //! | [`media_capture`] | Camera, microphone, and screen capture with permission prompts |
 //! | [`navigation`] | Browser history stack with back/forward traversal |
 //! | [`bookmarks`] | Persistent bookmark storage backed by sled |
@@ -95,6 +97,7 @@ pub mod audio_format;
 pub mod bookmarks;
 pub mod capabilities;
 pub mod engine;
+pub mod gpu;
 pub mod media_capture;
 pub mod navigation;
 pub mod runtime;

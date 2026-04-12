@@ -159,6 +159,8 @@ pub struct HostState {
     pub video_pip_serial: Arc<Mutex<u64>>,
     /// Camera, microphone, and screen capture (permission prompts + native APIs).
     pub media_capture: Arc<Mutex<crate::media_capture::MediaCaptureState>>,
+    /// WebGPU-style GPU resource state (lazily initialised on first GPU API call).
+    pub gpu: Arc<Mutex<Option<crate::gpu::GpuState>>>,
 }
 
 /// A single console log line: local time, severity, and message text.
@@ -207,6 +209,17 @@ pub struct DecodedImage {
     pub height: u32,
     /// Raw RGBA bytes, row-major (`width * height * 4` elements when full frame).
     pub pixels: Vec<u8>,
+}
+
+/// A single color stop inside a gradient (offset + RGBA).
+#[derive(Clone, Debug)]
+pub struct GradientStop {
+    /// Position along the gradient axis, 0.0 to 1.0.
+    pub offset: f32,
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
+    pub a: u8,
 }
 
 /// One canvas drawing operation produced by guest `api_canvas_*` imports and consumed by the host renderer.
@@ -266,6 +279,83 @@ pub enum DrawCommand {
         h: f32,
         image_id: usize,
     },
+    /// Filled rounded rectangle with uniform corner radius.
+    RoundedRect {
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        radius: f32,
+        r: u8,
+        g: u8,
+        b: u8,
+        a: u8,
+    },
+    /// Circular arc stroke from `start_angle` to `end_angle` (radians, CW from +X axis).
+    Arc {
+        cx: f32,
+        cy: f32,
+        radius: f32,
+        start_angle: f32,
+        end_angle: f32,
+        r: u8,
+        g: u8,
+        b: u8,
+        a: u8,
+        thickness: f32,
+    },
+    /// Cubic Bézier curve stroke from `(x1,y1)` to `(x2,y2)` with two control points.
+    Bezier {
+        x1: f32,
+        y1: f32,
+        cp1x: f32,
+        cp1y: f32,
+        cp2x: f32,
+        cp2y: f32,
+        x2: f32,
+        y2: f32,
+        r: u8,
+        g: u8,
+        b: u8,
+        a: u8,
+        thickness: f32,
+    },
+    /// Linear gradient fill over an axis-aligned rectangle.
+    Gradient {
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        /// 0 = linear, 1 = radial.
+        kind: u8,
+        /// Gradient axis start (linear) or center (radial) X, relative to the rect.
+        ax: f32,
+        /// Gradient axis start (linear) or center (radial) Y, relative to the rect.
+        ay: f32,
+        /// Gradient axis end X (linear) or ignored for radial.
+        bx: f32,
+        /// Gradient axis end Y (linear) or radius for radial.
+        by: f32,
+        /// Color stops: each entry is `(offset 0.0–1.0, r, g, b, a)`.
+        stops: Vec<GradientStop>,
+    },
+    /// Push the current transform/clip/opacity state onto the stack.
+    Save,
+    /// Pop and restore the most recently saved state.
+    Restore,
+    /// Apply a 2D affine transform to subsequent draw commands (column-major: `[a,b,c,d,tx,ty]`).
+    Transform {
+        a: f32,
+        b: f32,
+        c: f32,
+        d: f32,
+        tx: f32,
+        ty: f32,
+    },
+    /// Intersect the current clip with an axis-aligned rectangle.
+    Clip { x: f32, y: f32, w: f32, h: f32 },
+    /// Set layer opacity for subsequent draw commands (0.0 transparent – 1.0 opaque).
+    Opacity { alpha: f32 },
 }
 
 /// A scheduled timer: either a one-shot `setTimeout` or repeating `setInterval`.
@@ -435,6 +525,7 @@ impl Default for HostState {
             media_capture: Arc::new(Mutex::new(
                 crate::media_capture::MediaCaptureState::default(),
             )),
+            gpu: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -836,6 +927,246 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
         |caller: Caller<'_, HostState>| -> u64 {
             let canvas = caller.data().canvas.lock().unwrap();
             ((canvas.width as u64) << 32) | (canvas.height as u64)
+        },
+    )?;
+
+    // ── Extended Shape Primitives ─────────────────────────────────────
+
+    linker.func_wrap(
+        "oxide",
+        "api_canvas_rounded_rect",
+        |caller: Caller<'_, HostState>,
+         x: f32,
+         y: f32,
+         w: f32,
+         h: f32,
+         radius: f32,
+         r: u32,
+         g: u32,
+         b: u32,
+         a: u32| {
+            caller
+                .data()
+                .canvas
+                .lock()
+                .unwrap()
+                .commands
+                .push(DrawCommand::RoundedRect {
+                    x,
+                    y,
+                    w,
+                    h,
+                    radius,
+                    r: r as u8,
+                    g: g as u8,
+                    b: b as u8,
+                    a: a as u8,
+                });
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_canvas_arc",
+        |caller: Caller<'_, HostState>,
+         cx: f32,
+         cy: f32,
+         radius: f32,
+         start_angle: f32,
+         end_angle: f32,
+         r: u32,
+         g: u32,
+         b: u32,
+         a: u32,
+         thickness: f32| {
+            caller
+                .data()
+                .canvas
+                .lock()
+                .unwrap()
+                .commands
+                .push(DrawCommand::Arc {
+                    cx,
+                    cy,
+                    radius,
+                    start_angle,
+                    end_angle,
+                    r: r as u8,
+                    g: g as u8,
+                    b: b as u8,
+                    a: a as u8,
+                    thickness,
+                });
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_canvas_bezier",
+        |caller: Caller<'_, HostState>,
+         x1: f32,
+         y1: f32,
+         cp1x: f32,
+         cp1y: f32,
+         cp2x: f32,
+         cp2y: f32,
+         x2: f32,
+         y2: f32,
+         r: u32,
+         g: u32,
+         b: u32,
+         a: u32,
+         thickness: f32| {
+            caller
+                .data()
+                .canvas
+                .lock()
+                .unwrap()
+                .commands
+                .push(DrawCommand::Bezier {
+                    x1,
+                    y1,
+                    cp1x,
+                    cp1y,
+                    cp2x,
+                    cp2y,
+                    x2,
+                    y2,
+                    r: r as u8,
+                    g: g as u8,
+                    b: b as u8,
+                    a: a as u8,
+                    thickness,
+                });
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_canvas_gradient",
+        |caller: Caller<'_, HostState>,
+         x: f32,
+         y: f32,
+         w: f32,
+         h: f32,
+         kind: u32,
+         ax: f32,
+         ay: f32,
+         bx: f32,
+         by: f32,
+         stops_ptr: u32,
+         stops_len: u32| {
+            let mem = caller.data().memory.expect("memory not set");
+            let bytes = read_guest_bytes(&mem, &caller, stops_ptr, stops_len).unwrap_or_default();
+            let mut stops = Vec::new();
+            // Each stop is 8 bytes: f32 offset + u8 r + u8 g + u8 b + u8 a (packed).
+            let mut i = 0;
+            while i + 8 <= bytes.len() {
+                let offset =
+                    f32::from_le_bytes([bytes[i], bytes[i + 1], bytes[i + 2], bytes[i + 3]]);
+                let sr = bytes[i + 4];
+                let sg = bytes[i + 5];
+                let sb = bytes[i + 6];
+                let sa = bytes[i + 7];
+                stops.push(GradientStop {
+                    offset,
+                    r: sr,
+                    g: sg,
+                    b: sb,
+                    a: sa,
+                });
+                i += 8;
+            }
+            caller
+                .data()
+                .canvas
+                .lock()
+                .unwrap()
+                .commands
+                .push(DrawCommand::Gradient {
+                    x,
+                    y,
+                    w,
+                    h,
+                    kind: kind as u8,
+                    ax,
+                    ay,
+                    bx,
+                    by,
+                    stops,
+                });
+        },
+    )?;
+
+    // ── Canvas State (transform / clip / opacity) ──────────────────────
+
+    linker.func_wrap(
+        "oxide",
+        "api_canvas_save",
+        |caller: Caller<'_, HostState>| {
+            caller
+                .data()
+                .canvas
+                .lock()
+                .unwrap()
+                .commands
+                .push(DrawCommand::Save);
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_canvas_restore",
+        |caller: Caller<'_, HostState>| {
+            caller
+                .data()
+                .canvas
+                .lock()
+                .unwrap()
+                .commands
+                .push(DrawCommand::Restore);
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_canvas_transform",
+        |caller: Caller<'_, HostState>, a: f32, b: f32, c: f32, d: f32, tx: f32, ty: f32| {
+            caller
+                .data()
+                .canvas
+                .lock()
+                .unwrap()
+                .commands
+                .push(DrawCommand::Transform { a, b, c, d, tx, ty });
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_canvas_clip",
+        |caller: Caller<'_, HostState>, x: f32, y: f32, w: f32, h: f32| {
+            caller
+                .data()
+                .canvas
+                .lock()
+                .unwrap()
+                .commands
+                .push(DrawCommand::Clip { x, y, w, h });
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_canvas_opacity",
+        |caller: Caller<'_, HostState>, alpha: f32| {
+            caller
+                .data()
+                .canvas
+                .lock()
+                .unwrap()
+                .commands
+                .push(DrawCommand::Opacity { alpha });
         },
     )?;
 
@@ -2912,6 +3243,215 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
     )?;
 
     crate::media_capture::register_media_capture_functions(linker)?;
+
+    // ── GPU / WebGPU-style API ───────────────────────────────────────
+
+    linker.func_wrap(
+        "oxide",
+        "api_gpu_create_buffer",
+        |caller: Caller<'_, HostState>, size_lo: u32, size_hi: u32, usage: u32| -> u32 {
+            let size = ((size_hi as u64) << 32) | (size_lo as u64);
+            let mut gpu_lock = caller.data().gpu.lock().unwrap();
+            let gpu = match gpu_lock.as_mut() {
+                Some(g) => g,
+                None => {
+                    if let Some(g) = crate::gpu::init_gpu() {
+                        *gpu_lock = Some(g);
+                        gpu_lock.as_mut().unwrap()
+                    } else {
+                        console_log(
+                            &caller.data().console,
+                            ConsoleLevel::Error,
+                            "[GPU] No suitable GPU adapter found".into(),
+                        );
+                        return 0;
+                    }
+                }
+            };
+            gpu.create_buffer(size, usage)
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_gpu_create_texture",
+        |caller: Caller<'_, HostState>, width: u32, height: u32| -> u32 {
+            let mut gpu_lock = caller.data().gpu.lock().unwrap();
+            let gpu = match gpu_lock.as_mut() {
+                Some(g) => g,
+                None => {
+                    if let Some(g) = crate::gpu::init_gpu() {
+                        *gpu_lock = Some(g);
+                        gpu_lock.as_mut().unwrap()
+                    } else {
+                        return 0;
+                    }
+                }
+            };
+            gpu.create_texture(width, height)
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_gpu_create_shader",
+        |caller: Caller<'_, HostState>, src_ptr: u32, src_len: u32| -> u32 {
+            let mem = caller.data().memory.expect("memory not set");
+            let source = read_guest_string(&mem, &caller, src_ptr, src_len).unwrap_or_default();
+            let mut gpu_lock = caller.data().gpu.lock().unwrap();
+            let gpu = match gpu_lock.as_mut() {
+                Some(g) => g,
+                None => {
+                    if let Some(g) = crate::gpu::init_gpu() {
+                        *gpu_lock = Some(g);
+                        gpu_lock.as_mut().unwrap()
+                    } else {
+                        return 0;
+                    }
+                }
+            };
+            gpu.create_shader(&source)
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_gpu_create_render_pipeline",
+        |caller: Caller<'_, HostState>,
+         shader: u32,
+         vs_ptr: u32,
+         vs_len: u32,
+         fs_ptr: u32,
+         fs_len: u32|
+         -> u32 {
+            let mem = caller.data().memory.expect("memory not set");
+            let vs = read_guest_string(&mem, &caller, vs_ptr, vs_len).unwrap_or_default();
+            let fs = read_guest_string(&mem, &caller, fs_ptr, fs_len).unwrap_or_default();
+            let mut gpu_lock = caller.data().gpu.lock().unwrap();
+            match gpu_lock.as_mut() {
+                Some(g) => g.create_render_pipeline(shader, &vs, &fs),
+                None => 0,
+            }
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_gpu_create_compute_pipeline",
+        |caller: Caller<'_, HostState>, shader: u32, ep_ptr: u32, ep_len: u32| -> u32 {
+            let mem = caller.data().memory.expect("memory not set");
+            let ep = read_guest_string(&mem, &caller, ep_ptr, ep_len).unwrap_or_default();
+            let mut gpu_lock = caller.data().gpu.lock().unwrap();
+            match gpu_lock.as_mut() {
+                Some(g) => g.create_compute_pipeline(shader, &ep),
+                None => 0,
+            }
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_gpu_write_buffer",
+        |caller: Caller<'_, HostState>,
+         handle: u32,
+         offset_lo: u32,
+         offset_hi: u32,
+         data_ptr: u32,
+         data_len: u32|
+         -> u32 {
+            let mem = caller.data().memory.expect("memory not set");
+            let data = read_guest_bytes(&mem, &caller, data_ptr, data_len).unwrap_or_default();
+            let offset = ((offset_hi as u64) << 32) | (offset_lo as u64);
+            let gpu_lock = caller.data().gpu.lock().unwrap();
+            match gpu_lock.as_ref() {
+                Some(g) => {
+                    if g.write_buffer(handle, offset, &data) {
+                        1
+                    } else {
+                        0
+                    }
+                }
+                None => 0,
+            }
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_gpu_draw",
+        |caller: Caller<'_, HostState>,
+         pipeline: u32,
+         target: u32,
+         vertex_count: u32,
+         instance_count: u32|
+         -> u32 {
+            let gpu_lock = caller.data().gpu.lock().unwrap();
+            match gpu_lock.as_ref() {
+                Some(g) => {
+                    if g.draw(pipeline, target, vertex_count, instance_count) {
+                        1
+                    } else {
+                        0
+                    }
+                }
+                None => 0,
+            }
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_gpu_dispatch_compute",
+        |caller: Caller<'_, HostState>, pipeline: u32, x: u32, y: u32, z: u32| -> u32 {
+            let gpu_lock = caller.data().gpu.lock().unwrap();
+            match gpu_lock.as_ref() {
+                Some(g) => {
+                    if g.dispatch_compute(pipeline, x, y, z) {
+                        1
+                    } else {
+                        0
+                    }
+                }
+                None => 0,
+            }
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_gpu_destroy_buffer",
+        |caller: Caller<'_, HostState>, handle: u32| -> u32 {
+            let mut gpu_lock = caller.data().gpu.lock().unwrap();
+            match gpu_lock.as_mut() {
+                Some(g) => {
+                    if g.destroy_buffer(handle) {
+                        1
+                    } else {
+                        0
+                    }
+                }
+                None => 0,
+            }
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_gpu_destroy_texture",
+        |caller: Caller<'_, HostState>, handle: u32| -> u32 {
+            let mut gpu_lock = caller.data().gpu.lock().unwrap();
+            match gpu_lock.as_mut() {
+                Some(g) => {
+                    if g.destroy_texture(handle) {
+                        1
+                    } else {
+                        0
+                    }
+                }
+                None => 0,
+            }
+        },
+    )?;
 
     Ok(())
 }

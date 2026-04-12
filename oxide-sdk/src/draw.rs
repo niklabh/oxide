@@ -124,6 +124,19 @@ impl Rect {
     }
 }
 
+/// A gradient color stop at a position along the gradient axis.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct GradientStop {
+    pub offset: f32,
+    pub color: Color,
+}
+
+impl GradientStop {
+    pub const fn new(offset: f32, color: Color) -> Self {
+        Self { offset, color }
+    }
+}
+
 /// Immediate-mode canvas facade that wraps the low-level drawing functions.
 ///
 /// All methods paint immediately (no retained scene graph). Create one per
@@ -148,10 +161,57 @@ impl Canvas {
         );
     }
 
+    /// Draw a filled rounded rectangle with uniform corner radius.
+    pub fn fill_rounded_rect(&self, rect: Rect, radius: f32, color: Color) {
+        crate::canvas_rounded_rect(
+            rect.x, rect.y, rect.w, rect.h, radius, color.r, color.g, color.b, color.a,
+        );
+    }
+
     /// Draw a filled circle.
     pub fn fill_circle(&self, center: Point2D, radius: f32, color: Color) {
         crate::canvas_circle(
             center.x, center.y, radius, color.r, color.g, color.b, color.a,
+        );
+    }
+
+    /// Draw a circular arc stroke from `start_angle` to `end_angle` (radians).
+    pub fn arc(
+        &self,
+        center: Point2D,
+        radius: f32,
+        start_angle: f32,
+        end_angle: f32,
+        thickness: f32,
+        color: Color,
+    ) {
+        crate::canvas_arc(
+            center.x,
+            center.y,
+            radius,
+            start_angle,
+            end_angle,
+            color.r,
+            color.g,
+            color.b,
+            color.a,
+            thickness,
+        );
+    }
+
+    /// Draw a cubic Bézier curve stroke.
+    pub fn bezier(
+        &self,
+        from: Point2D,
+        ctrl1: Point2D,
+        ctrl2: Point2D,
+        to: Point2D,
+        thickness: f32,
+        color: Color,
+    ) {
+        crate::canvas_bezier(
+            from.x, from.y, ctrl1.x, ctrl1.y, ctrl2.x, ctrl2.y, to.x, to.y, color.r, color.g,
+            color.b, color.a, thickness,
         );
     }
 
@@ -170,6 +230,90 @@ impl Canvas {
     /// Draw an image from encoded bytes (PNG, JPEG, GIF, WebP).
     pub fn image(&self, rect: Rect, data: &[u8]) {
         crate::canvas_image(rect.x, rect.y, rect.w, rect.h, data);
+    }
+
+    /// Fill a rectangle with a linear gradient.
+    pub fn linear_gradient(&self, rect: Rect, stops: &[GradientStop]) {
+        let raw: Vec<(f32, u8, u8, u8, u8)> = stops
+            .iter()
+            .map(|s| (s.offset, s.color.r, s.color.g, s.color.b, s.color.a))
+            .collect();
+        crate::canvas_gradient(
+            rect.x,
+            rect.y,
+            rect.w,
+            rect.h,
+            crate::GRADIENT_LINEAR,
+            rect.x,
+            rect.y,
+            rect.x + rect.w,
+            rect.y + rect.h,
+            &raw,
+        );
+    }
+
+    /// Fill a rectangle with a radial gradient.
+    pub fn radial_gradient(&self, rect: Rect, stops: &[GradientStop]) {
+        let raw: Vec<(f32, u8, u8, u8, u8)> = stops
+            .iter()
+            .map(|s| (s.offset, s.color.r, s.color.g, s.color.b, s.color.a))
+            .collect();
+        let cx = rect.x + rect.w / 2.0;
+        let cy = rect.y + rect.h / 2.0;
+        let r = rect.w.max(rect.h) / 2.0;
+        crate::canvas_gradient(
+            rect.x,
+            rect.y,
+            rect.w,
+            rect.h,
+            crate::GRADIENT_RADIAL,
+            cx,
+            cy,
+            0.0,
+            r,
+            &raw,
+        );
+    }
+
+    /// Push the current transform/clip/opacity state.
+    pub fn save(&self) {
+        crate::canvas_save();
+    }
+
+    /// Restore the most recently saved state.
+    pub fn restore(&self) {
+        crate::canvas_restore();
+    }
+
+    /// Apply a 2D translation to subsequent draw commands.
+    pub fn translate(&self, tx: f32, ty: f32) {
+        crate::canvas_transform(1.0, 0.0, 0.0, 1.0, tx, ty);
+    }
+
+    /// Apply a 2D rotation (radians) to subsequent draw commands.
+    pub fn rotate(&self, angle: f32) {
+        let (s, c) = (angle.sin(), angle.cos());
+        crate::canvas_transform(c, s, -s, c, 0.0, 0.0);
+    }
+
+    /// Apply a uniform scale to subsequent draw commands.
+    pub fn scale(&self, sx: f32, sy: f32) {
+        crate::canvas_transform(sx, 0.0, 0.0, sy, 0.0, 0.0);
+    }
+
+    /// Apply a full 2D affine transform.
+    pub fn transform(&self, a: f32, b: f32, c: f32, d: f32, tx: f32, ty: f32) {
+        crate::canvas_transform(a, b, c, d, tx, ty);
+    }
+
+    /// Intersect the current clip with a rectangle.
+    pub fn clip(&self, rect: Rect) {
+        crate::canvas_clip(rect.x, rect.y, rect.w, rect.h);
+    }
+
+    /// Set layer opacity (0.0–1.0) for subsequent draw commands.
+    pub fn set_opacity(&self, alpha: f32) {
+        crate::canvas_opacity(alpha);
     }
 
     /// Get the canvas dimensions in pixels.
