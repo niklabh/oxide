@@ -1844,9 +1844,7 @@ pub struct RtcTrackInfo {
 /// Returns `None` when no new tracks are pending.
 pub fn rtc_poll_track(peer_id: u32) -> Option<RtcTrackInfo> {
     let mut buf = vec![0u8; 1024];
-    let n = unsafe {
-        _api_rtc_poll_track(peer_id, buf.as_mut_ptr() as u32, buf.len() as u32)
-    };
+    let n = unsafe { _api_rtc_poll_track(peer_id, buf.as_mut_ptr() as u32, buf.len() as u32) };
     if n <= 0 {
         return None;
     }
