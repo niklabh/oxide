@@ -24,11 +24,21 @@ pub extern "C" fn on_frame(dt_ms: u32) {
 
     // ── Title ────────────────────────────────────────────────────────
     c.fill_rounded_rect(Rect::new(0.0, 0.0, w, 52.0), 0.0, Color::hex(0x16213e));
-    c.text("Phase 2 — GPU & Graphics", Point2D::new(20.0, 14.0), 22.0, Color::WHITE);
+    c.text(
+        "Phase 2 — GPU & Graphics",
+        Point2D::new(20.0, 14.0),
+        22.0,
+        Color::WHITE,
+    );
 
     // ── Rounded Rectangles ───────────────────────────────────────────
     let sy = 66.0;
-    c.text("Rounded Rects", Point2D::new(20.0, sy), 14.0, Color::hex(0xf9a825));
+    c.text(
+        "Rounded Rects",
+        Point2D::new(20.0, sy),
+        14.0,
+        Color::hex(0xf9a825),
+    );
 
     let colors = [0xe91e63, 0x2196f3, 0x4caf50, 0xff9800];
     for i in 0..4u32 {
@@ -60,15 +70,34 @@ pub extern "C" fn on_frame(dt_ms: u32) {
         // Ghost ring
         c.save();
         c.set_opacity(0.15);
-        c.arc(Point2D::new(cx, cy), 26.0, 0.0, core::f32::consts::TAU, 1.0, Color::hex(arc_colors[i]));
+        c.arc(
+            Point2D::new(cx, cy),
+            26.0,
+            0.0,
+            core::f32::consts::TAU,
+            1.0,
+            Color::hex(arc_colors[i]),
+        );
         c.restore();
         // Animated arc
-        c.arc(Point2D::new(cx, cy), 26.0, start, start + sweep, 3.0, Color::hex(arc_colors[i]));
+        c.arc(
+            Point2D::new(cx, cy),
+            26.0,
+            start,
+            start + sweep,
+            3.0,
+            Color::hex(arc_colors[i]),
+        );
     }
 
     // ── Bézier Curves ────────────────────────────────────────────────
     let sy = 240.0;
-    c.text("Bézier Curves", Point2D::new(20.0, sy), 14.0, Color::hex(0xf9a825));
+    c.text(
+        "Bézier Curves",
+        Point2D::new(20.0, sy),
+        14.0,
+        Color::hex(0xf9a825),
+    );
 
     let wave_y = sy + 46.0;
     let amp = 30.0 * (t * 0.8).sin();
@@ -87,9 +116,19 @@ pub extern "C" fn on_frame(dt_ms: u32) {
 
     // ── Gradients ────────────────────────────────────────────────────
     let sy = 320.0;
-    c.text("Gradients", Point2D::new(20.0, sy), 14.0, Color::hex(0xf9a825));
+    c.text(
+        "Gradients",
+        Point2D::new(20.0, sy),
+        14.0,
+        Color::hex(0xf9a825),
+    );
 
-    c.text("Linear", Point2D::new(20.0, sy + 18.0), 11.0, Color::rgba(180, 180, 180, 180));
+    c.text(
+        "Linear",
+        Point2D::new(20.0, sy + 18.0),
+        11.0,
+        Color::rgba(180, 180, 180, 180),
+    );
     c.linear_gradient(
         Rect::new(20.0, sy + 32.0, 220.0, 32.0),
         &[
@@ -99,7 +138,12 @@ pub extern "C" fn on_frame(dt_ms: u32) {
         ],
     );
 
-    c.text("Radial", Point2D::new(260.0, sy + 18.0), 11.0, Color::rgba(180, 180, 180, 180));
+    c.text(
+        "Radial",
+        Point2D::new(260.0, sy + 18.0),
+        11.0,
+        Color::rgba(180, 180, 180, 180),
+    );
     c.radial_gradient(
         Rect::new(260.0, sy + 24.0, 60.0, 44.0),
         &[
@@ -110,7 +154,12 @@ pub extern "C" fn on_frame(dt_ms: u32) {
 
     // ── Transforms ───────────────────────────────────────────────────
     let sy = 400.0;
-    c.text("Transforms", Point2D::new(20.0, sy), 14.0, Color::hex(0xf9a825));
+    c.text(
+        "Transforms",
+        Point2D::new(20.0, sy),
+        14.0,
+        Color::hex(0xf9a825),
+    );
 
     // Orbiting dots
     let ocx = 80.0;
@@ -129,42 +178,88 @@ pub extern "C" fn on_frame(dt_ms: u32) {
         let dx = 200.0 + i as f32 * 60.0;
         let dy = sy + 28.0 + 10.0 * (t * 2.0 + i as f32).sin();
         c.translate(dx, dy);
-        c.fill_rounded_rect(Rect::new(0.0, 0.0, 40.0, 40.0), 6.0, Color::rgba(255, 140, 100, 200));
+        c.fill_rounded_rect(
+            Rect::new(0.0, 0.0, 40.0, 40.0),
+            6.0,
+            Color::rgba(255, 140, 100, 200),
+        );
         c.restore();
     }
 
     // ── Clipping ─────────────────────────────────────────────────────
     let sy = 490.0;
-    c.text("Clipping", Point2D::new(20.0, sy), 14.0, Color::hex(0xf9a825));
+    c.text(
+        "Clipping",
+        Point2D::new(20.0, sy),
+        14.0,
+        Color::hex(0xf9a825),
+    );
 
     let cx = 20.0;
     let cy = sy + 20.0;
     c.save();
     c.clip(Rect::new(cx, cy, 180.0, 44.0));
     // Wide rect that gets clipped
-    c.fill_rect(Rect::new(cx - 10.0, cy - 5.0, 200.0, 54.0), Color::hex(0x00897b));
+    c.fill_rect(
+        Rect::new(cx - 10.0, cy - 5.0, 200.0, 54.0),
+        Color::hex(0x00897b),
+    );
     // Bouncing ball inside clip
     let bx = cx + 90.0 + 70.0 * (t * 2.0).sin();
     c.fill_circle(Point2D::new(bx, cy + 22.0), 14.0, Color::WHITE);
     c.restore();
 
     // Clip outline
-    c.line(Point2D::new(cx, cy), Point2D::new(cx + 180.0, cy), 1.0, Color::rgba(255, 255, 255, 60));
-    c.line(Point2D::new(cx, cy + 44.0), Point2D::new(cx + 180.0, cy + 44.0), 1.0, Color::rgba(255, 255, 255, 60));
-    c.line(Point2D::new(cx, cy), Point2D::new(cx, cy + 44.0), 1.0, Color::rgba(255, 255, 255, 60));
-    c.line(Point2D::new(cx + 180.0, cy), Point2D::new(cx + 180.0, cy + 44.0), 1.0, Color::rgba(255, 255, 255, 60));
-    c.text("clipped", Point2D::new(cx + 190.0, cy + 14.0), 11.0, Color::rgba(140, 140, 140, 180));
+    c.line(
+        Point2D::new(cx, cy),
+        Point2D::new(cx + 180.0, cy),
+        1.0,
+        Color::rgba(255, 255, 255, 60),
+    );
+    c.line(
+        Point2D::new(cx, cy + 44.0),
+        Point2D::new(cx + 180.0, cy + 44.0),
+        1.0,
+        Color::rgba(255, 255, 255, 60),
+    );
+    c.line(
+        Point2D::new(cx, cy),
+        Point2D::new(cx, cy + 44.0),
+        1.0,
+        Color::rgba(255, 255, 255, 60),
+    );
+    c.line(
+        Point2D::new(cx + 180.0, cy),
+        Point2D::new(cx + 180.0, cy + 44.0),
+        1.0,
+        Color::rgba(255, 255, 255, 60),
+    );
+    c.text(
+        "clipped",
+        Point2D::new(cx + 190.0, cy + 14.0),
+        11.0,
+        Color::rgba(140, 140, 140, 180),
+    );
 
     // ── Opacity ──────────────────────────────────────────────────────
     let sy = 570.0;
-    c.text("Opacity", Point2D::new(20.0, sy), 14.0, Color::hex(0xf9a825));
+    c.text(
+        "Opacity",
+        Point2D::new(20.0, sy),
+        14.0,
+        Color::hex(0xf9a825),
+    );
 
     for i in 0..5 {
         let alpha = 1.0 - i as f32 * 0.2;
         let x = 20.0 + i as f32 * 85.0;
         c.save();
         c.set_opacity(alpha);
-        c.fill_rounded_rect(Rect::new(x, sy + 20.0, 72.0, 36.0), 8.0, Color::hex(0xe91e63));
+        c.fill_rounded_rect(
+            Rect::new(x, sy + 20.0, 72.0, 36.0),
+            8.0,
+            Color::hex(0xe91e63),
+        );
         c.text(
             &format!("{:.0}%", alpha * 100.0),
             Point2D::new(x + 18.0, sy + 30.0),

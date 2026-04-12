@@ -183,34 +183,61 @@ extern "C" {
 
     #[link_name = "api_canvas_rounded_rect"]
     fn _api_canvas_rounded_rect(
-        x: f32, y: f32, w: f32, h: f32, radius: f32,
-        r: u32, g: u32, b: u32, a: u32,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        radius: f32,
+        r: u32,
+        g: u32,
+        b: u32,
+        a: u32,
     );
 
     #[link_name = "api_canvas_arc"]
     fn _api_canvas_arc(
-        cx: f32, cy: f32, radius: f32,
-        start_angle: f32, end_angle: f32,
-        r: u32, g: u32, b: u32, a: u32,
+        cx: f32,
+        cy: f32,
+        radius: f32,
+        start_angle: f32,
+        end_angle: f32,
+        r: u32,
+        g: u32,
+        b: u32,
+        a: u32,
         thickness: f32,
     );
 
     #[link_name = "api_canvas_bezier"]
     fn _api_canvas_bezier(
-        x1: f32, y1: f32,
-        cp1x: f32, cp1y: f32,
-        cp2x: f32, cp2y: f32,
-        x2: f32, y2: f32,
-        r: u32, g: u32, b: u32, a: u32,
+        x1: f32,
+        y1: f32,
+        cp1x: f32,
+        cp1y: f32,
+        cp2x: f32,
+        cp2y: f32,
+        x2: f32,
+        y2: f32,
+        r: u32,
+        g: u32,
+        b: u32,
+        a: u32,
         thickness: f32,
     );
 
     #[link_name = "api_canvas_gradient"]
     fn _api_canvas_gradient(
-        x: f32, y: f32, w: f32, h: f32,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
         kind: u32,
-        ax: f32, ay: f32, bx: f32, by: f32,
-        stops_ptr: u32, stops_len: u32,
+        ax: f32,
+        ay: f32,
+        bx: f32,
+        by: f32,
+        stops_ptr: u32,
+        stops_len: u32,
     );
 
     // ── Canvas State (transform / clip / opacity) ─────────────────
@@ -585,8 +612,10 @@ extern "C" {
     #[link_name = "api_gpu_create_render_pipeline"]
     fn _api_gpu_create_render_pipeline(
         shader: u32,
-        vs_ptr: u32, vs_len: u32,
-        fs_ptr: u32, fs_len: u32,
+        vs_ptr: u32,
+        vs_len: u32,
+        fs_ptr: u32,
+        fs_len: u32,
     ) -> u32;
 
     #[link_name = "api_gpu_create_compute_pipeline"]
@@ -595,8 +624,10 @@ extern "C" {
     #[link_name = "api_gpu_write_buffer"]
     fn _api_gpu_write_buffer(
         handle: u32,
-        offset_lo: u32, offset_hi: u32,
-        data_ptr: u32, data_len: u32,
+        offset_lo: u32,
+        offset_hi: u32,
+        data_ptr: u32,
+        data_len: u32,
     ) -> u32;
 
     #[link_name = "api_gpu_draw"]
@@ -751,29 +782,43 @@ pub fn canvas_image(x: f32, y: f32, w: f32, h: f32, data: &[u8]) {
 
 /// Draw a filled rounded rectangle with uniform corner radius.
 pub fn canvas_rounded_rect(
-    x: f32, y: f32, w: f32, h: f32, radius: f32,
-    r: u8, g: u8, b: u8, a: u8,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    radius: f32,
+    r: u8,
+    g: u8,
+    b: u8,
+    a: u8,
 ) {
-    unsafe {
-        _api_canvas_rounded_rect(
-            x, y, w, h, radius,
-            r as u32, g as u32, b as u32, a as u32,
-        )
-    }
+    unsafe { _api_canvas_rounded_rect(x, y, w, h, radius, r as u32, g as u32, b as u32, a as u32) }
 }
 
 /// Draw a circular arc stroke from `start_angle` to `end_angle` (in radians, clockwise from +X).
 pub fn canvas_arc(
-    cx: f32, cy: f32, radius: f32,
-    start_angle: f32, end_angle: f32,
-    r: u8, g: u8, b: u8, a: u8,
+    cx: f32,
+    cy: f32,
+    radius: f32,
+    start_angle: f32,
+    end_angle: f32,
+    r: u8,
+    g: u8,
+    b: u8,
+    a: u8,
     thickness: f32,
 ) {
     unsafe {
         _api_canvas_arc(
-            cx, cy, radius,
-            start_angle, end_angle,
-            r as u32, g as u32, b as u32, a as u32,
+            cx,
+            cy,
+            radius,
+            start_angle,
+            end_angle,
+            r as u32,
+            g as u32,
+            b as u32,
+            a as u32,
             thickness,
         )
     }
@@ -781,17 +826,23 @@ pub fn canvas_arc(
 
 /// Draw a cubic Bézier curve stroke from `(x1,y1)` to `(x2,y2)` with two control points.
 pub fn canvas_bezier(
-    x1: f32, y1: f32,
-    cp1x: f32, cp1y: f32,
-    cp2x: f32, cp2y: f32,
-    x2: f32, y2: f32,
-    r: u8, g: u8, b: u8, a: u8,
+    x1: f32,
+    y1: f32,
+    cp1x: f32,
+    cp1y: f32,
+    cp2x: f32,
+    cp2y: f32,
+    x2: f32,
+    y2: f32,
+    r: u8,
+    g: u8,
+    b: u8,
+    a: u8,
     thickness: f32,
 ) {
     unsafe {
         _api_canvas_bezier(
-            x1, y1, cp1x, cp1y, cp2x, cp2y, x2, y2,
-            r as u32, g as u32, b as u32, a as u32,
+            x1, y1, cp1x, cp1y, cp2x, cp2y, x2, y2, r as u32, g as u32, b as u32, a as u32,
             thickness,
         )
     }
@@ -808,9 +859,15 @@ pub const GRADIENT_RADIAL: u32 = 1;
 /// For radial gradients, `(ax,ay)` is the center and `by` is the radius.
 /// `stops` is a slice of `(offset, r, g, b, a)` tuples.
 pub fn canvas_gradient(
-    x: f32, y: f32, w: f32, h: f32,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
     kind: u32,
-    ax: f32, ay: f32, bx: f32, by: f32,
+    ax: f32,
+    ay: f32,
+    bx: f32,
+    by: f32,
     stops: &[(f32, u8, u8, u8, u8)],
 ) {
     let mut buf = Vec::with_capacity(stops.len() * 8);
@@ -823,9 +880,17 @@ pub fn canvas_gradient(
     }
     unsafe {
         _api_canvas_gradient(
-            x, y, w, h, kind,
-            ax, ay, bx, by,
-            buf.as_ptr() as u32, buf.len() as u32,
+            x,
+            y,
+            w,
+            h,
+            kind,
+            ax,
+            ay,
+            bx,
+            by,
+            buf.as_ptr() as u32,
+            buf.len() as u32,
         )
     }
 }
@@ -936,7 +1001,12 @@ pub fn gpu_write_buffer(handle: u32, offset: u64, data: &[u8]) -> bool {
 }
 
 /// Submit a render pass: draw `vertex_count` vertices with `instance_count` instances.
-pub fn gpu_draw(pipeline: u32, target_texture: u32, vertex_count: u32, instance_count: u32) -> bool {
+pub fn gpu_draw(
+    pipeline: u32,
+    target_texture: u32,
+    vertex_count: u32,
+    instance_count: u32,
+) -> bool {
     unsafe { _api_gpu_draw(pipeline, target_texture, vertex_count, instance_count) != 0 }
 }
 

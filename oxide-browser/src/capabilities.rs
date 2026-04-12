@@ -353,16 +353,9 @@ pub enum DrawCommand {
         ty: f32,
     },
     /// Intersect the current clip with an axis-aligned rectangle.
-    Clip {
-        x: f32,
-        y: f32,
-        w: f32,
-        h: f32,
-    },
+    Clip { x: f32, y: f32, w: f32, h: f32 },
     /// Set layer opacity for subsequent draw commands (0.0 transparent – 1.0 opaque).
-    Opacity {
-        alpha: f32,
-    },
+    Opacity { alpha: f32 },
 }
 
 /// A scheduled timer: either a one-shot `setTimeout` or repeating `setInterval`.
@@ -1064,13 +1057,13 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
          stops_ptr: u32,
          stops_len: u32| {
             let mem = caller.data().memory.expect("memory not set");
-            let bytes =
-                read_guest_bytes(&mem, &caller, stops_ptr, stops_len).unwrap_or_default();
+            let bytes = read_guest_bytes(&mem, &caller, stops_ptr, stops_len).unwrap_or_default();
             let mut stops = Vec::new();
             // Each stop is 8 bytes: f32 offset + u8 r + u8 g + u8 b + u8 a (packed).
             let mut i = 0;
             while i + 8 <= bytes.len() {
-                let offset = f32::from_le_bytes([bytes[i], bytes[i + 1], bytes[i + 2], bytes[i + 3]]);
+                let offset =
+                    f32::from_le_bytes([bytes[i], bytes[i + 1], bytes[i + 2], bytes[i + 3]]);
                 let sr = bytes[i + 4];
                 let sg = bytes[i + 5];
                 let sb = bytes[i + 6];
@@ -1138,13 +1131,7 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
     linker.func_wrap(
         "oxide",
         "api_canvas_transform",
-        |caller: Caller<'_, HostState>,
-         a: f32,
-         b: f32,
-         c: f32,
-         d: f32,
-         tx: f32,
-         ty: f32| {
+        |caller: Caller<'_, HostState>, a: f32, b: f32, c: f32, d: f32, tx: f32, ty: f32| {
             caller
                 .data()
                 .canvas

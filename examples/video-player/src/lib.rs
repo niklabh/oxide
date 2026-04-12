@@ -3,8 +3,7 @@
 use oxide_sdk::*;
 
 /// Public sample MP4 (Google-hosted test asset; replace with your own URL if needed).
-const SAMPLE_MP4: &str =
-    "https://d2qguwbxlx1sbt.cloudfront.net/TextInMotion-VideoSample-1080p.mp4";
+const SAMPLE_MP4: &str = "https://d2qguwbxlx1sbt.cloudfront.net/TextInMotion-VideoSample-1080p.mp4";
 
 #[no_mangle]
 pub extern "C" fn start_app() {

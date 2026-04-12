@@ -164,8 +164,7 @@ impl Canvas {
     /// Draw a filled rounded rectangle with uniform corner radius.
     pub fn fill_rounded_rect(&self, rect: Rect, radius: f32, color: Color) {
         crate::canvas_rounded_rect(
-            rect.x, rect.y, rect.w, rect.h, radius,
-            color.r, color.g, color.b, color.a,
+            rect.x, rect.y, rect.w, rect.h, radius, color.r, color.g, color.b, color.a,
         );
     }
 
@@ -187,9 +186,15 @@ impl Canvas {
         color: Color,
     ) {
         crate::canvas_arc(
-            center.x, center.y, radius,
-            start_angle, end_angle,
-            color.r, color.g, color.b, color.a,
+            center.x,
+            center.y,
+            radius,
+            start_angle,
+            end_angle,
+            color.r,
+            color.g,
+            color.b,
+            color.a,
             thickness,
         );
     }
@@ -205,12 +210,8 @@ impl Canvas {
         color: Color,
     ) {
         crate::canvas_bezier(
-            from.x, from.y,
-            ctrl1.x, ctrl1.y,
-            ctrl2.x, ctrl2.y,
-            to.x, to.y,
-            color.r, color.g, color.b, color.a,
-            thickness,
+            from.x, from.y, ctrl1.x, ctrl1.y, ctrl2.x, ctrl2.y, to.x, to.y, color.r, color.g,
+            color.b, color.a, thickness,
         );
     }
 
@@ -238,9 +239,15 @@ impl Canvas {
             .map(|s| (s.offset, s.color.r, s.color.g, s.color.b, s.color.a))
             .collect();
         crate::canvas_gradient(
-            rect.x, rect.y, rect.w, rect.h,
+            rect.x,
+            rect.y,
+            rect.w,
+            rect.h,
             crate::GRADIENT_LINEAR,
-            rect.x, rect.y, rect.x + rect.w, rect.y + rect.h,
+            rect.x,
+            rect.y,
+            rect.x + rect.w,
+            rect.y + rect.h,
             &raw,
         );
     }
@@ -255,9 +262,15 @@ impl Canvas {
         let cy = rect.y + rect.h / 2.0;
         let r = rect.w.max(rect.h) / 2.0;
         crate::canvas_gradient(
-            rect.x, rect.y, rect.w, rect.h,
+            rect.x,
+            rect.y,
+            rect.w,
+            rect.h,
             crate::GRADIENT_RADIAL,
-            cx, cy, 0.0, r,
+            cx,
+            cy,
+            0.0,
+            r,
             &raw,
         );
     }

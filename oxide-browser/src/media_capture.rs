@@ -205,9 +205,9 @@ pub fn register_media_capture_functions(linker: &mut Linker<HostState>) -> Resul
             if cams.is_empty() {
                 return log_err(&console, -2, "[CAMERA] No cameras found".to_string());
             }
-            let req = RequestedFormat::new::<RgbFormat>(
-                RequestedFormatType::HighestResolution(nokhwa::utils::Resolution::new(1280, 720)),
-            );
+            let req = RequestedFormat::new::<RgbFormat>(RequestedFormatType::HighestResolution(
+                nokhwa::utils::Resolution::new(1280, 720),
+            ));
             let mut camera = match Camera::new(CameraIndex::Index(0), req) {
                 Ok(c) => c,
                 Err(e) => {

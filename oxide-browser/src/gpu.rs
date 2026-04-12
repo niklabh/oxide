@@ -331,15 +331,13 @@ pub fn init_gpu() -> Option<GpuState> {
     }))
     .ok()?;
 
-    let (device, queue) = pollster::block_on(adapter.request_device(
-        &wgpu::DeviceDescriptor {
-            label: Some("oxide_gpu"),
-            required_features: wgpu::Features::empty(),
-            required_limits: wgpu::Limits::downlevel_defaults(),
-            memory_hints: Default::default(),
-            trace: wgpu::Trace::Off,
-        },
-    ))
+    let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+        label: Some("oxide_gpu"),
+        required_features: wgpu::Features::empty(),
+        required_limits: wgpu::Limits::downlevel_defaults(),
+        memory_hints: Default::default(),
+        trace: wgpu::Trace::Off,
+    }))
     .ok()?;
 
     Some(GpuState {

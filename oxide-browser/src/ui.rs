@@ -370,7 +370,14 @@ fn paint_draw_commands(
                     opacity = prev.opacity;
                 }
             }
-            DrawCommand::Transform { a: _, b: _, c: _, d: _, tx, ty } => {
+            DrawCommand::Transform {
+                a: _,
+                b: _,
+                c: _,
+                d: _,
+                tx,
+                ty,
+            } => {
                 off_x += *tx;
                 off_y += *ty;
             }
@@ -392,7 +399,16 @@ fn paint_draw_commands(
                 let ca = apply_opacity(*a, opacity);
                 window.paint_quad(gpui::fill(rect, rgba8(*r, *g, *b, ca)));
             }
-            DrawCommand::Rect { x, y, w, h, r, g, b, a } => {
+            DrawCommand::Rect {
+                x,
+                y,
+                w,
+                h,
+                r,
+                g,
+                b,
+                a,
+            } => {
                 let min = point(px(off_x + *x), px(off_y + *y));
                 let cmd_bounds = Bounds::from_corners(min, min + point(px(*w), px(*h)));
                 if !clipped_out(clip, cmd_bounds) {
@@ -400,7 +416,15 @@ fn paint_draw_commands(
                     window.paint_quad(gpui::fill(cmd_bounds, rgba8(*r, *g, *b, ca)));
                 }
             }
-            DrawCommand::Circle { cx, cy, radius, r, g, b, a } => {
+            DrawCommand::Circle {
+                cx,
+                cy,
+                radius,
+                r,
+                g,
+                b,
+                a,
+            } => {
                 let pts = circle_polygon(off_x + *cx, off_y + *cy, *radius);
                 let mut pb = PathBuilder::fill();
                 pb.add_polygon(&pts, true);
@@ -409,7 +433,16 @@ fn paint_draw_commands(
                     window.paint_path(path, rgba8(*r, *g, *b, ca));
                 }
             }
-            DrawCommand::Text { x, y, size, r, g, b, a, text } => {
+            DrawCommand::Text {
+                x,
+                y,
+                size,
+                r,
+                g,
+                b,
+                a,
+                text,
+            } => {
                 let origin = point(px(off_x + *x), px(off_y + *y));
                 let text_owned = text.clone();
                 let ca = apply_opacity(*a, opacity);
@@ -429,7 +462,17 @@ fn paint_draw_commands(
                 );
                 let _ = line.paint(origin, px(*size * 1.2), window, cx);
             }
-            DrawCommand::Line { x1, y1, x2, y2, r, g, b, a, thickness } => {
+            DrawCommand::Line {
+                x1,
+                y1,
+                x2,
+                y2,
+                r,
+                g,
+                b,
+                a,
+                thickness,
+            } => {
                 let p1 = point(px(off_x + *x1), px(off_y + *y1));
                 let p2 = point(px(off_x + *x2), px(off_y + *y2));
                 let mut pb = PathBuilder::stroke(px(*thickness));
@@ -440,14 +483,30 @@ fn paint_draw_commands(
                     window.paint_path(path, rgba8(*r, *g, *b, ca));
                 }
             }
-            DrawCommand::Image { x, y, w, h, image_id } => {
+            DrawCommand::Image {
+                x,
+                y,
+                w,
+                h,
+                image_id,
+            } => {
                 if let Some(tex) = textures.get(image_id) {
                     let min = point(px(off_x + *x), px(off_y + *y));
                     let img_bounds = Bounds::from_corners(min, min + point(px(*w), px(*h)));
                     let _ = window.paint_image(img_bounds, (0.).into(), tex.clone(), 0, false);
                 }
             }
-            DrawCommand::RoundedRect { x, y, w, h, radius, r, g, b, a } => {
+            DrawCommand::RoundedRect {
+                x,
+                y,
+                w,
+                h,
+                radius,
+                r,
+                g,
+                b,
+                a,
+            } => {
                 let min = point(px(off_x + *x), px(off_y + *y));
                 let cmd_bounds = Bounds::from_corners(min, min + point(px(*w), px(*h)));
                 if !clipped_out(clip, cmd_bounds) {
@@ -460,7 +519,18 @@ fn paint_draw_commands(
                     }
                 }
             }
-            DrawCommand::Arc { cx, cy, radius, start_angle, end_angle, r, g, b, a, thickness } => {
+            DrawCommand::Arc {
+                cx,
+                cy,
+                radius,
+                start_angle,
+                end_angle,
+                r,
+                g,
+                b,
+                a,
+                thickness,
+            } => {
                 let pts = arc_polyline(off_x + *cx, off_y + *cy, *radius, *start_angle, *end_angle);
                 if pts.len() >= 2 {
                     let mut pb = PathBuilder::stroke(px(*thickness));
@@ -474,7 +544,21 @@ fn paint_draw_commands(
                     }
                 }
             }
-            DrawCommand::Bezier { x1, y1, cp1x, cp1y, cp2x, cp2y, x2, y2, r, g, b, a, thickness } => {
+            DrawCommand::Bezier {
+                x1,
+                y1,
+                cp1x,
+                cp1y,
+                cp2x,
+                cp2y,
+                x2,
+                y2,
+                r,
+                g,
+                b,
+                a,
+                thickness,
+            } => {
                 let p1 = point(px(off_x + *x1), px(off_y + *y1));
                 let p2 = point(px(off_x + *x2), px(off_y + *y2));
                 let c1 = point(px(off_x + *cp1x), px(off_y + *cp1y));
@@ -487,8 +571,32 @@ fn paint_draw_commands(
                     window.paint_path(path, rgba8(*r, *g, *b, ca));
                 }
             }
-            DrawCommand::Gradient { x, y, w, h, kind, ax, ay, bx, by, stops } => {
-                paint_gradient(window, off_x + *x, off_y + *y, *w, *h, *kind, *ax, *ay, *bx, *by, stops, opacity);
+            DrawCommand::Gradient {
+                x,
+                y,
+                w,
+                h,
+                kind,
+                ax,
+                ay,
+                bx,
+                by,
+                stops,
+            } => {
+                paint_gradient(
+                    window,
+                    off_x + *x,
+                    off_y + *y,
+                    *w,
+                    *h,
+                    *kind,
+                    *ax,
+                    *ay,
+                    *bx,
+                    *by,
+                    stops,
+                    opacity,
+                );
             }
         }
     }
@@ -541,14 +649,17 @@ fn rounded_rect_polygon(x: f32, y: f32, w: f32, h: f32, radius: f32) -> Vec<Poin
     let mut pts = Vec::with_capacity(segs * 4 + 4);
     for corner in 0..4 {
         let (corner_x, corner_y, angle_start) = match corner {
-            0 => (x + w - r, y + r, -std::f32::consts::FRAC_PI_2),     // top-right
-            1 => (x + w - r, y + h - r, 0.0),                           // bottom-right
-            2 => (x + r, y + h - r, std::f32::consts::FRAC_PI_2),       // bottom-left
-            _ => (x + r, y + r, std::f32::consts::PI),                   // top-left
+            0 => (x + w - r, y + r, -std::f32::consts::FRAC_PI_2), // top-right
+            1 => (x + w - r, y + h - r, 0.0),                      // bottom-right
+            2 => (x + r, y + h - r, std::f32::consts::FRAC_PI_2),  // bottom-left
+            _ => (x + r, y + r, std::f32::consts::PI),             // top-left
         };
         for i in 0..=segs {
             let t = angle_start + (i as f32 / segs as f32) * std::f32::consts::FRAC_PI_2;
-            pts.push(point(px(corner_x + r * t.cos()), px(corner_y + r * t.sin())));
+            pts.push(point(
+                px(corner_x + r * t.cos()),
+                px(corner_y + r * t.sin()),
+            ));
         }
     }
     pts
@@ -556,7 +667,9 @@ fn rounded_rect_polygon(x: f32, y: f32, w: f32, h: f32, radius: f32) -> Vec<Poin
 
 fn arc_polyline(cx: f32, cy: f32, radius: f32, start: f32, end: f32) -> Vec<Point<Pixels>> {
     let sweep = end - start;
-    let n = ((sweep.abs() / std::f32::consts::TAU) * 24.0).ceil().max(2.0) as usize;
+    let n = ((sweep.abs() / std::f32::consts::TAU) * 24.0)
+        .ceil()
+        .max(2.0) as usize;
     (0..=n)
         .map(|i| {
             let t = start + (i as f32 / n as f32) * sweep;
@@ -631,9 +744,18 @@ fn sample_gradient(stops: &[GradientStop], t: f32) -> (u8, u8, u8, u8) {
         }
     }
     let range = hi.offset - lo.offset;
-    let frac = if range > 0.0 { (t - lo.offset) / range } else { 0.0 };
+    let frac = if range > 0.0 {
+        (t - lo.offset) / range
+    } else {
+        0.0
+    };
     let lerp = |a: u8, b: u8| -> u8 { (a as f32 + (b as f32 - a as f32) * frac).round() as u8 };
-    (lerp(lo.r, hi.r), lerp(lo.g, hi.g), lerp(lo.b, hi.b), lerp(lo.a, hi.a))
+    (
+        lerp(lo.r, hi.r),
+        lerp(lo.g, hi.g),
+        lerp(lo.b, hi.b),
+        lerp(lo.a, hi.a),
+    )
 }
 
 /// Result of a background `rfd` file dialog (must not run inside GPUI `App::update` — modal + focus events re-enter and panic).
