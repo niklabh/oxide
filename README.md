@@ -1,10 +1,14 @@
 # Oxide — A Binary-First Browser
 
+[![Release](https://img.shields.io/github/v/release/niklabh/oxide?style=flat-square)](https://github.com/niklabh/oxide/releases)
+[![Crates.io](https://img.shields.io/crates/v/oxide-sdk?style=flat-square)](https://crates.io/crates/oxide-sdk)
+[![License](https://img.shields.io/crates/l/oxide-sdk?style=flat-square)](https://github.com/niklabh/oxide/blob/main/LICENSE)
+[![docs.rs](https://img.shields.io/docsrs/oxide-sdk?style=flat-square)](https://docs.rs/oxide-sdk)
+[![CI](https://img.shields.io/github/actions/workflow/status/niklabh/oxide/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/niklabh/oxide/actions/workflows/ci.yml)
+
 Oxide is a decentralised browser that fetches and executes `.wasm` (WebAssembly) modules instead of HTML/JavaScript. Guest applications run in a secure, sandboxed environment with capability-based access to host APIs.
 
 ![oxide](screens/oxide.png)
-
-![GitHub Workflow Status](https://img.shields.io/github/actions/workflow/status/niklabh/oxide/ci.yml?branch=main)
 
 
 ## Quick Start
