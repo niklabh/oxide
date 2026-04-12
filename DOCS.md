@@ -515,6 +515,9 @@ Connection state constants: `RTC_STATE_NEW` (0), `RTC_STATE_CONNECTING` (1), `RT
 | Function | Signature | Description |
 |----------|-----------|-------------|
 | `rtc_add_track` | `fn(peer_id: u32, kind: u32) -> u32` | Attach a media track (`RTC_TRACK_AUDIO`=0, `RTC_TRACK_VIDEO`=1) |
+| `rtc_poll_track` | `fn(peer_id: u32) -> Option<RtcTrackInfo>` | Poll for remote media tracks added by the peer |
+
+`RtcTrackInfo` has fields: `kind: u32`, `id: String`, `stream_id: String`.
 
 #### Signaling
 

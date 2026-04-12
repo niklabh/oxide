@@ -41,12 +41,20 @@ struct PendingChannel {
     label: String,
 }
 
+/// Metadata about a remote media track received via `on_track`.
+struct PendingTrack {
+    kind: u32,
+    id: String,
+    stream_id: String,
+}
+
 /// Per-peer state: the connection object plus event queues polled by the guest.
 struct PeerState {
     conn: Arc<RTCPeerConnection>,
     data_channels: HashMap<u32, Arc<RTCDataChannel>>,
     incoming_messages: Arc<Mutex<VecDeque<IncomingMessage>>>,
     pending_channels: Arc<Mutex<VecDeque<PendingChannel>>>,
+    pending_tracks: Arc<Mutex<VecDeque<PendingTrack>>>,
     ice_candidates: Arc<Mutex<VecDeque<String>>>,
     connection_state: Arc<Mutex<u32>>,
     next_channel_id: u32,
@@ -140,6 +148,8 @@ impl RtcState {
             Arc::new(Mutex::new(VecDeque::new()));
         let pending_channels: Arc<Mutex<VecDeque<PendingChannel>>> =
             Arc::new(Mutex::new(VecDeque::new()));
+        let pending_tracks: Arc<Mutex<VecDeque<PendingTrack>>> =
+            Arc::new(Mutex::new(VecDeque::new()));
 
         // Wire up connection state callback.
         let cs = connection_state.clone();
@@ -189,6 +199,22 @@ impl RtcState {
             Box::pin(async {})
         }));
 
+        // Wire up incoming remote media tracks.
+        let tracks = pending_tracks.clone();
+        conn.on_track(Box::new(move |track, _receiver, _transceiver| {
+            let kind = match track.kind() {
+                webrtc::rtp_transceiver::rtp_codec::RTPCodecType::Audio => 0,
+                webrtc::rtp_transceiver::rtp_codec::RTPCodecType::Video => 1,
+                _ => 2,
+            };
+            tracks.lock().unwrap().push_back(PendingTrack {
+                kind,
+                id: track.id().to_string(),
+                stream_id: track.stream_id().to_string(),
+            });
+            Box::pin(async {})
+        }));
+
         self.peers.insert(
             peer_id,
             PeerState {
@@ -196,6 +222,7 @@ impl RtcState {
                 data_channels: HashMap::new(),
                 incoming_messages,
                 pending_channels,
+                pending_tracks,
                 ice_candidates,
                 connection_state,
                 next_channel_id: 1,
@@ -371,6 +398,12 @@ impl RtcState {
         self.peers
             .get(&peer_id)
             .and_then(|p| p.pending_channels.lock().unwrap().pop_front())
+    }
+
+    fn poll_track(&self, peer_id: u32) -> Option<PendingTrack> {
+        self.peers
+            .get(&peer_id)
+            .and_then(|p| p.pending_tracks.lock().unwrap().pop_front())
     }
 
     fn add_track(&mut self, peer_id: u32, kind: u32) -> Result<u32> {
@@ -901,6 +934,36 @@ pub fn register_rtc_functions(linker: &mut Linker<HostState>) -> Result<()> {
                     }
                 },
                 None => 0,
+            }
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_rtc_poll_track",
+        |mut caller: Caller<'_, HostState>, peer_id: u32, out_ptr: u32, out_cap: u32| -> i32 {
+            let mem = match caller.data().memory {
+                Some(m) => m,
+                None => return -4,
+            };
+            let rtc = caller.data().rtc.clone();
+            let g = rtc.lock().unwrap();
+            match g.as_ref() {
+                Some(r) => match r.poll_track(peer_id) {
+                    Some(t) => {
+                        let info = format!("{}:{}:{}", t.kind, t.id, t.stream_id);
+                        let bytes = info.as_bytes();
+                        let write_len = bytes.len().min(out_cap as usize);
+                        if write_guest_bytes(&mem, &mut caller, out_ptr, &bytes[..write_len])
+                            .is_err()
+                        {
+                            return -4;
+                        }
+                        write_len as i32
+                    }
+                    None => 0,
+                },
+                None => -1,
             }
         },
     )?;

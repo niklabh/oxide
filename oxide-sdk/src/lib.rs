@@ -708,6 +708,9 @@ extern "C" {
     #[link_name = "api_rtc_add_track"]
     fn _api_rtc_add_track(peer_id: u32, kind: u32) -> u32;
 
+    #[link_name = "api_rtc_poll_track"]
+    fn _api_rtc_poll_track(peer_id: u32, out_ptr: u32, out_cap: u32) -> i32;
+
     #[link_name = "api_rtc_signal_connect"]
     fn _api_rtc_signal_connect(url_ptr: u32, url_len: u32) -> u32;
 
@@ -1824,6 +1827,39 @@ pub fn rtc_poll_data_channel(peer_id: u32) -> Option<RtcDataChannelInfo> {
 /// Returns a track handle (`> 0`) or `0` on failure.
 pub fn rtc_add_track(peer_id: u32, kind: u32) -> u32 {
     unsafe { _api_rtc_add_track(peer_id, kind) }
+}
+
+/// Information about a remote media track received from a peer.
+pub struct RtcTrackInfo {
+    /// `RTC_TRACK_AUDIO` (0) or `RTC_TRACK_VIDEO` (1).
+    pub kind: u32,
+    /// Track identifier chosen by the remote peer.
+    pub id: String,
+    /// Media stream identifier the track belongs to.
+    pub stream_id: String,
+}
+
+/// Poll for a remote media track added by the peer.
+///
+/// Returns `None` when no new tracks are pending.
+pub fn rtc_poll_track(peer_id: u32) -> Option<RtcTrackInfo> {
+    let mut buf = vec![0u8; 1024];
+    let n = unsafe {
+        _api_rtc_poll_track(peer_id, buf.as_mut_ptr() as u32, buf.len() as u32)
+    };
+    if n <= 0 {
+        return None;
+    }
+    let info = String::from_utf8_lossy(&buf[..n as usize]).to_string();
+    let mut parts = info.splitn(3, ':');
+    let kind = parts.next().unwrap_or("2").parse().unwrap_or(2);
+    let id = parts.next().unwrap_or("").to_string();
+    let stream_id = parts.next().unwrap_or("").to_string();
+    Some(RtcTrackInfo {
+        kind,
+        id,
+        stream_id,
+    })
 }
 
 /// Connect to a signaling server at `url` for bootstrapping peer connections.

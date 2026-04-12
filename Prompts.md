@@ -1,6 +1,6 @@
 # Pull Request
 
-Run cargo fmt --all -- --check
+Run cargo fmt --all
 Run cargo clippy --workspace --all-targets -- -D warnings
 Run cargo test --workspace
 

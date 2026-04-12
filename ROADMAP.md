@@ -157,7 +157,7 @@ The core architecture is live: a Rust-native browser that fetches and executes `
 ### Media Streams
 
 - [x] `rtc_add_track(stream, track)` — attach audio/video tracks to peer connections
-- [x] `rtc_on_track(callback)` — receive remote media tracks (poll-based via `rtc_poll_data_channel`)
+- [x] `rtc_on_track(callback)` — receive remote media tracks (poll-based via `rtc_poll_track`)
 - [x] Codec negotiation (VP8, VP9, AV1, Opus)
 - [x] Bandwidth estimation and adaptive quality
 
