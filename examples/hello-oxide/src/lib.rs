@@ -123,11 +123,22 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         );
     }
 
+    // ── Download link demo ─────────────────────────────────────────
+    canvas_text(20.0, 455.0, 16.0, 180, 140, 255, 255, "Download");
+
+    let link_y = 480.0;
+    let link_text = "robots.txt from GitHub";
+    let link_url = "https://github.com/robots.txt";
+    canvas_rect(20.0, link_y, 260.0, 28.0, 40, 40, 60, 200);
+    canvas_text(30.0, link_y + 6.0, 14.0, 120, 180, 255, 255, link_text);
+    canvas_text(220.0, link_y + 6.0, 14.0, 100, 100, 130, 255, " ⬇");
+    register_hyperlink(20.0, link_y, 260.0, 28.0, link_url);
+
     // ── Mouse info ──────────────────────────────────────────────────
     let (mx, my) = mouse_position();
     canvas_text(
         20.0,
-        455.0,
+        525.0,
         12.0,
         100,
         100,

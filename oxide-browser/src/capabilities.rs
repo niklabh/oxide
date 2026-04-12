@@ -22,6 +22,7 @@ use wasmtime::*;
 use crate::audio_format;
 use crate::bookmarks::SharedBookmarkStore;
 use crate::engine::ModuleLoader;
+use crate::history::SharedHistoryStore;
 use crate::navigation::NavigationStack;
 use crate::subtitle;
 use crate::url as oxide_url;
@@ -147,6 +148,8 @@ pub struct HostState {
     pub canvas_offset: Arc<Mutex<(f32, f32)>>,
     /// Persistent bookmark storage shared across tabs.
     pub bookmark_store: SharedBookmarkStore,
+    /// Persistent browsing history shared across tabs.
+    pub history_store: SharedHistoryStore,
     /// Audio playback engine (lazily initialised on first audio API call).
     pub audio: Arc<Mutex<Option<AudioEngine>>>,
     /// `Content-Type` from the last `api_audio_play_url` response (UTF-8), for codec negotiation introspection.
@@ -519,6 +522,7 @@ impl Default for HostState {
             widget_clicked: Arc::new(Mutex::new(HashSet::new())),
             canvas_offset: Arc::new(Mutex::new((0.0, 0.0))),
             bookmark_store: crate::bookmarks::new_shared(),
+            history_store: Arc::new(Mutex::new(None)),
             audio: Arc::new(Mutex::new(None)),
             last_audio_url_content_type: Arc::new(Mutex::new(String::new())),
             video: Arc::new(Mutex::new(VideoPlaybackState::default())),

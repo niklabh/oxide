@@ -1,3 +1,6 @@
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::doc_overindented_list_items)]
+
 //! # Oxide SDK
 //!
 //! Guest-side SDK for building WebAssembly applications that run inside the

@@ -14,6 +14,7 @@ use wasmtime::*;
 use crate::bookmarks::BookmarkStore;
 use crate::capabilities::{drain_expired_timers, register_host_functions, HostState};
 use crate::engine::{ModuleLoader, SandboxPolicy, WasmEngine};
+use crate::history::HistoryStore;
 use crate::url::OxideUrl;
 
 /// Current lifecycle state of a browser tab, reflected in the UI and shared across threads.
@@ -118,11 +119,14 @@ impl BrowserHost {
 
         let bookmark_store =
             BookmarkStore::open(&kv_db).context("failed to initialize bookmark store")?;
+        let history_store =
+            HistoryStore::open(&kv_db).context("failed to initialize history store")?;
 
         let host_state = HostState {
             module_loader: Some(loader),
-            kv_db: Some(kv_db),
+            kv_db: Some(kv_db.clone()),
             bookmark_store: Arc::new(Mutex::new(Some(bookmark_store))),
+            history_store: Arc::new(Mutex::new(Some(history_store))),
             ..Default::default()
         };
 

@@ -306,6 +306,7 @@ impl<'a> ProtoDecoder<'a> {
         Self { buf, pos: 0 }
     }
 
+    #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> Option<ProtoField<'a>> {
         if self.pos >= self.buf.len() {
             return None;
