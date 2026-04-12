@@ -537,18 +537,16 @@ use oxide_sdk::*;
 
 static mut PEER: u32 = 0;
 static mut CHANNEL: u32 = 0;
+static mut GREETED: bool = false;
 
 #[no_mangle]
 pub extern "C" fn start_app() {
-    // Create a peer with default STUN server
     let peer = rtc_create_peer("");
     unsafe { PEER = peer; }
 
-    // Create a data channel
     let ch = rtc_create_data_channel(peer, "chat", true);
     unsafe { CHANNEL = ch; }
 
-    // Generate an SDP offer (the other peer will need this)
     match rtc_create_offer(peer) {
         Ok(sdp) => log(&format!("Share this offer:\n{sdp}")),
         Err(e) => error(&format!("Offer failed: {e}")),
@@ -559,18 +557,18 @@ pub extern "C" fn start_app() {
 pub extern "C" fn on_frame(_dt_ms: u32) {
     let (peer, ch) = unsafe { (PEER, CHANNEL) };
 
-    // Check connection state
     if rtc_connection_state(peer) == RTC_STATE_CONNECTED {
-        // Send a message
-        rtc_send_text(peer, ch, "Hello from Oxide!");
+        // Send a greeting once on connect
+        if !unsafe { GREETED } {
+            rtc_send_text(peer, ch, "Hello from Oxide!");
+            unsafe { GREETED = true; }
+        }
 
-        // Poll for incoming messages
         while let Some(msg) = rtc_recv(peer, 0) {
             log(&format!("Received: {}", msg.text()));
         }
     }
 
-    // Drain ICE candidates (exchange with the other peer)
     while let Some(candidate) = rtc_poll_ice_candidate(peer) {
         log(&format!("ICE: {candidate}"));
     }
