@@ -44,6 +44,7 @@ webrtc = "0.17.1"
 bytes = "1.11.1"
 serde_json = "1.0.149"
 futures-util = "0.3"
+tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
 
 [dev-dependencies]
 tempfile = "3"

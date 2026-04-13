@@ -110,6 +110,7 @@ pub mod ui;
 pub mod url;
 pub mod video;
 pub mod video_format;
+pub mod websocket;
 
 /// GPU-accelerated UI framework used by the desktop shell (see [GPUI](https://www.gpui.rs/)).
 ///
