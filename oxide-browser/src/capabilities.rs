@@ -100,6 +100,26 @@ impl AudioEngine {
     }
 }
 
+/// One-shot animation frame request. Queued by `api_request_animation_frame` and drained
+/// every frame (before `on_frame`) in `LiveModule::tick`. Fires the guest `callback_id` via
+/// the existing `on_timer` export exactly once.
+#[derive(Clone, Debug)]
+pub struct AnimationRequest {
+    /// Host-assigned ID (for `cancel_animation_frame`). Mirrors timer ID scheme.
+    pub id: u32,
+    /// Guest-defined ID passed to `on_timer(callback_id)` when the frame fires.
+    pub callback_id: u32,
+}
+
+/// Drain all pending animation frame requests (one-shot by design). Returns the
+/// `callback_id`s to fire via `on_timer`. The queue is cleared after draining.
+pub fn drain_animation_frame_requests(requests: &Arc<Mutex<Vec<AnimationRequest>>>) -> Vec<u32> {
+    let mut guard = requests.lock().unwrap();
+    let callback_ids: Vec<u32> = guard.iter().map(|r| r.callback_id).collect();
+    guard.clear();
+    callback_ids
+}
+
 /// All shared state between the browser host and a guest Wasm module (and dynamically loaded children).
 ///
 /// Most fields are behind [`Arc`] and [`Mutex`] so the same state can be shared across
@@ -116,6 +136,9 @@ pub struct HostState {
     pub storage: Arc<Mutex<HashMap<String, String>>>,
     /// Pending one-shot and interval timers; the host drains these and invokes `on_timer` on the guest.
     pub timers: Arc<Mutex<Vec<TimerEntry>>>,
+    /// Pending one-shot animation frame requests. Drained every frame (before timers and `on_frame`)
+    /// and fired via the existing `on_timer` export. See [`drain_animation_frame_requests`].
+    pub animation_requests: Arc<Mutex<Vec<AnimationRequest>>>,
     /// Monotonic counter used to assign unique [`TimerEntry::id`] values for `api_set_timeout` / `api_set_interval`.
     pub timer_next_id: Arc<Mutex<u32>>,
     /// Last text written to or read from the clipboard via the guest API (when permitted).
@@ -508,6 +531,7 @@ impl Default for HostState {
             })),
             storage: Arc::new(Mutex::new(HashMap::new())),
             timers: Arc::new(Mutex::new(Vec::new())),
+            animation_requests: Arc::new(Mutex::new(Vec::new())),
             timer_next_id: Arc::new(Mutex::new(1)),
             clipboard: Arc::new(Mutex::new(String::new())),
             clipboard_allowed: Arc::new(Mutex::new(false)),
@@ -1402,6 +1426,39 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
                 .lock()
                 .unwrap()
                 .retain(|t| t.id != timer_id);
+        },
+    )?;
+
+    // ── Animation Frames ──────────────────────────────────────────────
+    // One-shot per request (call again from inside `on_timer` to continue). Drained
+    // every frame in `LiveModule::tick` before regular timers/`on_frame`. Reuses
+    // `timer_next_id` counter and `on_timer` callback mechanism.
+
+    linker.func_wrap(
+        "oxide",
+        "api_request_animation_frame",
+        |caller: Caller<'_, HostState>, callback_id: u32| -> u32 {
+            let mut next = caller.data().timer_next_id.lock().unwrap();
+            let id = *next;
+            *next = next.wrapping_add(1).max(1);
+            drop(next);
+
+            let req = AnimationRequest { id, callback_id };
+            caller.data().animation_requests.lock().unwrap().push(req);
+            id
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_cancel_animation_frame",
+        |caller: Caller<'_, HostState>, request_id: u32| {
+            caller
+                .data()
+                .animation_requests
+                .lock()
+                .unwrap()
+                .retain(|r| r.id != request_id);
         },
     )?;
 
