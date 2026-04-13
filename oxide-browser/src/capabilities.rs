@@ -166,6 +166,8 @@ pub struct HostState {
     pub gpu: Arc<Mutex<Option<crate::gpu::GpuState>>>,
     /// WebRTC peer connections, data channels, and signaling (lazily initialised on first RTC call).
     pub rtc: Arc<Mutex<Option<crate::rtc::RtcState>>>,
+    /// WebSocket connections (lazily initialised on first ws call).
+    pub ws: Arc<Mutex<Option<crate::websocket::WsState>>>,
 }
 
 /// A single console log line: local time, severity, and message text.
@@ -533,6 +535,7 @@ impl Default for HostState {
             )),
             gpu: Arc::new(Mutex::new(None)),
             rtc: Arc::new(Mutex::new(None)),
+            ws: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -3462,6 +3465,9 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
 
     // ── WebRTC / Real-Time Communication API ─────────────────────────
     crate::rtc::register_rtc_functions(linker)?;
+
+    // ── WebSocket API ─────────────────────────────────────────────────
+    crate::websocket::register_ws_functions(linker)?;
 
     Ok(())
 }

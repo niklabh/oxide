@@ -96,6 +96,7 @@
 //! | **Video** | [`video_load`], [`video_load_url`], [`video_render`], [`video_play`], [`video_hls_open_variant`], [`subtitle_load_srt`] |
 //! | **Media capture** | [`camera_open`], [`camera_capture_frame`], [`microphone_open`], [`microphone_read_samples`], [`screen_capture`] |
 //! | **WebRTC** | [`rtc_create_peer`], [`rtc_create_offer`], [`rtc_create_answer`], [`rtc_create_data_channel`], [`rtc_send`], [`rtc_recv`], [`rtc_signal_connect`] |
+//! | **WebSocket** | [`ws_connect`], [`ws_send_text`], [`ws_send_binary`], [`ws_recv`], [`ws_ready_state`], [`ws_close`], [`ws_remove`] |
 //! | **Timers** | [`set_timeout`], [`set_interval`], [`clear_timer`], [`time_now_ms`] |
 //! | **Navigation** | [`navigate`], [`push_state`], [`replace_state`], [`get_url`], [`history_back`], [`history_forward`] |
 //! | **Input** | [`mouse_position`], [`mouse_button_down`], [`mouse_button_clicked`], [`key_down`], [`key_pressed`], [`scroll_delta`], [`modifiers`] |
@@ -725,6 +726,29 @@ extern "C" {
 
     #[link_name = "api_rtc_signal_recv"]
     fn _api_rtc_signal_recv(out_ptr: u32, out_cap: u32) -> i32;
+
+    // ── WebSocket API ────────────────────────────────────────────────
+
+    #[link_name = "api_ws_connect"]
+    fn _api_ws_connect(url_ptr: u32, url_len: u32) -> u32;
+
+    #[link_name = "api_ws_send_text"]
+    fn _api_ws_send_text(id: u32, data_ptr: u32, data_len: u32) -> i32;
+
+    #[link_name = "api_ws_send_binary"]
+    fn _api_ws_send_binary(id: u32, data_ptr: u32, data_len: u32) -> i32;
+
+    #[link_name = "api_ws_recv"]
+    fn _api_ws_recv(id: u32, out_ptr: u32, out_cap: u32) -> i64;
+
+    #[link_name = "api_ws_ready_state"]
+    fn _api_ws_ready_state(id: u32) -> u32;
+
+    #[link_name = "api_ws_close"]
+    fn _api_ws_close(id: u32) -> i32;
+
+    #[link_name = "api_ws_remove"]
+    fn _api_ws_remove(id: u32);
 
     // ── URL Utilities ───────────────────────────────────────────────
 
@@ -1889,6 +1913,99 @@ pub fn rtc_signal_recv() -> Option<Vec<u8>> {
     } else {
         Some(buf[..n as usize].to_vec())
     }
+}
+
+// ─── WebSocket API ───────────────────────────────────────────────────────────
+
+/// WebSocket ready-state: connection is being established.
+pub const WS_CONNECTING: u32 = 0;
+/// WebSocket ready-state: connection is open and ready.
+pub const WS_OPEN: u32 = 1;
+/// WebSocket ready-state: close handshake in progress.
+pub const WS_CLOSING: u32 = 2;
+/// WebSocket ready-state: connection is closed.
+pub const WS_CLOSED: u32 = 3;
+
+/// A received WebSocket message.
+pub struct WsMessage {
+    /// `true` when the payload is raw binary; `false` for UTF-8 text.
+    pub is_binary: bool,
+    /// Frame payload.
+    pub data: Vec<u8>,
+}
+
+impl WsMessage {
+    /// Interpret the payload as a UTF-8 string.
+    pub fn text(&self) -> String {
+        String::from_utf8_lossy(&self.data).to_string()
+    }
+}
+
+/// Open a WebSocket connection to `url` (e.g. `"ws://example.com/chat"`).
+///
+/// Returns a connection handle (`> 0`) on success, or `0` on error.
+/// The connection is established asynchronously; poll [`ws_ready_state`] until
+/// it returns [`WS_OPEN`] before sending frames.
+pub fn ws_connect(url: &str) -> u32 {
+    unsafe { _api_ws_connect(url.as_ptr() as u32, url.len() as u32) }
+}
+
+/// Send a UTF-8 text frame on the given connection.
+///
+/// Returns `0` on success, `-1` if the connection is unknown or closed.
+pub fn ws_send_text(id: u32, text: &str) -> i32 {
+    unsafe { _api_ws_send_text(id, text.as_ptr() as u32, text.len() as u32) }
+}
+
+/// Send a binary frame on the given connection.
+///
+/// Returns `0` on success, `-1` if the connection is unknown or closed.
+pub fn ws_send_binary(id: u32, data: &[u8]) -> i32 {
+    unsafe { _api_ws_send_binary(id, data.as_ptr() as u32, data.len() as u32) }
+}
+
+/// Poll for the next queued incoming frame on `id`.
+///
+/// Returns `Some(WsMessage)` if a frame is available, or `None` if the queue
+/// is empty.  The internal receive buffer is 64 KB; larger frames are
+/// truncated to that size.
+pub fn ws_recv(id: u32) -> Option<WsMessage> {
+    let mut buf = vec![0u8; 64 * 1024];
+    let result = unsafe { _api_ws_recv(id, buf.as_mut_ptr() as u32, buf.len() as u32) };
+    if result < 0 {
+        return None;
+    }
+    let len = (result & 0xFFFF_FFFF) as usize;
+    let is_binary = (result >> 32) & 1 == 1;
+    Some(WsMessage {
+        is_binary,
+        data: buf[..len].to_vec(),
+    })
+}
+
+/// Query the current ready-state of a connection.
+///
+/// Returns one of [`WS_CONNECTING`], [`WS_OPEN`], [`WS_CLOSING`], or [`WS_CLOSED`].
+pub fn ws_ready_state(id: u32) -> u32 {
+    unsafe { _api_ws_ready_state(id) }
+}
+
+/// Initiate a graceful close handshake on `id`.
+///
+/// Returns `1` if the close was initiated, `0` if the handle is unknown.
+/// After calling this function the connection will transition to [`WS_CLOSED`]
+/// asynchronously.  Call [`ws_remove`] once the state is [`WS_CLOSED`] to free
+/// host resources.
+pub fn ws_close(id: u32) -> i32 {
+    unsafe { _api_ws_close(id) }
+}
+
+/// Release host-side resources for a closed connection.
+///
+/// Call this after [`ws_ready_state`] returns [`WS_CLOSED`] to avoid resource
+/// leaks.
+pub fn ws_remove(id: u32) {
+    unsafe { _api_ws_remove(id) }
 }
 
 // ─── HTTP Fetch API ─────────────────────────────────────────────────────────
