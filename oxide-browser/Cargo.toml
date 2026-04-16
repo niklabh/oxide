@@ -46,5 +46,8 @@ serde_json = "1.0.149"
 futures-util = "0.3"
 tokio-tungstenite = { version = "0.24", features = ["native-tls"] }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+coremidi = "0.7"
+
 [dev-dependencies]
 tempfile = "3"

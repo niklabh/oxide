@@ -103,6 +103,8 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
             status,
         );
 
+        let vx = VX;
+        let vy = VY;
         canvas_text(
             20.0,
             110.0,
@@ -111,7 +113,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
             180,
             200,
             255,
-            &format!("pos: ({:.1}, {:.1})  vel: ({:.1}, {:.1})", x, y, VX, VY),
+            &format!("pos: ({:.1}, {:.1})  vel: ({:.1}, {:.1})", x, y, vx, vy),
         );
 
         // Toggle button

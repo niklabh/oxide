@@ -102,6 +102,7 @@ pub mod engine;
 pub mod gpu;
 pub mod history;
 pub mod media_capture;
+pub mod midi;
 pub mod navigation;
 pub mod rtc;
 pub mod runtime;

@@ -15,5 +15,6 @@ members = [
     "examples/gpu-graphics-demo",
     "examples/rtc-chat",
     "examples/ws-chat",
+    "examples/midi-demo",
 ]
 resolver = "2"

@@ -191,6 +191,8 @@ pub struct HostState {
     pub rtc: Arc<Mutex<Option<crate::rtc::RtcState>>>,
     /// WebSocket connections (lazily initialised on first ws call).
     pub ws: Arc<Mutex<Option<crate::websocket::WsState>>>,
+    /// MIDI input/output connections (lazily initialised on first midi_open call).
+    pub midi: Arc<Mutex<Option<crate::midi::MidiState>>>,
 }
 
 /// A single console log line: local time, severity, and message text.
@@ -560,6 +562,7 @@ impl Default for HostState {
             gpu: Arc::new(Mutex::new(None)),
             rtc: Arc::new(Mutex::new(None)),
             ws: Arc::new(Mutex::new(None)),
+            midi: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -3525,6 +3528,9 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
 
     // ── WebSocket API ─────────────────────────────────────────────────
     crate::websocket::register_ws_functions(linker)?;
+
+    // ── MIDI API ──────────────────────────────────────────────────────
+    crate::midi::register_midi_functions(linker)?;
 
     Ok(())
 }

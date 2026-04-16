@@ -756,6 +756,35 @@ extern "C" {
     #[link_name = "api_ws_remove"]
     fn _api_ws_remove(id: u32);
 
+    // ── MIDI API ────────────────────────────────────────────────────
+
+    #[link_name = "api_midi_input_count"]
+    fn _api_midi_input_count() -> u32;
+
+    #[link_name = "api_midi_output_count"]
+    fn _api_midi_output_count() -> u32;
+
+    #[link_name = "api_midi_input_name"]
+    fn _api_midi_input_name(index: u32, out_ptr: u32, out_cap: u32) -> u32;
+
+    #[link_name = "api_midi_output_name"]
+    fn _api_midi_output_name(index: u32, out_ptr: u32, out_cap: u32) -> u32;
+
+    #[link_name = "api_midi_open_input"]
+    fn _api_midi_open_input(index: u32) -> u32;
+
+    #[link_name = "api_midi_open_output"]
+    fn _api_midi_open_output(index: u32) -> u32;
+
+    #[link_name = "api_midi_send"]
+    fn _api_midi_send(handle: u32, data_ptr: u32, data_len: u32) -> i32;
+
+    #[link_name = "api_midi_recv"]
+    fn _api_midi_recv(handle: u32, out_ptr: u32, out_cap: u32) -> i32;
+
+    #[link_name = "api_midi_close"]
+    fn _api_midi_close(handle: u32);
+
     // ── URL Utilities ───────────────────────────────────────────────
 
     #[link_name = "api_url_resolve"]
@@ -2026,6 +2055,77 @@ pub fn ws_close(id: u32) -> i32 {
 /// leaks.
 pub fn ws_remove(id: u32) {
     unsafe { _api_ws_remove(id) }
+}
+
+// ─── MIDI API ────────────────────────────────────────────────────────────────
+
+/// Number of available MIDI input ports (physical and virtual).
+pub fn midi_input_count() -> u32 {
+    unsafe { _api_midi_input_count() }
+}
+
+/// Number of available MIDI output ports.
+pub fn midi_output_count() -> u32 {
+    unsafe { _api_midi_output_count() }
+}
+
+/// Name of the MIDI input port at `index`.
+///
+/// Returns an empty string if the index is out of range.
+pub fn midi_input_name(index: u32) -> String {
+    let mut buf = [0u8; 128];
+    let len = unsafe { _api_midi_input_name(index, buf.as_mut_ptr() as u32, buf.len() as u32) };
+    String::from_utf8_lossy(&buf[..len as usize]).to_string()
+}
+
+/// Name of the MIDI output port at `index`.
+///
+/// Returns an empty string if the index is out of range.
+pub fn midi_output_name(index: u32) -> String {
+    let mut buf = [0u8; 128];
+    let len = unsafe { _api_midi_output_name(index, buf.as_mut_ptr() as u32, buf.len() as u32) };
+    String::from_utf8_lossy(&buf[..len as usize]).to_string()
+}
+
+/// Open a MIDI input port by index and start receiving messages.
+///
+/// Returns a handle (`> 0`) on success, or `0` if the port could not be opened.
+/// Incoming messages are queued internally; drain them with [`midi_recv`].
+pub fn midi_open_input(index: u32) -> u32 {
+    unsafe { _api_midi_open_input(index) }
+}
+
+/// Open a MIDI output port by index for sending messages.
+///
+/// Returns a handle (`> 0`) on success, or `0` on failure.
+pub fn midi_open_output(index: u32) -> u32 {
+    unsafe { _api_midi_open_output(index) }
+}
+
+/// Send raw MIDI bytes on an output `handle`.
+///
+/// Returns `0` on success, `-1` if the handle is unknown or the send failed.
+pub fn midi_send(handle: u32, data: &[u8]) -> i32 {
+    unsafe { _api_midi_send(handle, data.as_ptr() as u32, data.len() as u32) }
+}
+
+/// Poll for the next queued MIDI message on an input `handle`.
+///
+/// Returns `Some(bytes)` if a message is available, or `None` if the queue
+/// is empty. MIDI messages are typically 1–3 bytes; SysEx can be longer.
+pub fn midi_recv(handle: u32) -> Option<Vec<u8>> {
+    let mut buf = [0u8; 256];
+    let n = unsafe { _api_midi_recv(handle, buf.as_mut_ptr() as u32, buf.len() as u32) };
+    if n < 0 {
+        None
+    } else {
+        Some(buf[..n as usize].to_vec())
+    }
+}
+
+/// Close a MIDI input or output handle and free host-side resources.
+pub fn midi_close(handle: u32) {
+    unsafe { _api_midi_close(handle) }
 }
 
 // ─── HTTP Fetch API ─────────────────────────────────────────────────────────

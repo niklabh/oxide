@@ -1,0 +1,11 @@
+[package]
+name = "midi-demo"
+version = "0.1.0"
+edition = "2021"
+description = "MIDI monitor and piano visualizer for the Oxide browser"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+oxide-sdk = { path = "../../oxide-sdk" }
