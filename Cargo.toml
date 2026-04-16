@@ -5,6 +5,7 @@ members = [
     "oxide-docs",
     "examples/hello-oxide",
     "examples/audio-player",
+    "examples/raf-demo",
     "examples/timer-demo",
     "examples/fullstack-notes/frontend",
     "examples/fullstack-notes/backend",

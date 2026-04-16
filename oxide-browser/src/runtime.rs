@@ -12,7 +12,9 @@ use anyhow::{Context, Result};
 use wasmtime::*;
 
 use crate::bookmarks::BookmarkStore;
-use crate::capabilities::{drain_expired_timers, register_host_functions, HostState};
+use crate::capabilities::{
+    drain_animation_frame_requests, drain_expired_timers, register_host_functions, HostState,
+};
 use crate::engine::{ModuleLoader, SandboxPolicy, WasmEngine};
 use crate::history::HistoryStore;
 use crate::url::OxideUrl;
@@ -35,7 +37,7 @@ const FRAME_FUEL_LIMIT: u64 = 50_000_000;
 /// A Wasmtime [`Store`] and typed guest exports kept alive across frames for interactive apps.
 ///
 /// Constructed when the module exports `on_frame`. The store holds [`HostState`] (canvas, console,
-/// timers, etc.) for the lifetime of the tab.
+/// timers, animation requests, etc.) for the lifetime of the tab.
 pub struct LiveModule {
     store: Store<HostState>,
     on_frame_fn: TypedFunc<u32, ()>,
@@ -43,14 +45,35 @@ pub struct LiveModule {
 }
 
 impl LiveModule {
-    /// Advances one frame: drains expired timers and invokes `on_timer(callback_id)` for each,
-    /// then calls `on_frame(dt_ms)` with the elapsed time in milliseconds.
+    /// Advances one frame: drains animation frame requests and expired timers (both invoke
+    /// `on_timer(callback_id)`), then calls `on_frame(dt_ms)`.
     ///
-    /// Timer and frame work each run with a bounded fuel budget; exhaustion is surfaced as an
-    /// error or logged to the guest console.
+    /// Animation requests (from `request_animation_frame`) are one-shot and fire every frame
+    /// they are queued. All callbacks run with bounded fuel. Errors are logged to console.
     pub fn tick(&mut self, dt_ms: u32) -> Result<()> {
-        // Fire any expired timers before the frame update.
         if let Some(ref on_timer) = self.on_timer_fn {
+            // Animation frames first (vsync-aligned, one-shot).
+            let anim = self.store.data().animation_requests.clone();
+            let fired_anim = drain_animation_frame_requests(&anim);
+            for callback_id in fired_anim {
+                self.store
+                    .set_fuel(FRAME_FUEL_LIMIT)
+                    .context("failed to set animation frame fuel")?;
+                if let Err(e) = on_timer.call(&mut self.store, callback_id) {
+                    let msg = if e.to_string().contains("fuel") {
+                        format!("on_timer(raf:{callback_id}) fuel limit exceeded")
+                    } else {
+                        format!("on_timer(raf:{callback_id}) trapped: {e}")
+                    };
+                    crate::capabilities::console_log(
+                        &self.store.data().console,
+                        crate::capabilities::ConsoleLevel::Error,
+                        msg,
+                    );
+                }
+            }
+
+            // Regular timers.
             let timers = self.store.data().timers.clone();
             let fired = drain_expired_timers(&timers);
             for callback_id in fired {

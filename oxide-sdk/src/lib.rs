@@ -97,7 +97,7 @@
 //! | **Media capture** | [`camera_open`], [`camera_capture_frame`], [`microphone_open`], [`microphone_read_samples`], [`screen_capture`] |
 //! | **WebRTC** | [`rtc_create_peer`], [`rtc_create_offer`], [`rtc_create_answer`], [`rtc_create_data_channel`], [`rtc_send`], [`rtc_recv`], [`rtc_signal_connect`] |
 //! | **WebSocket** | [`ws_connect`], [`ws_send_text`], [`ws_send_binary`], [`ws_recv`], [`ws_ready_state`], [`ws_close`], [`ws_remove`] |
-//! | **Timers** | [`set_timeout`], [`set_interval`], [`clear_timer`], [`time_now_ms`] |
+//! | **Timers** | [`set_timeout`], [`set_interval`], [`clear_timer`], [`request_animation_frame`], [`cancel_animation_frame`], [`time_now_ms`] |
 //! | **Navigation** | [`navigate`], [`push_state`], [`replace_state`], [`get_url`], [`history_back`], [`history_forward`] |
 //! | **Input** | [`mouse_position`], [`mouse_button_down`], [`mouse_button_clicked`], [`key_down`], [`key_pressed`], [`scroll_delta`], [`modifiers`] |
 //! | **Widgets** | [`ui_button`], [`ui_checkbox`], [`ui_slider`], [`ui_text_input`] |
@@ -112,7 +112,7 @@
 //! 2. **Optionally export `on_frame`** — `extern "C" fn(dt_ms: u32)` for
 //!    interactive apps with a render loop (called every frame, fuel replenished).
 //! 3. **Optionally export `on_timer`** — `extern "C" fn(callback_id: u32)`
-//!    to receive timer callbacks from [`set_timeout`] / [`set_interval`].
+//!    to receive callbacks from [`set_timeout`], [`set_interval`], and [`request_animation_frame`].
 //! 4. **Compile as `cdylib`** — `crate-type = ["cdylib"]` in `Cargo.toml`.
 //! 5. **Target `wasm32-unknown-unknown`** — no WASI, pure capability-based I/O.
 //!
@@ -288,6 +288,12 @@ extern "C" {
 
     #[link_name = "api_clear_timer"]
     fn _api_clear_timer(timer_id: u32);
+
+    #[link_name = "api_request_animation_frame"]
+    fn _api_request_animation_frame(callback_id: u32) -> u32;
+
+    #[link_name = "api_cancel_animation_frame"]
+    fn _api_cancel_animation_frame(request_id: u32);
 
     #[link_name = "api_random"]
     fn _api_random() -> u64;
@@ -1204,6 +1210,20 @@ pub fn set_interval(callback_id: u32, interval_ms: u32) -> u32 {
 /// Cancel a timer previously created with [`set_timeout`] or [`set_interval`].
 pub fn clear_timer(timer_id: u32) {
     unsafe { _api_clear_timer(timer_id) }
+}
+
+/// Schedule a callback for the next animation frame (vsync-aligned repaint).
+///
+/// The host calls your exported `on_timer(callback_id)` with the provided ID on the
+/// subsequent frame. Returns a request ID usable with [`cancel_animation_frame`].
+/// Call `request_animation_frame` again from inside the callback to keep animating.
+pub fn request_animation_frame(callback_id: u32) -> u32 {
+    unsafe { _api_request_animation_frame(callback_id) }
+}
+
+/// Cancel a pending animation frame request.
+pub fn cancel_animation_frame(request_id: u32) {
+    unsafe { _api_cancel_animation_frame(request_id) }
 }
 
 // ─── Random API ─────────────────────────────────────────────────────────────
