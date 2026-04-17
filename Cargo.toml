@@ -16,5 +16,6 @@ members = [
     "examples/rtc-chat",
     "examples/ws-chat",
     "examples/midi-demo",
+    "examples/stream-fetch-demo",
 ]
 resolver = "2"

@@ -193,6 +193,8 @@ pub struct HostState {
     pub ws: Arc<Mutex<Option<crate::websocket::WsState>>>,
     /// MIDI input/output connections (lazily initialised on first midi_open call).
     pub midi: Arc<Mutex<Option<crate::midi::MidiState>>>,
+    /// Streaming / non-blocking fetch state (lazily initialised on first `api_fetch_begin`).
+    pub fetch: Arc<Mutex<Option<crate::fetch::FetchState>>>,
 }
 
 /// A single console log line: local time, severity, and message text.
@@ -563,6 +565,7 @@ impl Default for HostState {
             rtc: Arc::new(Mutex::new(None)),
             ws: Arc::new(Mutex::new(None)),
             midi: Arc::new(Mutex::new(None)),
+            fetch: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -3498,6 +3501,9 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
 
     // ── MIDI API ──────────────────────────────────────────────────────
     crate::midi::register_midi_functions(linker)?;
+
+    // ── Streaming / non-blocking Fetch API ────────────────────────────
+    crate::fetch::register_fetch_functions(linker)?;
 
     Ok(())
 }

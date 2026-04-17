@@ -255,8 +255,8 @@ The core architecture is live: a Rust-native browser that fetches and executes `
 
 ### Async I/O
 
-- [ ] Non-blocking fetch with callback/promise-style API
-- [ ] Streaming response bodies (chunked transfer)
+- [x] Non-blocking fetch with callback/promise-style API (poll-based via `fetch_begin` / `fetch_state` / `fetch_recv`)
+- [x] Streaming response bodies (chunked transfer) via `fetch_recv`
 - [x] WebSocket support: `ws_connect(url)`, `ws_send_text()`, `ws_send_binary()`, `ws_recv()`, `ws_ready_state()`, `ws_close()`
 - [ ] Server-sent events (SSE) for push updates
 

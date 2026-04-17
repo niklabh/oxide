@@ -90,6 +90,7 @@
 //! | **GPU** | [`gpu_create_buffer`], [`gpu_create_texture`], [`gpu_create_shader`], [`gpu_create_pipeline`], [`gpu_draw`], [`gpu_dispatch_compute`] |
 //! | **Console** | [`log`], [`warn`], [`error`] |
 //! | **HTTP** | [`fetch`], [`fetch_get`], [`fetch_post`], [`fetch_post_proto`], [`fetch_put`], [`fetch_delete`] |
+//! | **HTTP (streaming)** | [`fetch_begin`], [`fetch_begin_get`], [`fetch_state`], [`fetch_status`], [`fetch_recv`], [`fetch_error`], [`fetch_abort`], [`fetch_remove`] |
 //! | **Protobuf** | [`proto::ProtoEncoder`], [`proto::ProtoDecoder`] |
 //! | **Storage** | [`storage_set`], [`storage_get`], [`storage_remove`], [`kv_store_set`], [`kv_store_get`], [`kv_store_delete`] |
 //! | **Audio** | [`audio_play`], [`audio_play_url`], [`audio_detect_format`], [`audio_play_with_format`], [`audio_pause`], [`audio_channel_play`] |
@@ -315,6 +316,36 @@ extern "C" {
         out_ptr: u32,
         out_cap: u32,
     ) -> i64;
+
+    #[link_name = "api_fetch_begin"]
+    fn _api_fetch_begin(
+        method_ptr: u32,
+        method_len: u32,
+        url_ptr: u32,
+        url_len: u32,
+        ct_ptr: u32,
+        ct_len: u32,
+        body_ptr: u32,
+        body_len: u32,
+    ) -> u32;
+
+    #[link_name = "api_fetch_state"]
+    fn _api_fetch_state(id: u32) -> u32;
+
+    #[link_name = "api_fetch_status"]
+    fn _api_fetch_status(id: u32) -> u32;
+
+    #[link_name = "api_fetch_recv"]
+    fn _api_fetch_recv(id: u32, out_ptr: u32, out_cap: u32) -> i64;
+
+    #[link_name = "api_fetch_error"]
+    fn _api_fetch_error(id: u32, out_ptr: u32, out_cap: u32) -> i32;
+
+    #[link_name = "api_fetch_abort"]
+    fn _api_fetch_abort(id: u32) -> i32;
+
+    #[link_name = "api_fetch_remove"]
+    fn _api_fetch_remove(id: u32);
 
     #[link_name = "api_load_module"]
     fn _api_load_module(url_ptr: u32, url_len: u32) -> i32;
@@ -2214,6 +2245,137 @@ pub fn fetch_put(url: &str, content_type: &str, body: &[u8]) -> Result<FetchResp
 /// HTTP DELETE.
 pub fn fetch_delete(url: &str) -> Result<FetchResponse, i64> {
     fetch("DELETE", url, "", &[])
+}
+
+// ─── Streaming / non-blocking fetch ─────────────────────────────────────────
+//
+// The [`fetch`] family above blocks the guest until the response is fully
+// downloaded. For LLM token streams, large downloads, chunked feeds, or any
+// app that wants to keep rendering while a request is in flight, use the
+// handle-based API below. It mirrors the WebSocket API: dispatch with
+// `fetch_begin`, then poll `fetch_state`, `fetch_status`, and `fetch_recv`.
+
+/// Request dispatched; waiting for response headers.
+pub const FETCH_PENDING: u32 = 0;
+/// Headers received; body chunks may still be arriving.
+pub const FETCH_STREAMING: u32 = 1;
+/// Body fully delivered (the queue may still have trailing chunks to drain).
+pub const FETCH_DONE: u32 = 2;
+/// Request failed. Call [`fetch_error`] for the message.
+pub const FETCH_ERROR: u32 = 3;
+/// Request was aborted by the guest.
+pub const FETCH_ABORTED: u32 = 4;
+
+/// Result of a non-blocking [`fetch_recv`] poll.
+pub enum FetchChunk {
+    /// One body chunk (may be part of a larger network chunk if it didn't fit
+    /// in the caller's buffer).
+    Data(Vec<u8>),
+    /// No chunk is available right now, but more may still arrive. Call
+    /// [`fetch_recv`] again next frame.
+    Pending,
+    /// The body has been fully delivered and all chunks have been drained.
+    End,
+    /// The request failed or was aborted. Inspect [`fetch_state`] and
+    /// [`fetch_error`] for details.
+    Error,
+}
+
+/// Dispatch an HTTP request that streams its response back to the guest.
+///
+/// Returns a handle (`> 0`) that identifies the request for subsequent polls,
+/// or `0` if the host could not initialise the fetch subsystem. The call
+/// returns immediately — the request is driven by a background task.
+///
+/// Pass `""` for `content_type` to omit the header, and `&[]` for `body` on
+/// requests without a payload.
+pub fn fetch_begin(method: &str, url: &str, content_type: &str, body: &[u8]) -> u32 {
+    unsafe {
+        _api_fetch_begin(
+            method.as_ptr() as u32,
+            method.len() as u32,
+            url.as_ptr() as u32,
+            url.len() as u32,
+            content_type.as_ptr() as u32,
+            content_type.len() as u32,
+            body.as_ptr() as u32,
+            body.len() as u32,
+        )
+    }
+}
+
+/// Convenience wrapper for GET.
+pub fn fetch_begin_get(url: &str) -> u32 {
+    fetch_begin("GET", url, "", &[])
+}
+
+/// Current lifecycle state of a streaming request. See the `FETCH_*` constants.
+pub fn fetch_state(handle: u32) -> u32 {
+    unsafe { _api_fetch_state(handle) }
+}
+
+/// HTTP status code for `handle`, or `0` until the response headers arrive.
+pub fn fetch_status(handle: u32) -> u32 {
+    unsafe { _api_fetch_status(handle) }
+}
+
+/// Poll the next body chunk into a caller-provided scratch buffer.
+///
+/// Use this form when you want to avoid per-chunk heap allocations. Prefer
+/// [`fetch_recv`] for ergonomics in higher-level code.
+///
+/// Returns the number of bytes written into `buf` (which may be smaller than
+/// the chunk the host has queued — in which case the remainder will be
+/// returned on the next call), or one of the negative sentinels documented by
+/// the host (`-1` pending, `-2` EOF, `-3` error, `-4` unknown handle).
+pub fn fetch_recv_into(handle: u32, buf: &mut [u8]) -> i64 {
+    unsafe { _api_fetch_recv(handle, buf.as_mut_ptr() as u32, buf.len() as u32) }
+}
+
+/// Poll the next body chunk as an owned `Vec<u8>`.
+///
+/// Chunks larger than 64 KiB are read in 64 KiB slices; call `fetch_recv`
+/// repeatedly to drain the full network chunk.
+pub fn fetch_recv(handle: u32) -> FetchChunk {
+    let mut buf = vec![0u8; 64 * 1024];
+    let n = fetch_recv_into(handle, &mut buf);
+    match n {
+        -1 => FetchChunk::Pending,
+        -2 => FetchChunk::End,
+        -3 | -4 => FetchChunk::Error,
+        n if n >= 0 => {
+            buf.truncate(n as usize);
+            FetchChunk::Data(buf)
+        }
+        _ => FetchChunk::Error,
+    }
+}
+
+/// Retrieve the error message for a failed request, if any.
+pub fn fetch_error(handle: u32) -> Option<String> {
+    let mut buf = [0u8; 512];
+    let n = unsafe { _api_fetch_error(handle, buf.as_mut_ptr() as u32, buf.len() as u32) };
+    if n < 0 {
+        None
+    } else {
+        Some(String::from_utf8_lossy(&buf[..n as usize]).into_owned())
+    }
+}
+
+/// Abort an in-flight request. Returns `true` if the handle was known.
+///
+/// The request transitions to [`FETCH_ABORTED`]; any body chunks already
+/// queued remain readable via [`fetch_recv`] until drained.
+pub fn fetch_abort(handle: u32) -> bool {
+    unsafe { _api_fetch_abort(handle) != 0 }
+}
+
+/// Free host-side resources for a completed or aborted request.
+///
+/// Call this once you've finished draining [`fetch_recv`]. After removal the
+/// handle is invalid.
+pub fn fetch_remove(handle: u32) {
+    unsafe { _api_fetch_remove(handle) }
 }
 
 // ─── Dynamic Module Loading ─────────────────────────────────────────────────
