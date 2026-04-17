@@ -394,15 +394,10 @@ pub fn register_midi_functions(linker: &mut Linker<HostState>) -> Result<()> {
             };
             let midi = caller.data().midi.clone();
             let mut g = midi.lock().unwrap();
-            match g.as_mut() {
-                Some(s) => {
-                    if s.send(handle, &data) {
-                        0
-                    } else {
-                        -1
-                    }
-                }
-                None => -1,
+            if g.as_mut().is_some_and(|s| s.send(handle, &data)) {
+                0
+            } else {
+                -1
             }
         },
     )?;

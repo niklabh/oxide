@@ -156,7 +156,7 @@ impl BookmarkStore {
                 }
             }
         }
-        bookmarks.sort_by(|a, b| b.created_at_ms.cmp(&a.created_at_ms));
+        bookmarks.sort_by_key(|b| std::cmp::Reverse(b.created_at_ms));
         bookmarks
     }
 
