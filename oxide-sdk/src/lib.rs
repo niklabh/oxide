@@ -97,6 +97,7 @@
 //! | **Media capture** | [`camera_open`], [`camera_capture_frame`], [`microphone_open`], [`microphone_read_samples`], [`screen_capture`] |
 //! | **WebRTC** | [`rtc_create_peer`], [`rtc_create_offer`], [`rtc_create_answer`], [`rtc_create_data_channel`], [`rtc_send`], [`rtc_recv`], [`rtc_signal_connect`] |
 //! | **WebSocket** | [`ws_connect`], [`ws_send_text`], [`ws_send_binary`], [`ws_recv`], [`ws_ready_state`], [`ws_close`], [`ws_remove`] |
+//! | **MIDI** | [`midi_input_count`], [`midi_output_count`], [`midi_input_name`], [`midi_output_name`], [`midi_open_input`], [`midi_open_output`], [`midi_send`], [`midi_recv`], [`midi_close`] |
 //! | **Timers** | [`set_timeout`], [`set_interval`], [`clear_timer`], [`request_animation_frame`], [`cancel_animation_frame`], [`time_now_ms`] |
 //! | **Navigation** | [`navigate`], [`push_state`], [`replace_state`], [`get_url`], [`history_back`], [`history_forward`] |
 //! | **Input** | [`mouse_position`], [`mouse_button_down`], [`mouse_button_clicked`], [`key_down`], [`key_pressed`], [`scroll_delta`], [`modifiers`] |
@@ -2111,16 +2112,26 @@ pub fn midi_send(handle: u32, data: &[u8]) -> i32 {
 
 /// Poll for the next queued MIDI message on an input `handle`.
 ///
-/// Returns `Some(bytes)` if a message is available, or `None` if the queue
-/// is empty. MIDI messages are typically 1–3 bytes; SysEx can be longer.
+/// Returns `Some(bytes)` with exactly one MIDI message if one is available,
+/// or `None` if the queue is empty. Channel-voice messages are 2–3 bytes;
+/// SysEx can be longer. The wrapper first tries a 256-byte stack buffer and
+/// transparently retries with a 64 KB heap buffer for large SysEx dumps.
 pub fn midi_recv(handle: u32) -> Option<Vec<u8>> {
     let mut buf = [0u8; 256];
     let n = unsafe { _api_midi_recv(handle, buf.as_mut_ptr() as u32, buf.len() as u32) };
-    if n < 0 {
-        None
-    } else {
-        Some(buf[..n as usize].to_vec())
+    if n >= 0 {
+        return Some(buf[..n as usize].to_vec());
     }
+    // -2 = buffer too small; message is still queued. Retry with 64 KB heap buffer.
+    if n == -2 {
+        let mut big = vec![0u8; 64 * 1024];
+        let n2 = unsafe { _api_midi_recv(handle, big.as_mut_ptr() as u32, big.len() as u32) };
+        if n2 >= 0 {
+            big.truncate(n2 as usize);
+            return Some(big);
+        }
+    }
+    None
 }
 
 /// Close a MIDI input or output handle and free host-side resources.

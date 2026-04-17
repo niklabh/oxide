@@ -4,9 +4,11 @@
 //! open connections, send raw MIDI bytes, and poll for incoming messages.
 //!
 //! **macOS**: implemented via CoreMIDI (`coremidi` crate). Input callbacks run
-//! on a CoreMIDI background thread and push messages into a per-handle
-//! [`VecDeque`]. The guest drains the queue by calling `api_midi_recv` each
-//! frame — no blocking, no async runtime needed.
+//! on a CoreMIDI background thread, split each incoming packet into individual
+//! MIDI messages, and push them onto a per-handle bounded [`VecDeque`]. The
+//! guest drains the queue by calling `api_midi_recv` each frame — no blocking,
+//! no async runtime needed. Each `api_midi_recv` returns exactly one MIDI
+//! message; if the queue fills up, the oldest message is dropped.
 //!
 //! **Other platforms**: all functions return 0 / error codes gracefully (no
 //! devices found). MIDI support for Linux and Windows will be added in a later
@@ -27,6 +29,59 @@ mod platform {
     use std::sync::{Arc, Mutex};
 
     use coremidi::{Client, Destination, InputPort, OutputPort, PacketList, Source};
+
+    /// Hard cap on queued incoming MIDI messages per input port. If the guest
+    /// falls behind, oldest messages are dropped first. 4096 is ~1 MB worst
+    /// case with 256-byte SysEx dumps; for typical 3-byte note events it's
+    /// ~12 KB — plenty for a ~1 min backlog at max MIDI rate (~30k msg/s).
+    const MAX_QUEUED_MESSAGES: usize = 4096;
+
+    /// Split a raw CoreMIDI packet (which may concatenate several MIDI messages
+    /// sharing a timestamp) into individual messages and push each onto `out`,
+    /// enforcing [`MAX_QUEUED_MESSAGES`] by dropping the oldest on overflow.
+    ///
+    /// Handles channel voice (0x80–0xEF), System Common (0xF1–0xF6),
+    /// System Real-Time (0xF8–0xFF), and SysEx (0xF0 … 0xF7). Bytes that
+    /// appear without a preceding status byte (running status, or junk) are
+    /// skipped.
+    fn enqueue_messages(data: &[u8], out: &mut VecDeque<Vec<u8>>) {
+        let mut i = 0;
+        while i < data.len() {
+            let status = data[i];
+            if status & 0x80 == 0 {
+                // Data byte with no status — skip. CoreMIDI normally delivers
+                // complete messages, so this only hits on malformed input.
+                i += 1;
+                continue;
+            }
+            let end = match status & 0xF0 {
+                0x80 | 0x90 | 0xA0 | 0xB0 | 0xE0 => i + 3,
+                0xC0 | 0xD0 => i + 2,
+                0xF0 => match status {
+                    0xF0 => {
+                        // SysEx: consume up to and including the next 0xF7.
+                        match data[i + 1..].iter().position(|&b| b == 0xF7) {
+                            Some(p) => i + 1 + p + 1,
+                            None => data.len(),
+                        }
+                    }
+                    0xF1 | 0xF3 => i + 2,
+                    0xF2 => i + 3,
+                    // 0xF4–0xF7 (undefined / SysEx end) and 0xF8–0xFF
+                    // (real-time) are single-byte messages.
+                    _ => i + 1,
+                },
+                _ => i + 1,
+            };
+            let end = end.min(data.len());
+            let msg: Vec<u8> = data[i..end].to_vec();
+            if out.len() >= MAX_QUEUED_MESSAGES {
+                out.pop_front();
+            }
+            out.push_back(msg);
+            i = end;
+        }
+    }
 
     // ── Per-handle state ──────────────────────────────────────────────────
 
@@ -100,8 +155,9 @@ mod platform {
                 .input_port(&port_name, move |pkt_list: &PacketList| {
                     let mut lock = q.lock().unwrap();
                     for pkt in pkt_list.iter() {
-                        if !pkt.data().is_empty() {
-                            lock.push_back(pkt.data().to_vec());
+                        let bytes = pkt.data();
+                        if !bytes.is_empty() {
+                            enqueue_messages(bytes, &mut lock);
                         }
                     }
                 }) {
@@ -147,6 +203,19 @@ mod platform {
             out.port.send(&dest, &packets).is_ok()
         }
 
+        /// Length in bytes of the front queued message without popping it.
+        /// Used by `api_midi_recv` to decide whether the guest's buffer is
+        /// large enough before dequeuing.
+        pub fn peek_len(&self, handle: u32) -> Option<usize> {
+            self.inputs
+                .get(&handle)?
+                .queue
+                .lock()
+                .unwrap()
+                .front()
+                .map(|m| m.len())
+        }
+
         pub fn recv(&self, handle: u32) -> Option<Vec<u8>> {
             self.inputs.get(&handle)?.queue.lock().unwrap().pop_front()
         }
@@ -189,6 +258,9 @@ mod platform {
         }
         pub fn send(&mut self, _handle: u32, _data: &[u8]) -> bool {
             false
+        }
+        pub fn peek_len(&self, _handle: u32) -> Option<usize> {
+            None
         }
         pub fn recv(&self, _handle: u32) -> Option<Vec<u8>> {
             None
@@ -338,33 +410,40 @@ pub fn register_midi_functions(linker: &mut Linker<HostState>) -> Result<()> {
     // ── midi_recv ─────────────────────────────────────────────────────────
     // api_midi_recv(handle: u32, out_ptr: u32, out_cap: u32) -> i32
     // Dequeues one MIDI message and writes its bytes into guest memory.
-    // Returns bytes written, or -1 if the queue is empty.
+    // Returns bytes written on success, -1 if the queue is empty, or -2 if
+    // the guest buffer is too small (message stays in the queue so the guest
+    // can retry with a larger buffer).
     linker.func_wrap(
         "oxide",
         "api_midi_recv",
         |mut caller: Caller<'_, HostState>, handle: u32, out_ptr: u32, out_cap: u32| -> i32 {
             let midi = caller.data().midi.clone();
+            let peek = {
+                let g = midi.lock().unwrap();
+                g.as_ref().and_then(|s| s.peek_len(handle))
+            };
+            let msg_len = match peek {
+                Some(n) => n,
+                None => return -1,
+            };
+            if msg_len > out_cap as usize {
+                return -2;
+            }
             let msg = {
                 let g = midi.lock().unwrap();
-                g.as_ref().and_then(|s| s.recv(handle))
-            };
-            let msg = match msg {
-                Some(m) => m,
-                None => return -1,
+                match g.as_ref().and_then(|s| s.recv(handle)) {
+                    Some(m) => m,
+                    None => return -1,
+                }
             };
             let mem = match caller.data().memory {
                 Some(m) => m,
                 None => return -1,
             };
-            let to_write = if msg.len() > out_cap as usize {
-                &msg[..out_cap as usize]
-            } else {
-                &msg
-            };
-            if write_guest_bytes(&mem, &mut caller, out_ptr, to_write).is_err() {
+            if write_guest_bytes(&mem, &mut caller, out_ptr, &msg).is_err() {
                 return -1;
             }
-            to_write.len() as i32
+            msg.len() as i32
         },
     )?;
 
