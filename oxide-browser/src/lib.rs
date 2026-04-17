@@ -48,6 +48,8 @@
 //! | [`gpu`] | WebGPU-style GPU resource management (buffers, textures, shaders, pipelines) |
 //! | [`media_capture`] | Camera, microphone, and screen capture with permission prompts |
 //! | [`rtc`] | WebRTC peer connections, data channels, media tracks, and signaling |
+//! | [`websocket`] | WebSocket client connections (text/binary frames, ready-state polling) |
+//! | [`midi`] | MIDI input/output device enumeration and I/O (CoreMIDI on macOS) |
 //! | [`navigation`] | Browser history stack with back/forward traversal |
 //! | [`bookmarks`] | Persistent bookmark storage backed by sled |
 //! | [`url`] | WHATWG-compliant URL parsing with Oxide-specific schemes |
@@ -102,6 +104,7 @@ pub mod engine;
 pub mod gpu;
 pub mod history;
 pub mod media_capture;
+pub mod midi;
 pub mod navigation;
 pub mod rtc;
 pub mod runtime;

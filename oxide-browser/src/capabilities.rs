@@ -191,6 +191,8 @@ pub struct HostState {
     pub rtc: Arc<Mutex<Option<crate::rtc::RtcState>>>,
     /// WebSocket connections (lazily initialised on first ws call).
     pub ws: Arc<Mutex<Option<crate::websocket::WsState>>>,
+    /// MIDI input/output connections (lazily initialised on first midi_open call).
+    pub midi: Arc<Mutex<Option<crate::midi::MidiState>>>,
 }
 
 /// A single console log line: local time, severity, and message text.
@@ -560,6 +562,7 @@ impl Default for HostState {
             gpu: Arc::new(Mutex::new(None)),
             rtc: Arc::new(Mutex::new(None)),
             ws: Arc::new(Mutex::new(None)),
+            midi: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -3430,16 +3433,11 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
             let data = read_guest_bytes(&mem, &caller, data_ptr, data_len).unwrap_or_default();
             let offset = ((offset_hi as u64) << 32) | (offset_lo as u64);
             let gpu_lock = caller.data().gpu.lock().unwrap();
-            match gpu_lock.as_ref() {
-                Some(g) => {
-                    if g.write_buffer(handle, offset, &data) {
-                        1
-                    } else {
-                        0
-                    }
-                }
-                None => 0,
-            }
+            u32::from(
+                gpu_lock
+                    .as_ref()
+                    .is_some_and(|g| g.write_buffer(handle, offset, &data)),
+            )
         },
     )?;
 
@@ -3453,16 +3451,11 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
          instance_count: u32|
          -> u32 {
             let gpu_lock = caller.data().gpu.lock().unwrap();
-            match gpu_lock.as_ref() {
-                Some(g) => {
-                    if g.draw(pipeline, target, vertex_count, instance_count) {
-                        1
-                    } else {
-                        0
-                    }
-                }
-                None => 0,
-            }
+            u32::from(
+                gpu_lock
+                    .as_ref()
+                    .is_some_and(|g| g.draw(pipeline, target, vertex_count, instance_count)),
+            )
         },
     )?;
 
@@ -3471,16 +3464,11 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
         "api_gpu_dispatch_compute",
         |caller: Caller<'_, HostState>, pipeline: u32, x: u32, y: u32, z: u32| -> u32 {
             let gpu_lock = caller.data().gpu.lock().unwrap();
-            match gpu_lock.as_ref() {
-                Some(g) => {
-                    if g.dispatch_compute(pipeline, x, y, z) {
-                        1
-                    } else {
-                        0
-                    }
-                }
-                None => 0,
-            }
+            u32::from(
+                gpu_lock
+                    .as_ref()
+                    .is_some_and(|g| g.dispatch_compute(pipeline, x, y, z)),
+            )
         },
     )?;
 
@@ -3489,16 +3477,7 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
         "api_gpu_destroy_buffer",
         |caller: Caller<'_, HostState>, handle: u32| -> u32 {
             let mut gpu_lock = caller.data().gpu.lock().unwrap();
-            match gpu_lock.as_mut() {
-                Some(g) => {
-                    if g.destroy_buffer(handle) {
-                        1
-                    } else {
-                        0
-                    }
-                }
-                None => 0,
-            }
+            u32::from(gpu_lock.as_mut().is_some_and(|g| g.destroy_buffer(handle)))
         },
     )?;
 
@@ -3507,16 +3486,7 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
         "api_gpu_destroy_texture",
         |caller: Caller<'_, HostState>, handle: u32| -> u32 {
             let mut gpu_lock = caller.data().gpu.lock().unwrap();
-            match gpu_lock.as_mut() {
-                Some(g) => {
-                    if g.destroy_texture(handle) {
-                        1
-                    } else {
-                        0
-                    }
-                }
-                None => 0,
-            }
+            u32::from(gpu_lock.as_mut().is_some_and(|g| g.destroy_texture(handle)))
         },
     )?;
 
@@ -3525,6 +3495,9 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
 
     // ── WebSocket API ─────────────────────────────────────────────────
     crate::websocket::register_ws_functions(linker)?;
+
+    // ── MIDI API ──────────────────────────────────────────────────────
+    crate::midi::register_midi_functions(linker)?;
 
     Ok(())
 }
