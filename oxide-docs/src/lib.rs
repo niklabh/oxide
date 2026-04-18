@@ -35,7 +35,7 @@
 //! crate-type = ["cdylib"]
 //!
 //! [dependencies]
-//! oxide-sdk = "0.4"
+//! oxide-sdk = "0.6"
 //! ```
 //!
 //! ### Static app (one-shot render)
@@ -107,16 +107,17 @@
 //! │  ┌────▼───────────────▼───────────────▼──────────┐  │
 //! │  │              Host Runtime (oxide-browser)      │  │
 //! │  │  Wasmtime engine · sandbox policy             │  │
-//! │  │  fuel: 500M instructions · memory: 16 MB      │  │
+//! │  │  fuel: 500M instructions · memory: 256 MB     │  │
 //! │  └────────────────────┬──────────────────────────┘  │
 //! │                       │                             │
 //! │  ┌────────────────────▼──────────────────────────┐  │
 //! │  │          Capability Provider                  │  │
 //! │  │  "oxide" wasm import module                   │  │
-//! │  │  canvas · console · storage · clipboard       │  │
-//! │  │  fetch · audio · video · media capture        │  │
-//! │  │  timers · crypto · navigation · widgets       │  │
-//! │  │  input · hyperlinks · protobuf                │  │
+//! │  │  canvas · gpu · audio · video · capture       │  │
+//! │  │  fetch · streaming · websocket · webrtc · midi │  │
+//! │  │  timers · animation frames · navigation       │  │
+//! │  │  console · storage · clipboard · widgets      │  │
+//! │  │  input · hyperlinks · crypto · protobuf       │  │
 //! │  └────────────────────┬──────────────────────────┘  │
 //! │                       │                             │
 //! │  ┌────────────────────▼──────────────────────────┐  │
@@ -304,6 +305,80 @@
 //! | [`oxide_sdk::clear_timer`] | Cancel a timer |
 //! | [`oxide_sdk::time_now_ms`] | Current time (ms since UNIX epoch) |
 //!
+//! ## Animation Frames
+//!
+//! Vsync-aligned callbacks for smooth rendering. Callbacks fire via the
+//! guest-exported `on_timer(callback_id)` function (the same export used by
+//! [`oxide_sdk::set_timeout`]), one-shot per request.
+//!
+//! | Function | Description |
+//! |----------|-------------|
+//! | [`oxide_sdk::request_animation_frame`] | Schedule a one-shot frame callback |
+//! | [`oxide_sdk::cancel_animation_frame`] | Cancel a pending request |
+//!
+//! ## Streaming HTTP
+//!
+//! Non-blocking variant of [`oxide_sdk::fetch`] that streams the response body
+//! back to the guest in chunks. Returns immediately with a handle; poll
+//! [`oxide_sdk::fetch_state`] and [`oxide_sdk::fetch_recv`] each frame.
+//!
+//! | Function | Description |
+//! |----------|-------------|
+//! | [`oxide_sdk::fetch_begin`] | Dispatch a streaming request, returns a handle |
+//! | [`oxide_sdk::fetch_begin_get`] | GET shorthand |
+//! | [`oxide_sdk::fetch_state`] | Poll lifecycle state (`FETCH_*` constants) |
+//! | [`oxide_sdk::fetch_status`] | HTTP status code, or `0` until headers arrive |
+//! | [`oxide_sdk::fetch_recv`] | Poll the next body chunk as a [`oxide_sdk::FetchChunk`] |
+//! | [`oxide_sdk::fetch_recv_into`] | Poll into a caller-provided buffer (no allocation) |
+//! | [`oxide_sdk::fetch_error`] | Retrieve the error message for a failed request |
+//! | [`oxide_sdk::fetch_abort`] | Cancel an in-flight request |
+//!
+//! ## WebSocket
+//!
+//! Long-lived bidirectional connections. Messages are queued on the host and
+//! drained by the guest each frame via [`oxide_sdk::ws_recv`].
+//!
+//! | Function | Description |
+//! |----------|-------------|
+//! | [`oxide_sdk::ws_connect`] | Open a WebSocket, returns a handle |
+//! | [`oxide_sdk::ws_ready_state`] | Poll state ([`oxide_sdk::WS_OPEN`], etc.) |
+//! | [`oxide_sdk::ws_send_text`] | Send a UTF-8 text frame |
+//! | [`oxide_sdk::ws_send_binary`] | Send a binary frame |
+//! | [`oxide_sdk::ws_recv`] | Pop the next [`oxide_sdk::WsMessage`] from the queue |
+//! | [`oxide_sdk::ws_close`] | Initiate the close handshake |
+//! | [`oxide_sdk::ws_remove`] | Free host resources after close completes |
+//!
+//! ## MIDI Devices
+//!
+//! Read and write MIDI messages on hardware controllers and synthesisers.
+//! Each input port maintains a bounded queue; long SysEx packets are split.
+//!
+//! | Function | Description |
+//! |----------|-------------|
+//! | [`oxide_sdk::midi_input_count`] / [`oxide_sdk::midi_output_count`] | Enumerate ports |
+//! | [`oxide_sdk::midi_input_name`] / [`oxide_sdk::midi_output_name`] | Look up port names |
+//! | [`oxide_sdk::midi_open_input`] / [`oxide_sdk::midi_open_output`] | Open a port, returns a handle |
+//! | [`oxide_sdk::midi_send`] | Send raw MIDI bytes to an output |
+//! | [`oxide_sdk::midi_recv`] | Pop the next packet from an input queue |
+//! | [`oxide_sdk::midi_close`] | Close a port |
+//!
+//! ## GPU
+//!
+//! WebGPU-style API for GPU-backed buffers, textures, shaders, and
+//! pipelines. Shader source is WGSL.
+//!
+//! | Function | Description |
+//! |----------|-------------|
+//! | [`oxide_sdk::gpu_create_buffer`] | Allocate a GPU buffer |
+//! | [`oxide_sdk::gpu_create_texture`] | Allocate a 2D texture |
+//! | [`oxide_sdk::gpu_create_shader`] | Compile a WGSL shader module |
+//! | [`oxide_sdk::gpu_create_pipeline`] | Build a render pipeline |
+//! | [`oxide_sdk::gpu_create_compute_pipeline`] | Build a compute pipeline |
+//! | [`oxide_sdk::gpu_write_buffer`] | Upload bytes into a buffer |
+//! | [`oxide_sdk::gpu_draw`] | Issue a draw call into a target texture |
+//! | [`oxide_sdk::gpu_dispatch_compute`] | Dispatch a compute workgroup grid |
+//! | [`oxide_sdk::gpu_destroy_buffer`] / [`oxide_sdk::gpu_destroy_texture`] | Release GPU resources |
+//!
 //! ## Navigation & History
 //!
 //! | Function | Description |
@@ -380,6 +455,14 @@
 //!   support for `http`, `https`, `file`, and `oxide://` schemes.
 //! - **[`oxide_browser::ui`]** — [`oxide_browser::ui::OxideBrowserView`] and [`oxide_browser::ui::run_browser`]
 //!   implement tabbed browsing, toolbar, canvas rendering, console panel, and bookmarks sidebar.
+//! - **[`oxide_browser::video`]**, **[`oxide_browser::audio_format`]**, **[`oxide_browser::media_capture`]** —
+//!   FFmpeg video pipeline, audio format sniffing, and camera/microphone/screen capture host state.
+//! - **[`oxide_browser::gpu`]** — WebGPU-style host state: buffers, textures, shaders, and render/compute pipelines.
+//! - **[`oxide_browser::rtc`]** — WebRTC peer connections, data channels, media tracks, and the built-in signalling client.
+//! - **[`oxide_browser::websocket`]** — WebSocket host state: connection registry, send/recv queues, and ready-state tracking.
+//! - **[`oxide_browser::midi`]** — MIDI input/output port enumeration, bounded receive queues, and packet splitting.
+//! - **[`oxide_browser::fetch`]** — Streaming fetch host state: in-flight handles, body chunk queue, and abort tracking.
+//! - **[`oxide_browser::download`]** — Background downloader for non-WASM URLs surfaced as files in the host UI.
 //!
 //! ---
 //!
@@ -405,7 +488,7 @@
 //! | Filesystem access | None | Guest cannot read/write host files |
 //! | Environment variables | None | Guest cannot inspect host env |
 //! | Raw network sockets | None | All networking is mediated via `fetch` |
-//! | Memory limit | 16 MB (256 pages) | Prevents memory exhaustion |
+//! | Memory limit | 256 MB (4096 pages) | Prevents memory exhaustion |
 //! | Fuel limit | 500M instructions | Prevents infinite loops / DoS |
 //! | No WASI | — | Zero implicit system access |
 

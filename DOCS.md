@@ -22,16 +22,17 @@ The desktop shell is built on [GPUI](https://www.gpui.rs/) (Zed's GPU-accelerate
 │  ┌────▼───────────────▼───────────────▼───────┐      │
 │  │              Host Runtime                  │      │
 │  │  wasmtime engine + sandbox policy          │      │
-│  │  fuel limit: 500M  │  memory: 16MB max     │      │
+│  │  fuel limit: 500M  │  memory: 256MB max    │      │
 │  └────────────────────┬───────────────────────┘      │
 │                       │                              │
 │  ┌────────────────────▼───────────────────────┐      │
 │  │          Capability Provider               │      │
 │  │  "oxide" import module                     │      │
-│  │  canvas, console, storage, clipboard,      │      │
-│  │  fetch, audio, video, media capture,       │      │
-│  │  WebRTC, crypto, timers, navigation,       │      │
-│  │  widgets, input, hyperlinks, GPU           │      │
+│  │  canvas, gpu, audio, video, capture,       │      │
+│  │  fetch, streaming fetch, websocket,        │      │
+│  │  webrtc, midi, timers, animation frames,   │      │
+│  │  console, storage, clipboard, navigation,  │      │
+│  │  widgets, input, hyperlinks, crypto        │      │
 │  └────────────────────┬───────────────────────┘      │
 │                       │                              │
 │  ┌────────────────────▼───────────────────────┐      │
@@ -597,6 +598,127 @@ pub extern "C" fn on_timer(callback_id: u32) {
 }
 ```
 
+### Animation Frames
+
+Vsync-aligned one-shot callbacks for smooth rendering. Callbacks fire via the same guest-exported `on_timer(callback_id)` function used by `set_timeout`. See the `raf-demo` example.
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `request_animation_frame` | `fn(callback_id: u32) -> u32` | Schedule a one-shot frame callback; returns a request id |
+| `cancel_animation_frame` | `fn(request_id: u32)` | Cancel a pending request |
+
+```rust
+#[no_mangle]
+pub extern "C" fn start_app() {
+    request_animation_frame(7);
+}
+
+#[no_mangle]
+pub extern "C" fn on_timer(id: u32) {
+    if id == 7 {
+        // draw a frame, then schedule the next one
+        request_animation_frame(7);
+    }
+}
+```
+
+### Streaming HTTP
+
+Non-blocking variant of `fetch` that streams the response body back to the guest in chunks. Useful for large downloads, HLS playlists, server-sent events, and any response you want to start consuming before it fully arrives. See the `stream-fetch-demo` example.
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `fetch_begin` | `fn(method, url, content_type, body) -> u32` | Dispatch a streaming request; returns a handle (`>0`) or `0` on init failure |
+| `fetch_begin_get` | `fn(url: &str) -> u32` | GET shorthand |
+| `fetch_state` | `fn(handle: u32) -> u32` | Poll lifecycle state (see `FETCH_*` constants) |
+| `fetch_status` | `fn(handle: u32) -> u32` | HTTP status code, or `0` until headers arrive |
+| `fetch_recv` | `fn(handle: u32) -> FetchChunk` | Poll the next body chunk (`Pending` / `Data` / `End` / `Error`) |
+| `fetch_recv_into` | `fn(handle: u32, buf: &mut [u8]) -> i64` | Poll into a caller buffer (no allocation) |
+| `fetch_error` | `fn(handle: u32) -> Option<String>` | Retrieve the error message for a failed request |
+| `fetch_abort` | `fn(handle: u32) -> bool` | Cancel an in-flight request |
+
+```rust
+let handle = fetch_begin_get("https://example.com/large.bin");
+
+#[no_mangle]
+pub extern "C" fn on_frame(_dt_ms: u32) {
+    loop {
+        match fetch_recv(HANDLE) {
+            FetchChunk::Pending => break,
+            FetchChunk::Data(bytes) => process(&bytes),
+            FetchChunk::End => { log("done"); break; }
+            FetchChunk::Error => { error(&fetch_error(HANDLE).unwrap_or_default()); break; }
+        }
+    }
+}
+```
+
+### WebSocket
+
+Long-lived bidirectional connections. Messages are queued on the host and drained by the guest each frame via `ws_recv`. See the `ws-chat` example.
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `ws_connect` | `fn(url: &str) -> u32` | Open a WebSocket; returns a handle |
+| `ws_ready_state` | `fn(id: u32) -> u32` | Poll state (`WS_CONNECTING`, `WS_OPEN`, `WS_CLOSING`, `WS_CLOSED`) |
+| `ws_send_text` | `fn(id: u32, text: &str) -> i32` | Send a UTF-8 text frame |
+| `ws_send_binary` | `fn(id: u32, data: &[u8]) -> i32` | Send a binary frame |
+| `ws_recv` | `fn(id: u32) -> Option<WsMessage>` | Pop the next message (text or binary) from the queue |
+| `ws_close` | `fn(id: u32) -> i32` | Initiate the close handshake |
+| `ws_remove` | `fn(id: u32)` | Free host resources after `ws_ready_state` returns `WS_CLOSED` |
+
+```rust
+let ws = ws_connect("wss://echo.websocket.events");
+
+#[no_mangle]
+pub extern "C" fn on_frame(_dt_ms: u32) {
+    if ws_ready_state(WS) == WS_OPEN && !SENT {
+        ws_send_text(WS, "hello");
+        SENT = true;
+    }
+    while let Some(msg) = ws_recv(WS) {
+        log(&format!("got: {}", msg.text()));
+    }
+}
+```
+
+### MIDI Devices
+
+Read and write MIDI messages on hardware controllers and synthesisers. Each input port maintains a bounded receive queue; long SysEx packets are split. See the `midi-demo` (piano visualizer) example.
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `midi_input_count` / `midi_output_count` | `fn() -> u32` | Enumerate ports |
+| `midi_input_name` / `midi_output_name` | `fn(index: u32) -> String` | Look up port names |
+| `midi_open_input` / `midi_open_output` | `fn(index: u32) -> u32` | Open a port; returns a handle (`0` on failure) |
+| `midi_send` | `fn(handle: u32, data: &[u8]) -> i32` | Send raw MIDI bytes to an output |
+| `midi_recv` | `fn(handle: u32) -> Option<Vec<u8>>` | Pop the next packet from an input queue |
+| `midi_close` | `fn(handle: u32)` | Close a port |
+
+```rust
+let input = midi_open_input(0);
+while let Some(packet) = midi_recv(input) {
+    // packet[0] is the status byte; lower nibble = channel
+    log(&format!("midi: {:02x?}", packet));
+}
+```
+
+### GPU
+
+WebGPU-style API for GPU-backed buffers, textures, shaders, and pipelines. Shader source is WGSL. See the `gpu-graphics-demo` example.
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `gpu_create_buffer` | `fn(size: u64, usage: u32) -> u32` | Allocate a GPU buffer |
+| `gpu_create_texture` | `fn(width: u32, height: u32) -> u32` | Allocate a 2D texture |
+| `gpu_create_shader` | `fn(source: &str) -> u32` | Compile a WGSL shader module |
+| `gpu_create_pipeline` | `fn(shader, vertex_entry, fragment_entry) -> u32` | Build a render pipeline |
+| `gpu_create_compute_pipeline` | `fn(shader, entry_point) -> u32` | Build a compute pipeline |
+| `gpu_write_buffer` | `fn(handle, offset, data) -> bool` | Upload bytes into a buffer |
+| `gpu_draw` | `fn(pipeline, target_texture, vertex_count, ...) -> bool` | Issue a draw call into a target texture |
+| `gpu_dispatch_compute` | `fn(pipeline, x, y, z) -> bool` | Dispatch a compute workgroup grid |
+| `gpu_destroy_buffer` / `gpu_destroy_texture` | `fn(handle: u32) -> bool` | Release GPU resources |
+
 ### Navigation & History
 
 | Function | Signature | Description |
@@ -666,7 +788,7 @@ register_hyperlink(20.0, 100.0, 200.0, 20.0, "https://example.com/app.wasm");
 | **Filesystem access** | None | Guest cannot read/write host files |
 | **Environment variables** | None | Guest cannot read host env vars |
 | **Network sockets** | None | Guest cannot open arbitrary connections |
-| **Memory limit** | 16 MB (256 pages) | Prevents memory exhaustion |
+| **Memory limit** | 256 MB (4096 pages) | Prevents memory exhaustion |
 | **Fuel limit** | 500M instructions | Prevents infinite loops / DoS |
 
 ### How it works
@@ -739,7 +861,11 @@ oxide/
 │       ├── subtitle.rs           # SRT/VTT subtitle parsing
 │       ├── media_capture.rs      # Camera, mic, screen capture
 │       ├── rtc.rs                # WebRTC peer connections, data channels, signaling
-│       └── gpu.rs                # WebGPU-style GPU resource management
+│       ├── gpu.rs                # WebGPU-style GPU resource management
+│       ├── websocket.rs          # WebSocket connections and frame queues
+│       ├── midi.rs               # MIDI input/output ports with bounded queues
+│       ├── fetch.rs              # Streaming fetch handles and chunk queues
+│       └── download.rs           # Background downloader for non-WASM URLs
 ├── oxide-sdk/                    # Guest SDK (no dependencies)
 │   ├── Cargo.toml
 │   └── src/
@@ -752,9 +878,13 @@ oxide/
     ├── audio-player/             # Audio playback example
     ├── video-player/             # Video playback example
     ├── timer-demo/               # Timer callbacks
+    ├── raf-demo/                 # request_animation_frame demo
     ├── media-capture/            # Camera/mic/screen capture
     ├── gpu-graphics-demo/        # GPU/WebGPU rendering demo
     ├── rtc-chat/                 # WebRTC peer-to-peer chat demo
+    ├── ws-chat/                  # WebSocket chat demo
+    ├── stream-fetch-demo/        # Streaming HTTP fetch demo
+    ├── midi-demo/                # MIDI piano visualizer
     ├── index/                    # Demo hub (links to other examples)
     └── fullstack-notes/          # Full-stack example (Rust frontend + backend)
 ```

@@ -10,7 +10,7 @@ This roadmap outlines the planned evolution of Oxide from its current foundation
 
 The core architecture is live: a Rust-native browser that fetches and executes `.wasm` modules in a capability-based sandbox.
 
-- [x] Wasmtime runtime with fuel metering and bounded memory (16 MB / 500M instructions)
+- [x] Wasmtime runtime with fuel metering and bounded memory (256 MB / 500M instructions)
 - [x] Immediate-mode canvas rendering (rect, circle, line, text, image)
 - [x] Interactive widget toolkit (button, checkbox, slider, text input)
 - [x] Full HTTP fetch API with GET/POST/PUT/DELETE
@@ -66,10 +66,12 @@ The core architecture is live: a Rust-native browser that fetches and executes `
 
 ### MIDI
 
-- [ ] `midi_list_devices()` — enumerate connected MIDI input/output devices
-- [ ] `midi_open(device_id, direction)` — open a MIDI port for reading or writing
-- [ ] `midi_send(port, message)` — send MIDI messages (note on/off, CC, pitch bend)
-- [ ] `midi_on_message(port)` — poll incoming MIDI messages from hardware controllers
+- [x] `midi_input_count()` / `midi_output_count()` — enumerate connected MIDI ports
+- [x] `midi_input_name(index)` / `midi_output_name(index)` — look up port names
+- [x] `midi_open_input(index)` / `midi_open_output(index)` — open a port for reading or writing
+- [x] `midi_send(handle, data)` — send raw MIDI bytes (note on/off, CC, pitch bend, SysEx)
+- [x] `midi_recv(handle)` — poll incoming MIDI packets from a bounded receive queue
+- [x] `midi_close(handle)` — close a port
 - [ ] MIDI clock sync for tempo-aligned applications
 
 ### Media Capture
@@ -178,7 +180,7 @@ The core architecture is live: a Rust-native browser that fetches and executes `
 - [x] `set_timeout(callback_id, delay_ms)` — one-shot timer
 - [x] `set_interval(callback_id, interval_ms)` — repeating timer
 - [x] `clear_timeout(id)` / `clear_interval(id)` — cancel timers
-- [ ] `request_animation_frame(callback_id)` — vsync-aligned frame callback
+- [x] `request_animation_frame(callback_id)` / `cancel_animation_frame(id)` — vsync-aligned frame callback
 - [ ] Cron-style scheduled tasks for long-running apps
 
 ### Event System

@@ -44,9 +44,10 @@ cargo build --target wasm32-unknown-unknown --release -p hello-oxide
 │                               │                                  │
 │  ┌────────────────────────────▼───────────────────────────────┐  │
 │  │                  Capability Layer                          │  │
-│  │  "oxide" import module — ~100 host functions                │  │
-│  │  canvas · console · storage · clipboard · fetch · crypto   │  │
-│  │  input · widgets · navigation · dynamic module loading     │  │
+│  │  "oxide" import module — ~150 host functions                │  │
+│  │  canvas · gpu · audio · video · capture · fetch · streaming │  │
+│  │  websocket · webrtc · midi · timers · animation frames     │  │
+│  │  console · storage · clipboard · widgets · crypto · ...    │  │
 │  └────────────────────────────┬───────────────────────────────┘  │
 │                               │                                  │
 │  ┌────────────────────────────▼───────────────────────────────┐  │
@@ -76,7 +77,18 @@ oxide/
 │       └── proto.rs         # Zero-dependency protobuf wire-format codec
 └── examples/
     ├── hello-oxide/         # Minimal guest app
-    └── fullstack-notes/     # Full-stack example (Rust frontend + backend)
+    ├── audio-player/        # Audio playback
+    ├── video-player/        # FFmpeg video, subtitles, PiP, HLS
+    ├── media-capture/       # Camera, microphone, screen capture
+    ├── gpu-graphics-demo/   # WebGPU-style rendering and compute
+    ├── rtc-chat/            # WebRTC peer-to-peer chat
+    ├── ws-chat/             # WebSocket chat
+    ├── stream-fetch-demo/   # Streaming HTTP fetch
+    ├── timer-demo/          # set_timeout / set_interval
+    ├── raf-demo/            # request_animation_frame
+    ├── midi-demo/           # MIDI input visualizer
+    ├── index/               # Demo hub linking the others
+    └── fullstack-notes/     # Full-stack Rust frontend + backend
 ```
 
 ### Module Loading Pipeline
@@ -97,7 +109,7 @@ When a user enters a URL or opens a `.wasm` file, the browser walks through a sh
 
 1. **Fetch** — download raw `.wasm` bytes via HTTP or read from a local file (max 50 MB).
 2. **Compile** — `WasmEngine` compiles the module through wasmtime with a `SandboxPolicy` that sets fuel and memory bounds.
-3. **Link** — A `Linker` registers all `oxide::*` host functions from `capabilities.rs` and creates a bounded linear memory (256 pages / 16 MB max).
+3. **Link** — A `Linker` registers all `oxide::*` host functions from `capabilities.rs` and creates a bounded linear memory (4096 pages / 256 MB max).
 4. **Instantiate** — wasmtime creates an `Instance`; the `Store` carries a `HostState` holding canvas commands, console lines, input state, storage maps, and widget state.
 5. **start_app()** — the guest's exported entry point runs once.
 6. **on_frame(dt_ms)** — if the guest exports this function, the browser calls it every frame for interactive/immediate-mode apps. Fuel is replenished each frame.
@@ -110,14 +122,24 @@ Guest modules start with **zero capabilities**. Every interaction with the outsi
 
 | Category | Host Functions |
 |----------|---------------|
-| **Canvas** | `clear`, `rect`, `circle`, `text`, `line`, `image`, `dimensions` |
+| **Canvas** | `clear`, `rect`, `circle`, `text`, `line`, `image`, `dimensions`, plus the `oxide_sdk::draw` high-level API |
+| **GPU** | `gpu_create_buffer/texture/shader`, `gpu_create_pipeline`, `gpu_create_compute_pipeline`, `gpu_write_buffer`, `gpu_draw`, `gpu_dispatch_compute` (WGSL) |
 | **UI widgets** | `button`, `checkbox`, `slider`, `text_input` (immediate-mode) |
 | **Console** | `log`, `warn`, `error` |
 | **Input** | `mouse_position`, `mouse_button_down/clicked`, `key_down/pressed`, `scroll_delta`, `modifiers` |
 | **Storage** | `storage_set/get/remove` (session), `kv_store_set/get/delete` (persistent, sled-backed) |
-| **Networking** | `fetch` (full HTTP), convenience wrappers for GET/POST/PUT/DELETE |
+| **HTTP** | `fetch` (full HTTP), `fetch_get/post/put/delete`, `fetch_post_proto` |
+| **Streaming HTTP** | `fetch_begin`, `fetch_state`, `fetch_status`, `fetch_recv`, `fetch_error`, `fetch_abort` |
+| **WebSocket** | `ws_connect`, `ws_send_text/binary`, `ws_recv`, `ws_ready_state`, `ws_close`, `ws_remove` |
+| **WebRTC** | `rtc_create_peer`, `rtc_create_offer/answer`, `rtc_set_local/remote_description`, `rtc_add_ice_candidate`, `rtc_create_data_channel`, `rtc_send_text/binary`, `rtc_recv`, `rtc_add_track`, `rtc_poll_track`, `rtc_signal_*` |
+| **Audio** | `audio_play`, `audio_play_url`, `audio_pause/resume/stop`, `audio_set_volume`, `audio_seek`, `audio_set_loop`, `audio_channel_play` (multi-channel), `audio_detect_format` |
+| **Video** | `video_load`, `video_load_url`, `video_play/pause/stop`, `video_render`, `video_seek`, `video_set_pip`, `video_hls_*`, `subtitle_load_srt/vtt` (FFmpeg-backed) |
+| **Media capture** | `camera_open`, `camera_capture_frame`, `microphone_open`, `microphone_read_samples`, `screen_capture` |
+| **MIDI** | `midi_input_count/output_count`, `midi_input_name/output_name`, `midi_open_input/output`, `midi_send`, `midi_recv`, `midi_close` |
+| **Timers** | `set_timeout`, `set_interval`, `clear_timer`, `request_animation_frame`, `cancel_animation_frame` |
 | **Navigation** | `navigate`, `push_state`, `replace_state`, `get_url`, `history_back/forward` |
-| **Crypto / encoding** | `hash_sha256`, `base64_encode/decode` |
+| **Hyperlinks** | `register_hyperlink`, `clear_hyperlinks` (clickable canvas regions) |
+| **Crypto / encoding** | `hash_sha256`, `hash_sha256_hex`, `base64_encode/decode` |
 | **Clipboard** | `read`, `write` |
 | **Time / random** | `time_now_ms`, `random_u64`, `random_f64` |
 | **Dynamic loading** | `load_module` — fetch and run a child `.wasm` with isolated memory and fuel |
@@ -143,7 +165,7 @@ No layout engine. No style cascade. The guest decides exactly where every pixel 
 | Filesystem access | **None** | Guest cannot touch host files |
 | Environment variables | **None** | Guest cannot read host env |
 | Network sockets | **None** | All HTTP is mediated by the host |
-| Memory ceiling | 16 MB (256 pages) | Prevents memory exhaustion |
+| Memory ceiling | 256 MB (4096 pages) | Prevents memory exhaustion |
 | Fuel budget | 500M instructions/call | Prevents infinite loops and DoS |
 
 Security is **additive, not subtractive**: there is nothing to claw back because nothing is granted by default. File uploads go through a host-side native file picker; HTTP goes through a host-side reqwest client; child modules get their own isolated memory and fuel. No WASI is linked — the sandbox is airtight by construction.
@@ -153,13 +175,19 @@ Security is **additive, not subtractive**: there is nothing to claw back because
 | Component   | Crate      | Purpose |
 |-------------|------------|---------|
 | Runtime     | `wasmtime` | WASM execution with fuel metering and memory limits |
-| Networking  | `reqwest`  | Fetch `.wasm` binaries from URLs |
-| Async       | `tokio`    | Async runtime for network operations |
-| UI          | [GPUI](https://www.gpui.rs/) | GPU-accelerated window; URL bar, canvas, console |
+| Networking  | `reqwest` + `tokio-tungstenite` | HTTP fetch (`.wasm`, streaming) and WebSocket frames |
+| Async       | `tokio`    | Async runtime for network and background work |
+| UI          | [GPUI](https://www.gpui.rs/) | GPU-accelerated shell; URL bar, canvas, console, tabs |
 | Storage     | `sled`     | Persistent key-value store (per-origin) |
 | File Picker | `rfd`      | Native OS file dialogs |
 | Clipboard   | `arboard`  | System clipboard access |
 | Imaging     | `image`    | PNG/JPEG/GIF/WebP decoding for canvas images |
+| Video       | `ffmpeg-next` | H.264/H.265/AV1/VP9 decode, HLS, subtitles, PiP |
+| Audio       | `rodio`    | Multi-channel playback and decode |
+| Capture     | `nokhwa`, `cpal`, `screenshots` | Camera, microphone, screen capture |
+| GPU         | `wgpu`     | WebGPU-style host backend for guest GPU APIs |
+| WebRTC      | `webrtc`   | Peer connections, data channels, media tracks |
+| MIDI        | `coremidi` (macOS) | Cross-platform MIDI I/O |
 | Crypto      | `sha2`     | SHA-256 hashing for guest modules |
 
 ## Documentation

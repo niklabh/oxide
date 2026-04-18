@@ -91,7 +91,7 @@
 //! - **No filesystem access** — guests cannot read or write host files
 //! - **No environment variables** — guests cannot inspect the host environment
 //! - **No raw sockets** — all network access is mediated through `fetch`
-//! - **Bounded memory** — 16 MB (256 pages) hard limit
+//! - **Bounded memory** — 256 MB (4096 pages) hard limit
 //! - **Fuel metering** — 500M instruction budget prevents infinite loops
 //! - **Capability-based I/O** — only explicitly provided `oxide::*` functions
 //!   are available to the guest

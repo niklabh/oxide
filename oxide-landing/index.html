@@ -243,7 +243,7 @@
             <div class="security-banner" data-animate="fade-up" data-delay="200">
                 <div class="security-grid">
                     <div class="security-item">
-                        <div class="security-value">16 MB</div>
+                        <div class="security-value">256 MB</div>
                         <div class="security-label">Memory Limit</div>
                     </div>
                     <div class="security-item">
@@ -269,32 +269,87 @@
                 <span class="section-tag">ARCHITECTURE</span>
                 <h2>How Oxide Works</h2>
             </div>
-            <div class="arch-diagram" data-animate="fade-up" data-delay="100">
-                <pre class="arch-code"><code>┌──────────────────────────────────────────────────┐
-│                   Oxide Browser                  │
-│  ┌──────────┐  ┌────────────┐  ┌──────────────┐  │
-│  │  URL Bar │  │   Canvas   │  │   Console    │  │
-│  └────┬─────┘  └──────┬─────┘  └──────┬───────┘  │
-│       │               │               │          │
-│  ┌────▼───────────────▼───────────────▼───────┐  │
-│  │              Host Runtime                  │  │
-│  │  wasmtime engine + sandbox policy          │  │
-│  │  fuel limit: 500M  │  memory: 16MB max     │  │
-│  └────────────────────┬───────────────────────┘  │
-│                       │                          │
-│  ┌────────────────────▼───────────────────────┐  │
-│  │          Capability Provider               │  │
-│  │  "oxide" import module                     │  │
-│  │  canvas, console, storage, clipboard,      │  │
-│  │  fetch, images, crypto, base64, protobuf   │  │
-│  └────────────────────┬───────────────────────┘  │
-│                       │                          │
-│  ┌────────────────────▼───────────────────────┐  │
-│  │           Guest .wasm Module               │  │
-│  │  exports: start_app()                      │  │
-│  │  imports: oxide::*                         │  │
-│  └────────────────────────────────────────────┘  │
-└──────────────────────────────────────────────────┘</code></pre>
+            <div class="arch-anim" data-animate="fade-up" data-delay="100">
+                <div class="arch-frame">
+                    <span class="arch-frame-tag">Oxide Browser</span>
+
+                    <div class="arch-ui-row">
+                        <div class="arch-ui-node">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                            <span>URL Bar</span>
+                        </div>
+                        <div class="arch-ui-node">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                            <span>Canvas</span>
+                        </div>
+                        <div class="arch-ui-node">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
+                            <span>Console</span>
+                        </div>
+                    </div>
+
+                    <div class="arch-channel">
+                        <span class="channel-packet"></span>
+                        <span class="channel-packet" style="animation-delay: -1.2s"></span>
+                    </div>
+
+                    <div class="arch-layer host">
+                        <div class="layer-head">
+                            <span class="layer-pulse"></span>
+                            <h4>Host Runtime</h4>
+                            <span class="layer-pill">wasmtime</span>
+                        </div>
+                        <div class="layer-meta">
+                            <span>500M fuel</span><span class="meta-sep">·</span>
+                            <span>256 MB cap</span><span class="meta-sep">·</span>
+                            <span>no WASI</span>
+                        </div>
+                    </div>
+
+                    <div class="arch-channel">
+                        <span class="channel-packet"></span>
+                        <span class="channel-packet" style="animation-delay: -1.4s"></span>
+                    </div>
+
+                    <div class="arch-layer cap">
+                        <div class="layer-head">
+                            <span class="layer-pulse cyan"></span>
+                            <h4>Capability Provider</h4>
+                            <span class="layer-pill">"oxide" import module</span>
+                        </div>
+                        <div class="cap-tags">
+                            <span class="cap-tag">canvas</span>
+                            <span class="cap-tag">gpu</span>
+                            <span class="cap-tag">audio</span>
+                            <span class="cap-tag">video</span>
+                            <span class="cap-tag">capture</span>
+                            <span class="cap-tag">fetch</span>
+                            <span class="cap-tag">websocket</span>
+                            <span class="cap-tag">webrtc</span>
+                            <span class="cap-tag">midi</span>
+                            <span class="cap-tag">timers</span>
+                            <span class="cap-tag">storage</span>
+                            <span class="cap-tag">crypto</span>
+                        </div>
+                    </div>
+
+                    <div class="arch-channel">
+                        <span class="channel-packet"></span>
+                        <span class="channel-packet" style="animation-delay: -1.6s"></span>
+                    </div>
+
+                    <div class="arch-layer guest">
+                        <div class="layer-head">
+                            <span class="layer-pulse green"></span>
+                            <h4>Guest .wasm Module</h4>
+                            <span class="layer-pill">sandboxed</span>
+                        </div>
+                        <div class="layer-meta mono">
+                            <span><code>exports:</code> start_app(), on_frame(dt)</span><span class="meta-sep">·</span>
+                            <span><code>imports:</code> oxide::*</span>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </section>
@@ -319,7 +374,7 @@
                         <h3>Phase 0 — Foundation</h3>
                         <p class="phase-date">Q1 2026</p>
                         <ul class="phase-list">
-                            <li>Wasmtime sandbox with fuel metering &amp; 16 MB memory cap</li>
+                            <li>Wasmtime sandbox with fuel metering &amp; 256 MB memory cap</li>
                             <li>Canvas rendering, widgets, input polling, navigation</li>
                             <li>HTTP fetch, storage, clipboard, crypto, protobuf codec</li>
                             <li>Dynamic child module loading with isolated memory</li>
@@ -327,74 +382,74 @@
                     </div>
                 </div>
 
-                <div class="roadmap-phase active" data-animate="fade-up" data-delay="100">
+                <div class="roadmap-phase shipped" data-animate="fade-up" data-delay="100">
+                    <div class="phase-marker">
+                        <div class="phase-dot shipped-dot"></div>
+                        <div class="phase-line"></div>
+                    </div>
+                    <div class="phase-content">
+                        <div class="phase-badge shipped-badge">Shipped</div>
+                        <h3>Phase 1 — Media &amp; Rich Content</h3>
+                        <p class="phase-date">Q2 2026</p>
+                        <ul class="phase-list">
+                            <li><strong>Audio API</strong> — play, pause, seek, volume, looping, multiple channels, format detection</li>
+                            <li><strong>Video API</strong> — FFmpeg decode, frame-to-canvas, subtitles (SRT/VTT), Picture-in-Picture</li>
+                            <li><strong>Adaptive streaming</strong> — HLS variant selection for live &amp; on-demand</li>
+                            <li><strong>Media capture</strong> — camera, microphone, screen capture with permissions</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div class="roadmap-phase active" data-animate="fade-up" data-delay="150">
                     <div class="phase-marker">
                         <div class="phase-dot active-dot"></div>
                         <div class="phase-line"></div>
                     </div>
                     <div class="phase-content">
                         <div class="phase-badge active-badge">In Progress</div>
-                        <h3>Phase 1 — Media &amp; Rich Content</h3>
+                        <h3>Phase 2 — GPU &amp; Graphics</h3>
                         <p class="phase-date">Q2 2026</p>
                         <ul class="phase-list">
-                            <li><strong>Audio API</strong> — play, pause, seek, volume, looping, multiple channels</li>
-                            <li><strong>Video API</strong> — load, stream, render frames to canvas, subtitles</li>
-                            <li><strong>Adaptive streaming</strong> — HLS/DASH support for live &amp; on-demand</li>
-                            <li><strong>Media capture</strong> — camera, microphone, screen capture with permissions</li>
+                            <li><strong>GPU-backed canvas</strong> — GPUI-rasterized draw commands, gradients, transforms, clipping</li>
+                            <li><strong>WebGPU-style API</strong> — buffers, textures, shaders, pipelines, WGSL</li>
+                            <li><strong>3D rendering</strong> — instanced draws shipped; depth/stencil/blending coming next</li>
+                            <li><strong>GPU compute</strong> — compute shaders live; shared workgroup memory in progress</li>
                         </ul>
                     </div>
                 </div>
 
-                <div class="roadmap-phase" data-animate="fade-up" data-delay="150">
+                <div class="roadmap-phase shipped" data-animate="fade-up" data-delay="200">
                     <div class="phase-marker">
-                        <div class="phase-dot"></div>
+                        <div class="phase-dot shipped-dot"></div>
                         <div class="phase-line"></div>
                     </div>
                     <div class="phase-content">
-                        <div class="phase-badge">Planned</div>
-                        <h3>Phase 2 — GPU &amp; Graphics</h3>
-                        <p class="phase-date">Q3 2026</p>
-                        <ul class="phase-list">
-                            <li><strong>GPU-backed canvas</strong> — hardware-accelerated 2D rendering</li>
-                            <li><strong>WebGPU-style API</strong> — buffers, textures, shaders, pipelines</li>
-                            <li><strong>3D rendering</strong> — depth buffer, instanced draws, WGSL shaders</li>
-                            <li><strong>GPU compute</strong> — general-purpose compute for ML, physics, crypto</li>
-                        </ul>
-                    </div>
-                </div>
-
-                <div class="roadmap-phase" data-animate="fade-up" data-delay="200">
-                    <div class="phase-marker">
-                        <div class="phase-dot"></div>
-                        <div class="phase-line"></div>
-                    </div>
-                    <div class="phase-content">
-                        <div class="phase-badge">Planned</div>
+                        <div class="phase-badge shipped-badge">Shipped</div>
                         <h3>Phase 3 — Real-Time Communication</h3>
-                        <p class="phase-date">Q3 2026</p>
+                        <p class="phase-date">Q2 2026</p>
                         <ul class="phase-list">
-                            <li><strong>WebRTC peers</strong> — create connections, SDP offer/answer, ICE candidates</li>
-                            <li><strong>Data channels</strong> — reliable &amp; unreliable P2P data transfer</li>
-                            <li><strong>Media streams</strong> — attach audio/video tracks, codec negotiation</li>
-                            <li><strong>Signaling</strong> — built-in relay, custom servers, room management</li>
+                            <li><strong>WebRTC peers</strong> — create connections, SDP offer/answer, ICE candidates, STUN/TURN</li>
+                            <li><strong>Data channels</strong> — reliable &amp; unreliable, ordered/unordered, binary &amp; text</li>
+                            <li><strong>Media streams</strong> — attach audio/video tracks, VP8/VP9/AV1/Opus, adaptive quality</li>
+                            <li><strong>Signaling</strong> — built-in relay, custom servers, room-based connections</li>
                         </ul>
                     </div>
                 </div>
 
-                <div class="roadmap-phase" data-animate="fade-up" data-delay="250">
+                <div class="roadmap-phase active" data-animate="fade-up" data-delay="250">
                     <div class="phase-marker">
-                        <div class="phase-dot"></div>
+                        <div class="phase-dot active-dot"></div>
                         <div class="phase-line"></div>
                     </div>
                     <div class="phase-content">
-                        <div class="phase-badge">Planned</div>
+                        <div class="phase-badge active-badge">In Progress</div>
                         <h3>Phase 4 — Tasks, Events &amp; Background Processing</h3>
-                        <p class="phase-date">Q4 2026</p>
+                        <p class="phase-date">Q2 2026</p>
                         <ul class="phase-list">
-                            <li><strong>Timers</strong> — setTimeout, setInterval, requestAnimationFrame</li>
-                            <li><strong>Event system</strong> — custom events, touch, gamepad, drag &amp; drop</li>
-                            <li><strong>Background workers</strong> — spawn WASM workers with message passing</li>
-                            <li><strong>Async I/O</strong> — WebSockets, SSE, streaming fetch, non-blocking ops</li>
+                            <li><strong>Timers</strong> — setTimeout, setInterval, requestAnimationFrame ✓</li>
+                            <li><strong>Async I/O</strong> — WebSockets ✓, streaming fetch ✓, non-blocking ops ✓ (SSE next)</li>
+                            <li><strong>MIDI devices</strong> — list, open, send, receive on hardware controllers ✓</li>
+                            <li><strong>Event system &amp; workers</strong> — custom events, touch, gamepad, drag &amp; drop, background WASM workers</li>
                         </ul>
                     </div>
                 </div>
