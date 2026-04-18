@@ -321,7 +321,7 @@ Rewards are distributed on Solana. Provide your wallet address in your GitHub pr
 ## Community
 
 - **Telegram** — [t.me/oxide_browser](https://t.me/oxide_browser) — general chat, questions, support
-- **X (Twitter)** — [@ForgeX_ai](https://x.com/ForgeX_ai) — announcements, updates
+- **X (Twitter)** — [@OxideBrowser](https://x.com/OxideBrowser) — announcements, updates
 - **GitHub Discussions** — feature proposals, architecture discussions, RFC-style threads
 
 ### Getting Help
