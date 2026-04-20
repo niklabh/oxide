@@ -101,6 +101,7 @@ pub mod bookmarks;
 pub mod capabilities;
 pub mod download;
 pub mod engine;
+pub mod events;
 pub mod fetch;
 pub mod gpu;
 pub mod history;

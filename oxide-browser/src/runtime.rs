@@ -16,6 +16,7 @@ use crate::capabilities::{
     drain_animation_frame_requests, drain_expired_timers, register_host_functions, HostState,
 };
 use crate::engine::{ModuleLoader, SandboxPolicy, WasmEngine};
+use crate::events::{drain_pending_events, set_current_event};
 use crate::history::HistoryStore;
 use crate::url::OxideUrl;
 
@@ -42,6 +43,7 @@ pub struct LiveModule {
     store: Store<HostState>,
     on_frame_fn: TypedFunc<u32, ()>,
     on_timer_fn: Option<TypedFunc<u32, ()>>,
+    on_event_fn: Option<TypedFunc<u32, ()>>,
 }
 
 impl LiveModule {
@@ -51,6 +53,42 @@ impl LiveModule {
     /// Animation requests (from `request_animation_frame`) are one-shot and fire every frame
     /// they are queued. All callbacks run with bounded fuel. Errors are logged to console.
     pub fn tick(&mut self, dt_ms: u32) -> Result<()> {
+        // Event dispatch first: gives the guest a chance to react to resize,
+        // input, and custom events before the next frame is composed.
+        if let Some(ref on_event) = self.on_event_fn {
+            let data = self.store.data();
+            let canvas_size = {
+                let c = data.canvas.lock().unwrap();
+                (c.width, c.height)
+            };
+            let focused = data.focused.load(std::sync::atomic::Ordering::Relaxed);
+            let (mouse_down, mouse_pos) = {
+                let i = data.input_state.lock().unwrap();
+                (i.mouse_buttons_down[0], (i.mouse_x, i.mouse_y))
+            };
+            let events = data.events.clone();
+            let pending =
+                drain_pending_events(&events, canvas_size, focused, mouse_down, mouse_pos);
+            for (callback_id, evt_type, evt_data) in pending {
+                set_current_event(&events, evt_type.clone(), evt_data);
+                self.store
+                    .set_fuel(FRAME_FUEL_LIMIT)
+                    .context("failed to set event fuel")?;
+                if let Err(e) = on_event.call(&mut self.store, callback_id) {
+                    let msg = if e.to_string().contains("fuel") {
+                        format!("on_event({evt_type}:{callback_id}) fuel limit exceeded")
+                    } else {
+                        format!("on_event({evt_type}:{callback_id}) trapped: {e}")
+                    };
+                    crate::capabilities::console_log(
+                        &self.store.data().console,
+                        crate::capabilities::ConsoleLevel::Error,
+                        msg,
+                    );
+                }
+            }
+        }
+
         if let Some(ref on_timer) = self.on_timer_fn {
             // Animation frames first (vsync-aligned, one-shot).
             let anim = self.store.data().animation_requests.clone();
@@ -265,10 +303,14 @@ impl BrowserHost {
                     let on_timer_fn = instance
                         .get_typed_func::<u32, ()>(&mut store, "on_timer")
                         .ok();
+                    let on_event_fn = instance
+                        .get_typed_func::<u32, ()>(&mut store, "on_event")
+                        .ok();
                     Ok(Some(LiveModule {
                         store,
                         on_frame_fn,
                         on_timer_fn,
+                        on_event_fn,
                     }))
                 } else {
                     Ok(None)

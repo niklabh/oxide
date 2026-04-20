@@ -12,6 +12,7 @@ const GREEN: (u8, u8, u8) = (80, 220, 140);
 const BLUE: (u8, u8, u8) = (80, 160, 240);
 const ORANGE: (u8, u8, u8) = (240, 170, 60);
 const PURPLE: (u8, u8, u8) = (160, 90, 220);
+const PINK: (u8, u8, u8) = (240, 140, 200);
 const DIVIDER: (u8, u8, u8) = (50, 45, 70);
 
 struct Card {
@@ -55,6 +56,14 @@ const CARDS: &[Card] = &[
         url: "https://oxide.foundation/media_capture.wasm",
         color: PURPLE,
         icon_char: "M",
+    },
+    Card {
+        title: "Event System",
+        subtitle: "events_demo.wasm",
+        description: "Resize, focus, online/offline, touch, gamepad, drag-drop, and custom events.",
+        url: "https://oxide.foundation/events_demo.wasm",
+        color: PINK,
+        icon_char: "E",
     },
 ];
 
