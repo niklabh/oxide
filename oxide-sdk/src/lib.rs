@@ -149,6 +149,39 @@ extern "C" {
     #[link_name = "api_upload_file"]
     fn _api_upload_file(name_ptr: u32, name_cap: u32, data_ptr: u32, data_cap: u32) -> u64;
 
+    #[link_name = "api_file_pick"]
+    fn _api_file_pick(
+        title_ptr: u32,
+        title_len: u32,
+        filters_ptr: u32,
+        filters_len: u32,
+        multiple: u32,
+        out_ptr: u32,
+        out_cap: u32,
+    ) -> i32;
+
+    #[link_name = "api_folder_pick"]
+    fn _api_folder_pick(title_ptr: u32, title_len: u32) -> u32;
+
+    #[link_name = "api_folder_entries"]
+    fn _api_folder_entries(handle: u32, out_ptr: u32, out_cap: u32) -> i32;
+
+    #[link_name = "api_file_read"]
+    fn _api_file_read(handle: u32, out_ptr: u32, out_cap: u32) -> i64;
+
+    #[link_name = "api_file_read_range"]
+    fn _api_file_read_range(
+        handle: u32,
+        offset_lo: u32,
+        offset_hi: u32,
+        len: u32,
+        out_ptr: u32,
+        out_cap: u32,
+    ) -> i64;
+
+    #[link_name = "api_file_metadata"]
+    fn _api_file_metadata(handle: u32, out_ptr: u32, out_cap: u32) -> i32;
+
     #[link_name = "api_canvas_clear"]
     fn _api_canvas_clear(r: u32, g: u32, b: u32, a: u32);
 
@@ -920,6 +953,244 @@ pub fn upload_file() -> Option<UploadedFile> {
     Some(UploadedFile {
         name: String::from_utf8_lossy(&name_buf[..name_len]).to_string(),
         data: data_buf[..data_len].to_vec(),
+    })
+}
+
+// ─── File / Folder Picker API ───────────────────────────────────────────────
+//
+// Handle-based picker. Paths never cross the sandbox boundary — the host
+// keeps a `HashMap<handle, PathBuf>` and returns opaque `u32` handles.
+// Use [`file_read`] / [`file_read_range`] / [`file_metadata`] with the
+// handle; [`folder_entries`] lists a picked directory.
+
+/// Metadata returned by [`file_metadata`], parsed from the host's JSON reply.
+pub struct FileMetadata {
+    pub name: String,
+    pub size: u64,
+    pub mime: String,
+    pub modified_ms: u64,
+    pub is_dir: bool,
+}
+
+/// One child returned by [`folder_entries`].
+pub struct FolderEntry {
+    pub name: String,
+    pub size: u64,
+    pub is_dir: bool,
+    pub handle: u32,
+}
+
+/// Open the native file picker and return the selected file handles.
+///
+/// `filters` is a comma-separated list of extensions (e.g. `"png,jpg,gif"`);
+/// pass `""` to allow any file. Set `multiple = true` for multi-select.
+/// Returns an empty `Vec` if the user cancels.
+pub fn file_pick(title: &str, filters: &str, multiple: bool) -> Vec<u32> {
+    let mut buf = [0u32; 64];
+    let n = unsafe {
+        _api_file_pick(
+            title.as_ptr() as u32,
+            title.len() as u32,
+            filters.as_ptr() as u32,
+            filters.len() as u32,
+            if multiple { 1 } else { 0 },
+            buf.as_mut_ptr() as u32,
+            (buf.len() * 4) as u32,
+        )
+    };
+    if n <= 0 {
+        return Vec::new();
+    }
+    buf[..n as usize].to_vec()
+}
+
+/// Open the native folder picker and return a directory handle.
+///
+/// Returns `None` if the user cancels. Use [`folder_entries`] to list the
+/// selected directory.
+pub fn folder_pick(title: &str) -> Option<u32> {
+    let h = unsafe { _api_folder_pick(title.as_ptr() as u32, title.len() as u32) };
+    if h == 0 {
+        None
+    } else {
+        Some(h)
+    }
+}
+
+fn read_json_len(handle: u32, call: impl Fn(u32, u32, u32) -> i32) -> Option<Vec<u8>> {
+    let mut buf = vec![0u8; 8 * 1024];
+    let n = call(handle, buf.as_mut_ptr() as u32, buf.len() as u32);
+    if n >= 0 {
+        buf.truncate(n as usize);
+        return Some(buf);
+    }
+    // Negative magnitude: required size. Retry once with the exact capacity.
+    if n < -1 {
+        let required = (-n) as usize;
+        let mut big = vec![0u8; required];
+        let n2 = call(handle, big.as_mut_ptr() as u32, big.len() as u32);
+        if n2 >= 0 {
+            big.truncate(n2 as usize);
+            return Some(big);
+        }
+    }
+    None
+}
+
+/// List the children of a picked folder handle.
+///
+/// Each returned entry includes a fresh sub-handle that can be passed to
+/// [`file_read`], [`file_read_range`], or [`file_metadata`] (or recursively
+/// to `folder_entries` for directories).
+pub fn folder_entries(handle: u32) -> Vec<FolderEntry> {
+    let bytes = match read_json_len(handle, |h, p, c| unsafe { _api_folder_entries(h, p, c) }) {
+        Some(b) => b,
+        None => return Vec::new(),
+    };
+    parse_folder_entries(&bytes)
+}
+
+fn parse_folder_entries(bytes: &[u8]) -> Vec<FolderEntry> {
+    // Minimal hand-rolled parser: the host emits a strict, flat JSON array
+    // with the four fields in a fixed order. Avoids pulling in serde_json.
+    let s = core::str::from_utf8(bytes).unwrap_or("");
+    let mut out = Vec::new();
+    let mut rest = s.trim();
+    if !rest.starts_with('[') {
+        return out;
+    }
+    rest = &rest[1..];
+    loop {
+        rest = rest.trim_start_matches(|c: char| c.is_whitespace() || c == ',');
+        if rest.starts_with(']') || rest.is_empty() {
+            break;
+        }
+        let Some(end) = rest.find('}') else { break };
+        let obj = &rest[..=end];
+        rest = &rest[end + 1..];
+        let name = json_str_field(obj, "\"name\":").unwrap_or_default();
+        let size = json_num_field(obj, "\"size\":").unwrap_or(0);
+        let is_dir = json_bool_field(obj, "\"is_dir\":").unwrap_or(false);
+        let handle = json_num_field(obj, "\"handle\":").unwrap_or(0) as u32;
+        out.push(FolderEntry {
+            name,
+            size,
+            is_dir,
+            handle,
+        });
+    }
+    out
+}
+
+fn json_str_field(obj: &str, key: &str) -> Option<String> {
+    let idx = obj.find(key)?;
+    let after = &obj[idx + key.len()..];
+    let start = after.find('"')? + 1;
+    let mut out = String::new();
+    let bytes = after.as_bytes();
+    let mut i = start;
+    while i < bytes.len() {
+        let c = bytes[i];
+        if c == b'\\' && i + 1 < bytes.len() {
+            match bytes[i + 1] {
+                b'"' => out.push('"'),
+                b'\\' => out.push('\\'),
+                b'n' => out.push('\n'),
+                b'r' => out.push('\r'),
+                b't' => out.push('\t'),
+                _ => out.push(bytes[i + 1] as char),
+            }
+            i += 2;
+        } else if c == b'"' {
+            return Some(out);
+        } else {
+            out.push(c as char);
+            i += 1;
+        }
+    }
+    None
+}
+
+fn json_num_field(obj: &str, key: &str) -> Option<u64> {
+    let idx = obj.find(key)?;
+    let after = obj[idx + key.len()..].trim_start();
+    let end = after
+        .find(|c: char| !c.is_ascii_digit())
+        .unwrap_or(after.len());
+    after[..end].parse().ok()
+}
+
+fn json_bool_field(obj: &str, key: &str) -> Option<bool> {
+    let idx = obj.find(key)?;
+    let after = obj[idx + key.len()..].trim_start();
+    if after.starts_with("true") {
+        Some(true)
+    } else if after.starts_with("false") {
+        Some(false)
+    } else {
+        None
+    }
+}
+
+/// Read the full contents of a picked file.
+///
+/// Returns `None` if the handle is unknown, the file cannot be read, or the
+/// file is larger than 64 MiB (the wrapper's retry cap).
+pub fn file_read(handle: u32) -> Option<Vec<u8>> {
+    let mut buf = vec![0u8; 64 * 1024];
+    let n = unsafe { _api_file_read(handle, buf.as_mut_ptr() as u32, buf.len() as u32) };
+    if n >= 0 {
+        buf.truncate(n as usize);
+        return Some(buf);
+    }
+    if n < -1 {
+        let required = (-n) as usize;
+        if required > 64 * 1024 * 1024 {
+            return None;
+        }
+        let mut big = vec![0u8; required];
+        let n2 = unsafe { _api_file_read(handle, big.as_mut_ptr() as u32, big.len() as u32) };
+        if n2 >= 0 {
+            big.truncate(n2 as usize);
+            return Some(big);
+        }
+    }
+    None
+}
+
+/// Read `len` bytes from `offset` of a picked file.
+///
+/// Returns the bytes actually read (may be shorter than `len` at EOF).
+/// `None` indicates an invalid handle or I/O error.
+pub fn file_read_range(handle: u32, offset: u64, len: u32) -> Option<Vec<u8>> {
+    let mut buf = vec![0u8; len as usize];
+    let n = unsafe {
+        _api_file_read_range(
+            handle,
+            offset as u32,
+            (offset >> 32) as u32,
+            len,
+            buf.as_mut_ptr() as u32,
+            buf.len() as u32,
+        )
+    };
+    if n < 0 {
+        return None;
+    }
+    buf.truncate(n as usize);
+    Some(buf)
+}
+
+/// Inspect a picked file or folder: name, size, MIME type, last-modified.
+pub fn file_metadata(handle: u32) -> Option<FileMetadata> {
+    let bytes = read_json_len(handle, |h, p, c| unsafe { _api_file_metadata(h, p, c) })?;
+    let s = core::str::from_utf8(&bytes).ok()?;
+    Some(FileMetadata {
+        name: json_str_field(s, "\"name\":").unwrap_or_default(),
+        size: json_num_field(s, "\"size\":").unwrap_or(0),
+        mime: json_str_field(s, "\"mime\":").unwrap_or_default(),
+        modified_ms: json_num_field(s, "\"modified_ms\":").unwrap_or(0),
+        is_dir: json_bool_field(s, "\"is_dir\":").unwrap_or(false),
     })
 }
 
