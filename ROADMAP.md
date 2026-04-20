@@ -202,10 +202,10 @@ The core architecture is live: a Rust-native browser that fetches and executes `
 
 ### System APIs
 
-- [ ] `file_pick(options)` — open native OS file picker; returns file handle(s) accessible from WASM (single/multiple, file type filters)
-- [ ] `folder_pick()` — open native OS folder picker; returns a directory handle for reading entries from WASM
-- [ ] `file_read(handle)` / `file_read_range(handle, offset, len)` — read file contents (full or partial) from a picked handle
-- [ ] `file_metadata(handle)` — retrieve name, size, MIME type, and last-modified for a picked file
+- [x] `file_pick(options)` — open native OS file picker; returns file handle(s) accessible from WASM (single/multiple, file type filters)
+- [x] `folder_pick()` — open native OS folder picker; returns a directory handle for reading entries from WASM (via `folder_entries`)
+- [x] `file_read(handle)` / `file_read_range(handle, offset, len)` — read file contents (full or partial) from a picked handle
+- [x] `file_metadata(handle)` — retrieve name, size, MIME type, and last-modified for a picked file
 - [ ] `geolocation_request()` — request real device location via system APIs (Core Location on macOS/iOS, platform equivalents elsewhere)
 - [ ] `geolocation_get_position()` — return current latitude, longitude, altitude, accuracy, and timestamp
 - [ ] `geolocation_watch(interval_ms)` / `geolocation_clear_watch()` — continuous position updates at a given interval

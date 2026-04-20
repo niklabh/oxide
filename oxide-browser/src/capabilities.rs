@@ -196,6 +196,9 @@ pub struct HostState {
     pub midi: Arc<Mutex<Option<crate::midi::MidiState>>>,
     /// Streaming / non-blocking fetch state (lazily initialised on first `api_fetch_begin`).
     pub fetch: Arc<Mutex<Option<crate::fetch::FetchState>>>,
+    /// Native file and folder picker handles. Paths never cross the sandbox;
+    /// guests only see opaque `u32` handles allocated here.
+    pub file_picker: Arc<Mutex<crate::file_picker::FilePickerState>>,
     /// Event listeners, queued events, and built-in event detector state
     /// (resize, focus, online/offline, touch, gamepad, drag-drop).
     pub events: Arc<Mutex<crate::events::EventState>>,
@@ -574,6 +577,7 @@ impl Default for HostState {
             ws: Arc::new(Mutex::new(None)),
             midi: Arc::new(Mutex::new(None)),
             fetch: Arc::new(Mutex::new(None)),
+            file_picker: Arc::new(Mutex::new(crate::file_picker::FilePickerState::default())),
             events: Arc::new(Mutex::new(crate::events::EventState::default())),
             focused: Arc::new(AtomicBool::new(true)),
         }
@@ -3517,6 +3521,9 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
 
     // ── Event System ──────────────────────────────────────────────────
     crate::events::register_event_functions(linker)?;
+
+    // ── Native File / Folder Picker API ───────────────────────────────
+    crate::file_picker::register_file_picker_functions(linker)?;
 
     Ok(())
 }
