@@ -1122,7 +1122,9 @@ impl Render for OxideBrowserView {
         let canvas_focused = self.canvas_focus.is_focused(window);
         {
             let tab = &mut self.tabs[active];
-            tab.host_state.focused.store(canvas_focused, Ordering::Relaxed);
+            tab.host_state
+                .focused
+                .store(canvas_focused, Ordering::Relaxed);
             tab.sync_keys_held_to_input();
             tab.tick_frame();
             tab.update_texture_cache(window);
