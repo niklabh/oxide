@@ -185,12 +185,12 @@ The core architecture is live: a Rust-native browser that fetches and executes `
 
 ### Event System
 
-- [ ] `on_event(event_type, callback_id)` — register event listeners
-- [ ] `emit_event(event_type, data)` — emit custom events
-- [ ] Built-in event types: `resize`, `focus`, `blur`, `visibility_change`, `online`, `offline`
-- [ ] Touch events: `touch_start`, `touch_move`, `touch_end`, `touch_cancel`
-- [ ] Gamepad events: `gamepad_connected`, `gamepad_button`, `gamepad_axis`
-- [ ] Drag and drop events with file data
+- [x] `on_event(event_type, callback_id)` — register event listeners (with `off_event(listener_id)`)
+- [x] `emit_event(event_type, data)` — emit custom events
+- [x] Built-in event types: `resize`, `focus`, `blur`, `visibility_change`, `online`, `offline`
+- [x] Touch events: `touch_start`, `touch_move`, `touch_end` (synthesised from primary mouse; `touch_cancel` reserved for native touch input)
+- [x] Gamepad events: `gamepad_connected`, `gamepad_button`, `gamepad_axis` (via `gilrs` polling thread)
+- [x] Drag and drop events with file data (`drop_files`, payload is JSON array of paths)
 
 ### Background Workers
 

@@ -11,6 +11,7 @@
 //! read or mutate the [`HostState`] held in the Wasmtime store attached to the linker.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -195,6 +196,13 @@ pub struct HostState {
     pub midi: Arc<Mutex<Option<crate::midi::MidiState>>>,
     /// Streaming / non-blocking fetch state (lazily initialised on first `api_fetch_begin`).
     pub fetch: Arc<Mutex<Option<crate::fetch::FetchState>>>,
+    /// Event listeners, queued events, and built-in event detector state
+    /// (resize, focus, online/offline, touch, gamepad, drag-drop).
+    pub events: Arc<Mutex<crate::events::EventState>>,
+    /// Whether the canvas currently has keyboard/window focus. Set by the UI
+    /// layer each frame; consumed by the event system to fire `focus` /
+    /// `blur` / `visibility_change`.
+    pub focused: Arc<AtomicBool>,
 }
 
 /// A single console log line: local time, severity, and message text.
@@ -566,6 +574,8 @@ impl Default for HostState {
             ws: Arc::new(Mutex::new(None)),
             midi: Arc::new(Mutex::new(None)),
             fetch: Arc::new(Mutex::new(None)),
+            events: Arc::new(Mutex::new(crate::events::EventState::default())),
+            focused: Arc::new(AtomicBool::new(true)),
         }
     }
 }
@@ -3504,6 +3514,9 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
 
     // ── Streaming / non-blocking Fetch API ────────────────────────────
     crate::fetch::register_fetch_functions(linker)?;
+
+    // ── Event System ──────────────────────────────────────────────────
+    crate::events::register_event_functions(linker)?;
 
     Ok(())
 }

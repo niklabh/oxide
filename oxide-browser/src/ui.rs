@@ -12,6 +12,7 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+use std::sync::atomic::Ordering;
 use std::sync::mpsc::{self, TryRecvError};
 use std::sync::{Arc, Mutex};
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
@@ -1118,8 +1119,10 @@ impl Render for OxideBrowserView {
         }
 
         let active = self.active_tab;
+        let canvas_focused = self.canvas_focus.is_focused(window);
         {
             let tab = &mut self.tabs[active];
+            tab.host_state.focused.store(canvas_focused, Ordering::Relaxed);
             tab.sync_keys_held_to_input();
             tab.tick_frame();
             tab.update_texture_cache(window);
@@ -2404,6 +2407,10 @@ impl Render for OxideBrowserView {
                             input.scroll_y += l.y * 20.0;
                         }
                     }
+                }))
+                .on_drop(cx.listener(|this, paths: &gpui::ExternalPaths, _, _cx| {
+                    let tab = &mut this.tabs[this.active_tab];
+                    crate::events::enqueue_drop_files(&tab.host_state.events, paths.paths());
                 }))
                 .child({
                     let cmds = cmds.clone();

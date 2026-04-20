@@ -100,6 +100,7 @@
 //! | **WebSocket** | [`ws_connect`], [`ws_send_text`], [`ws_send_binary`], [`ws_recv`], [`ws_ready_state`], [`ws_close`], [`ws_remove`] |
 //! | **MIDI** | [`midi_input_count`], [`midi_output_count`], [`midi_input_name`], [`midi_output_name`], [`midi_open_input`], [`midi_open_output`], [`midi_send`], [`midi_recv`], [`midi_close`] |
 //! | **Timers** | [`set_timeout`], [`set_interval`], [`clear_timer`], [`request_animation_frame`], [`cancel_animation_frame`], [`time_now_ms`] |
+//! | **Events** | [`on_event`], [`off_event`], [`emit_event`], [`event_type`], [`event_data`], [`event_data_into`] |
 //! | **Navigation** | [`navigate`], [`push_state`], [`replace_state`], [`get_url`], [`history_back`], [`history_forward`] |
 //! | **Input** | [`mouse_position`], [`mouse_button_down`], [`mouse_button_clicked`], [`key_down`], [`key_pressed`], [`scroll_delta`], [`modifiers`] |
 //! | **Widgets** | [`ui_button`], [`ui_checkbox`], [`ui_slider`], [`ui_text_input`] |
@@ -115,8 +116,11 @@
 //!    interactive apps with a render loop (called every frame, fuel replenished).
 //! 3. **Optionally export `on_timer`** — `extern "C" fn(callback_id: u32)`
 //!    to receive callbacks from [`set_timeout`], [`set_interval`], and [`request_animation_frame`].
-//! 4. **Compile as `cdylib`** — `crate-type = ["cdylib"]` in `Cargo.toml`.
-//! 5. **Target `wasm32-unknown-unknown`** — no WASI, pure capability-based I/O.
+//! 4. **Optionally export `on_event`** — `extern "C" fn(callback_id: u32)`
+//!    to receive built-in (`resize`, `focus`, `touch_*`, `gamepad_*`, `drop_files`, …)
+//!    and custom events registered via [`on_event`] / [`emit_event`].
+//! 5. **Compile as `cdylib`** — `crate-type = ["cdylib"]` in `Cargo.toml`.
+//! 6. **Target `wasm32-unknown-unknown`** — no WASI, pure capability-based I/O.
 //!
 //! ## Full API Documentation
 //!
@@ -296,6 +300,27 @@ extern "C" {
 
     #[link_name = "api_cancel_animation_frame"]
     fn _api_cancel_animation_frame(request_id: u32);
+
+    #[link_name = "api_on_event"]
+    fn _api_on_event(type_ptr: u32, type_len: u32, callback_id: u32) -> u32;
+
+    #[link_name = "api_off_event"]
+    fn _api_off_event(listener_id: u32) -> u32;
+
+    #[link_name = "api_emit_event"]
+    fn _api_emit_event(type_ptr: u32, type_len: u32, data_ptr: u32, data_len: u32);
+
+    #[link_name = "api_event_type_len"]
+    fn _api_event_type_len() -> u32;
+
+    #[link_name = "api_event_type_read"]
+    fn _api_event_type_read(out_ptr: u32, out_cap: u32) -> u32;
+
+    #[link_name = "api_event_data_len"]
+    fn _api_event_data_len() -> u32;
+
+    #[link_name = "api_event_data_read"]
+    fn _api_event_data_read(out_ptr: u32, out_cap: u32) -> u32;
 
     #[link_name = "api_random"]
     fn _api_random() -> u64;
@@ -1285,6 +1310,101 @@ pub fn request_animation_frame(callback_id: u32) -> u32 {
 /// Cancel a pending animation frame request.
 pub fn cancel_animation_frame(request_id: u32) {
     unsafe { _api_cancel_animation_frame(request_id) }
+}
+
+// ─── Event System ───────────────────────────────────────────────────────────
+//
+// Register listeners for built-in or custom events. Built-in event types
+// produced by the host:
+//
+// | Event              | Payload                                                          |
+// |--------------------|------------------------------------------------------------------|
+// | `resize`           | 8 bytes: `width: u32, height: u32` (little-endian)               |
+// | `focus` / `blur`   | empty                                                            |
+// | `visibility_change`| UTF-8 string `"visible"` or `"hidden"`                           |
+// | `online`/`offline` | empty                                                            |
+// | `touch_start`      | 8 bytes: `x: f32, y: f32` (little-endian)                        |
+// | `touch_move`       | 8 bytes: `x: f32, y: f32`                                        |
+// | `touch_end`        | 8 bytes: `x: f32, y: f32`                                        |
+// | `gamepad_connected`| UTF-8 device name                                                |
+// | `gamepad_button`   | 12 bytes: `id: u32, code: u32, pressed: u32`                     |
+// | `gamepad_axis`     | 12 bytes: `id: u32, code: u32, value: f32`                       |
+// | `drop_files`       | UTF-8 JSON array of dropped file paths, e.g. `["/tmp/a.png"]`    |
+//
+// Events fire via the guest-exported `on_event(callback_id: u32)` function,
+// which the host calls once per pending event each frame (before timers and
+// `on_frame`). Inside that callback, use [`event_type`] / [`event_data`] /
+// [`event_data_into`] to inspect the current event.
+
+/// Register a listener for events of `event_type`. When an event fires, the
+/// host invokes the guest-exported `on_event(callback_id)` and exposes the
+/// event payload via [`event_type`] / [`event_data`].
+///
+/// Returns a non-zero listener ID for [`off_event`], or `0` on failure
+/// (empty event type, missing memory).
+pub fn on_event(event_type: &str, callback_id: u32) -> u32 {
+    unsafe {
+        _api_on_event(
+            event_type.as_ptr() as u32,
+            event_type.len() as u32,
+            callback_id,
+        )
+    }
+}
+
+/// Cancel a previously-registered listener. Returns `true` if a listener
+/// with that ID existed and was removed.
+pub fn off_event(listener_id: u32) -> bool {
+    unsafe { _api_off_event(listener_id) != 0 }
+}
+
+/// Emit a custom event with an arbitrary payload. Listeners registered for
+/// this event type via [`on_event`] will be invoked on the next frame
+/// (before timers and `on_frame`).
+pub fn emit_event(event_type: &str, data: &[u8]) {
+    unsafe {
+        _api_emit_event(
+            event_type.as_ptr() as u32,
+            event_type.len() as u32,
+            data.as_ptr() as u32,
+            data.len() as u32,
+        )
+    }
+}
+
+/// The type name of the event currently being delivered. Only meaningful
+/// inside an `on_event` callback; returns an empty string otherwise.
+pub fn event_type() -> String {
+    let len = unsafe { _api_event_type_len() } as usize;
+    if len == 0 {
+        return String::new();
+    }
+    let mut buf = vec![0u8; len];
+    let written = unsafe { _api_event_type_read(buf.as_mut_ptr() as u32, len as u32) } as usize;
+    buf.truncate(written);
+    String::from_utf8_lossy(&buf).into_owned()
+}
+
+/// Copy the current event's payload bytes into `out` and return the number
+/// of bytes written. Truncates if `out` is smaller than the payload.
+pub fn event_data(out: &mut [u8]) -> usize {
+    let cap = out.len() as u32;
+    if cap == 0 {
+        return 0;
+    }
+    unsafe { _api_event_data_read(out.as_mut_ptr() as u32, cap) as usize }
+}
+
+/// Allocate a fresh `Vec<u8>` containing the current event's payload.
+pub fn event_data_into() -> Vec<u8> {
+    let len = unsafe { _api_event_data_len() } as usize;
+    if len == 0 {
+        return Vec::new();
+    }
+    let mut buf = vec![0u8; len];
+    let written = unsafe { _api_event_data_read(buf.as_mut_ptr() as u32, len as u32) } as usize;
+    buf.truncate(written);
+    buf
 }
 
 // ─── Random API ─────────────────────────────────────────────────────────────
