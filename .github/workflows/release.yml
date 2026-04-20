@@ -98,7 +98,7 @@ jobs:
             libasound2-dev \
             pkg-config libavcodec-dev libavformat-dev libavutil-dev libavfilter-dev \
             libavdevice-dev libswscale-dev libswresample-dev \
-            libv4l-dev
+            libv4l-dev libudev-dev
 
       # ffmpeg-sys-next falls back to pkg-config for libavutil; runners do not ship FFmpeg.
       - name: Install FFmpeg (macOS)
