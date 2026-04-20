@@ -2569,6 +2569,14 @@ impl Render for OxideBrowserView {
                                     _ => None,
                                 })
                                 .unwrap_or(min);
+                            let frac = if max > min {
+                                ((cur - min) / (max - min)).clamp(0.0, 1.0)
+                            } else {
+                                0.0
+                            };
+                            let handle_size: f32 = 14.0;
+                            let handle_left =
+                                (frac * w - handle_size / 2.0).clamp(0.0, w - handle_size);
                             el.child(
                                 div()
                                     .id(("oxide_sl", id as usize))
@@ -2579,6 +2587,8 @@ impl Render for OxideBrowserView {
                                     .h(px(28.0))
                                     .flex()
                                     .items_center()
+                                    .justify_end()
+                                    .pr_2()
                                     .rounded_md()
                                     .bg(gpui::rgb(0x2a2a32))
                                     .on_click(cx.listener(
@@ -2599,6 +2609,26 @@ impl Render for OxideBrowserView {
                                             }
                                         },
                                     ))
+                                    .child(
+                                        div()
+                                            .absolute()
+                                            .left(px(0.0))
+                                            .top(px(12.0))
+                                            .w(px(frac * w))
+                                            .h(px(4.0))
+                                            .rounded_sm()
+                                            .bg(gpui::rgb(0x5a5a8a)),
+                                    )
+                                    .child(
+                                        div()
+                                            .absolute()
+                                            .left(px(handle_left))
+                                            .top(px((28.0 - handle_size) / 2.0))
+                                            .w(px(handle_size))
+                                            .h(px(handle_size))
+                                            .rounded_full()
+                                            .bg(gpui::rgb(0xe4e4ec)),
+                                    )
                                     .child(
                                         div()
                                             .text_xs()
