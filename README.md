@@ -5,8 +5,11 @@
 [![License](https://img.shields.io/crates/l/oxide-sdk?style=flat-square)](https://github.com/niklabh/oxide/blob/main/LICENSE)
 [![docs.rs](https://img.shields.io/docsrs/oxide-sdk?style=flat-square)](https://docs.rs/oxide-sdk)
 [![CI](https://img.shields.io/github/actions/workflow/status/niklabh/oxide/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/niklabh/oxide/actions/workflows/ci.yml)
+[![Built with Opus 4.7](https://img.shields.io/badge/Built%20with-Claude%20Opus%204.7-b478ff?style=flat-square)](./claude-hackathon.md)
 
 Oxide is a decentralised browser that fetches and executes `.wasm` (WebAssembly) modules instead of HTML/JavaScript. Guest applications run in a secure, sandboxed environment with capability-based access to host APIs.
+
+> **New — [Oxide Forge](./claude-hackathon.md):** an AI-native layer inside Oxide where Claude Opus 4.7 writes, compiles, and hot-loads guest `.wasm` apps in the same browser. Open `oxide://forge`, describe what you want, watch it run. See the [hackathon plan](./claude-hackathon.md) and the [Forge Kit](./forge/README.md).
 
 ![oxide](screens/oxide.png)
 
@@ -68,6 +71,7 @@ oxide/
 │       ├── engine.rs        # WasmEngine, SandboxPolicy, compile & memory bounds
 │       ├── runtime.rs       # BrowserHost, fetch/load/instantiate pipeline
 │       ├── capabilities.rs  # ~100 host functions registered into the wasmtime Linker
+│       ├── forge.rs         # oxide://forge — Claude streaming + cargo driver + self-debug
 │       ├── navigation.rs    # History stack, back/forward, push/replace state
 │       ├── url.rs           # WHATWG-style URL parser (http, https, file, oxide schemes)
 │       └── ui.rs            # GPUI shell — toolbar, canvas paint, console, widgets
@@ -75,6 +79,7 @@ oxide/
 │   └── src/
 │       ├── lib.rs           # Safe Rust wrappers over host imports
 │       └── proto.rs         # Zero-dependency protobuf wire-format codec
+├── forge/                   # Oxide Forge kit — prompt, catalog, patterns, recipes, template
 └── examples/
     ├── hello-oxide/         # Minimal guest app
     ├── audio-player/        # Audio playback
@@ -189,6 +194,60 @@ Security is **additive, not subtractive**: there is nothing to claw back because
 | WebRTC      | `webrtc`   | Peer connections, data channels, media tracks |
 | MIDI        | `coremidi` (macOS) | Cross-platform MIDI I/O |
 | Crypto      | `sha2`     | SHA-256 hashing for guest modules |
+
+## Oxide Forge — AI-native app generation
+
+`oxide://forge` is a built-in page that turns natural-language prompts
+into compiled guest `.wasm` modules running in the same Oxide browser.
+It was built during the
+[Built with Opus 4.7 hackathon](./claude-hackathon.md) as a showcase of
+Claude Opus 4.7 acting as a first-class co-creator for the Oxide
+platform.
+
+### Flow
+
+```
+ ┌───────────────────┐    ┌────────────────┐   ┌──────────────────┐
+ │  user prompt      │───▶│  Claude stream │──▶│  write lib.rs    │
+ │  (oxide://forge)  │    │  (Messages API)│   │  to target/forge │
+ └───────────────────┘    └────────────────┘   └────────┬─────────┘
+                                                        │
+ ┌───────────────────┐    ┌────────────────┐   ┌────────▼─────────┐
+ │  "Run" → new tab  │◀───│  load .wasm    │◀──│  cargo build     │
+ │  sandboxed        │    │  into BrowserHost │  wasm32-unknown  │
+ └───────────────────┘    └────────────────┘   └──────────────────┘
+```
+
+If `cargo build` fails, Forge feeds the compiler output back to Claude
+up to **3 times** automatically before surfacing the error — so the
+happy path is usually one prompt, one result.
+
+### Under the hood
+
+| Piece | File |
+|-------|------|
+| Prompt kit (system prompt, SDK catalog, recipes, patterns) | [`forge/`](./forge/) |
+| Session state, Claude streaming, cargo driver, self-debug loop | [`oxide-browser/src/forge.rs`](./oxide-browser/src/forge.rs) |
+| `oxide://forge` native page | [`oxide-browser/src/ui.rs`](./oxide-browser/src/ui.rs) |
+| Base Cargo template copied per session | [`forge/templates/base/`](./forge/templates/base/) |
+
+Every generation reads the exact signatures from
+[`forge/CAPABILITIES.md`](./forge/CAPABILITIES.md), the idiomatic rules
+from [`forge/PATTERNS.md`](./forge/PATTERNS.md), and 12 runnable
+snippets in [`forge/RECIPES.md`](./forge/RECIPES.md). Generated code is
+constrained to the same capability-based sandbox as every other guest
+app — **Forge adds no new host privileges**.
+
+### Try it
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-…
+cargo run -p oxide-browser
+# → URL bar → oxide://forge → type a prompt → Enter
+```
+
+Set `OXIDE_FORGE_MODEL` to override the default model
+(`claude-opus-4-20250514`).
 
 ## Documentation
 
