@@ -206,6 +206,11 @@ pub struct HostState {
     /// layer each frame; consumed by the event system to fire `focus` /
     /// `blur` / `visibility_change`.
     pub focused: Arc<AtomicBool>,
+    /// Per-frame GPUI [`WindowTextSystem`] used for synchronous text shaping
+    /// from `api_canvas_measure_text`. The UI layer installs it right before
+    /// calling `on_frame` and clears it immediately after, so this is only
+    /// `Some` during guest frame callbacks.
+    pub text_system: Arc<Mutex<Option<Arc<gpui::WindowTextSystem>>>>,
 }
 
 /// A single console log line: local time, severity, and message text.
@@ -401,6 +406,28 @@ pub enum DrawCommand {
     Clip { x: f32, y: f32, w: f32, h: f32 },
     /// Set layer opacity for subsequent draw commands (0.0 transparent – 1.0 opaque).
     Opacity { alpha: f32 },
+    /// Text with explicit family, weight, style, and alignment. The baseline is
+    /// at `(x, y)` for [`TextAlign::Left`]; for centre/right alignment, `x` is
+    /// the right edge or centre respectively.
+    TextEx {
+        x: f32,
+        y: f32,
+        size: f32,
+        r: u8,
+        g: u8,
+        b: u8,
+        a: u8,
+        /// CSS-style family name (e.g. `"Helvetica"`). Empty string falls back
+        /// to the system UI font.
+        family: String,
+        /// Weight in the CSS range `100..=900`. `0` means the default (400).
+        weight: u16,
+        /// `0` = normal, `1` = italic, `2` = oblique.
+        style: u8,
+        /// `0` = left (x is left edge), `1` = centre (x is centre), `2` = right (x is right edge).
+        align: u8,
+        text: String,
+    },
 }
 
 /// A scheduled timer: either a one-shot `setTimeout` or repeating `setInterval`.
@@ -580,6 +607,7 @@ impl Default for HostState {
             file_picker: Arc::new(Mutex::new(crate::file_picker::FilePickerState::default())),
             events: Arc::new(Mutex::new(crate::events::EventState::default())),
             focused: Arc::new(AtomicBool::new(true)),
+            text_system: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -696,6 +724,34 @@ pub(crate) fn write_guest_bytes(
         .context("guest buffer out of bounds")?
         .copy_from_slice(bytes);
     Ok(())
+}
+
+/// Clamp a guest-supplied font weight to the CSS `100..=900` range. A value of
+/// `0` means "use the default" and maps to `400` (normal).
+pub(crate) fn clamp_weight(weight: u32) -> u16 {
+    if weight == 0 {
+        400
+    } else {
+        weight.clamp(100, 900) as u16
+    }
+}
+
+/// Build a [`gpui::Font`] from the guest-supplied family, weight, and style.
+/// An empty family falls back to `.SystemUIFont`.
+pub(crate) fn make_gpui_font(family: &str, weight: u16, style: u8) -> gpui::Font {
+    let family_name = if family.is_empty() {
+        ".SystemUIFont"
+    } else {
+        family
+    };
+    let mut f = gpui::font(family_name.to_string());
+    f.weight = gpui::FontWeight(weight as f32);
+    f.style = match style {
+        1 => gpui::FontStyle::Italic,
+        2 => gpui::FontStyle::Oblique,
+        _ => gpui::FontStyle::Normal,
+    };
+    f
 }
 
 /// Append a [`ConsoleEntry`] with the current local timestamp to the shared console buffer.
@@ -939,6 +995,98 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
                     a: a as u8,
                     text,
                 });
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_canvas_text_ex",
+        |caller: Caller<'_, HostState>,
+         x: f32,
+         y: f32,
+         size: f32,
+         r: u32,
+         g: u32,
+         b: u32,
+         a: u32,
+         fam_ptr: u32,
+         fam_len: u32,
+         weight: u32,
+         style: u32,
+         align: u32,
+         txt_ptr: u32,
+         txt_len: u32| {
+            let mem = caller.data().memory.expect("memory not set");
+            let family = read_guest_string(&mem, &caller, fam_ptr, fam_len).unwrap_or_default();
+            let text = read_guest_string(&mem, &caller, txt_ptr, txt_len).unwrap_or_default();
+            let weight = clamp_weight(weight);
+            let style = (style.min(2)) as u8;
+            let align = (align.min(2)) as u8;
+            caller
+                .data()
+                .canvas
+                .lock()
+                .unwrap()
+                .commands
+                .push(DrawCommand::TextEx {
+                    x,
+                    y,
+                    size,
+                    r: r as u8,
+                    g: g as u8,
+                    b: b as u8,
+                    a: a as u8,
+                    family,
+                    weight,
+                    style,
+                    align,
+                    text,
+                });
+        },
+    )?;
+
+    // Synchronous text measurement. Writes 3 × f32 (width, ascent, descent) in
+    // pixels to `out_ptr` and returns 1 on success; returns 0 if the text
+    // system isn't available yet or the out buffer is invalid.
+    linker.func_wrap(
+        "oxide",
+        "api_canvas_measure_text",
+        |mut caller: Caller<'_, HostState>,
+         size: f32,
+         fam_ptr: u32,
+         fam_len: u32,
+         weight: u32,
+         style: u32,
+         txt_ptr: u32,
+         txt_len: u32,
+         out_ptr: u32|
+         -> u32 {
+            let mem = caller.data().memory.expect("memory not set");
+            let family = read_guest_string(&mem, &caller, fam_ptr, fam_len).unwrap_or_default();
+            let text = read_guest_string(&mem, &caller, txt_ptr, txt_len).unwrap_or_default();
+            let weight = clamp_weight(weight);
+            let style = (style.min(2)) as u8;
+            let ts = caller.data().text_system.lock().unwrap().clone();
+            let Some(ts) = ts else { return 0 };
+            let font = make_gpui_font(&family, weight, style);
+            let run = gpui::TextRun {
+                len: text.len(),
+                font,
+                color: gpui::rgba(0xffffffff).into(),
+                background_color: None,
+                underline: None,
+                strikethrough: None,
+            };
+            let layout = ts.layout_line(&text, gpui::px(size), &[run], None);
+            let mut buf = [0u8; 12];
+            buf[0..4].copy_from_slice(&f32::from(layout.width).to_le_bytes());
+            buf[4..8].copy_from_slice(&f32::from(layout.ascent).to_le_bytes());
+            buf[8..12].copy_from_slice(&f32::from(layout.descent).to_le_bytes());
+            if write_guest_bytes(&mem, &mut caller, out_ptr, &buf).is_ok() {
+                1
+            } else {
+                0
+            }
         },
     )?;
 

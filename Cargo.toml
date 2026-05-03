@@ -20,5 +20,6 @@ members = [
     "examples/events-demo",
     "examples/file-picker-demo",
     "examples/gradient-demo",
+    "examples/typography-demo",
 ]
 resolver = "2"

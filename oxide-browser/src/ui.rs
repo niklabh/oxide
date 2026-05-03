@@ -701,6 +701,44 @@ fn paint_draw_commands(
                 );
                 let _ = line.paint(origin, px(*size * 1.2), window, cx);
             }
+            DrawCommand::TextEx {
+                x,
+                y,
+                size,
+                r,
+                g,
+                b,
+                a,
+                family,
+                weight,
+                style,
+                align,
+                text,
+            } => {
+                let text_owned = text.clone();
+                let ca = apply_opacity(*a, opacity);
+                let run = TextRun {
+                    len: text_owned.len(),
+                    font: crate::capabilities::make_gpui_font(family, *weight, *style),
+                    color: rgba8(*r, *g, *b, ca),
+                    background_color: None,
+                    underline: None,
+                    strikethrough: None,
+                };
+                let line = window.text_system().shape_line(
+                    SharedString::from(text_owned),
+                    px(*size),
+                    &[run],
+                    None,
+                );
+                let line_x = match *align {
+                    1 => off_x + *x - f32::from(line.width) / 2.0,
+                    2 => off_x + *x - f32::from(line.width),
+                    _ => off_x + *x,
+                };
+                let origin = point(px(line_x), px(off_y + *y));
+                let _ = line.paint(origin, px(*size * 1.2), window, cx);
+            }
             DrawCommand::Line {
                 x1,
                 y1,
@@ -1350,7 +1388,12 @@ impl Render for OxideBrowserView {
                 .focused
                 .store(canvas_focused, Ordering::Relaxed);
             tab.sync_keys_held_to_input();
+            // Expose the window's text system to the guest only for the
+            // duration of `on_frame`, so `canvas_measure_text` can shape
+            // synchronously. Cleared after tick to avoid leaking the handle.
+            *tab.host_state.text_system.lock().unwrap() = Some(window.text_system().clone());
             tab.tick_frame();
+            *tab.host_state.text_system.lock().unwrap() = None;
             tab.update_texture_cache(window);
             tab.refresh_pip_texture(window);
         }
