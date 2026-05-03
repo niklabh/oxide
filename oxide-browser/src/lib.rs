@@ -104,6 +104,7 @@ pub mod engine;
 pub mod events;
 pub mod fetch;
 pub mod file_picker;
+pub mod forge;
 pub mod gpu;
 pub mod history;
 pub mod media_capture;

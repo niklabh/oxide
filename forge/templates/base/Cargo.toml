@@ -1,0 +1,21 @@
+[package]
+name = "forge-app"
+version = "0.1.0"
+edition = "2021"
+description = "Oxide Forge generated guest application"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+oxide-sdk = { path = "../../../oxide-sdk" }
+
+# Stand alone from the parent workspace so `cargo build` inside this directory
+# does not conflict with the Oxide workspace in repo root.
+[workspace]
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true

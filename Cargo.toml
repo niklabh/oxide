@@ -19,5 +19,6 @@ members = [
     "examples/stream-fetch-demo",
     "examples/events-demo",
     "examples/file-picker-demo",
+    "examples/gradient-demo",
 ]
 resolver = "2"

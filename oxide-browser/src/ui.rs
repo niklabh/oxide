@@ -34,6 +34,7 @@ use crate::capabilities::{
 };
 use crate::download::{format_bytes, DownloadManager, DownloadState};
 use crate::engine::ModuleLoader;
+use crate::forge::{ForgeCreationSummary, ForgePhase, ForgeSnapshot, ForgeState};
 use crate::history::HistoryStore;
 use crate::navigation::HistoryEntry;
 use crate::runtime::{LiveModule, PageStatus};
@@ -55,16 +56,20 @@ unsafe impl Send for RunResult {}
 
 #[derive(Clone, PartialEq)]
 enum InternalPage {
+    Home,
     History,
     Bookmarks,
     About,
+    Forge,
 }
 
 fn try_internal_page(url: &str) -> Option<InternalPage> {
     match url {
+        "oxide://home" => Some(InternalPage::Home),
         "oxide://history" => Some(InternalPage::History),
         "oxide://bookmarks" => Some(InternalPage::Bookmarks),
         "oxide://about" => Some(InternalPage::About),
+        "oxide://forge" => Some(InternalPage::Forge),
         _ => None,
     }
 }
@@ -130,6 +135,10 @@ struct TabState {
     /// Bounds of the URL text canvas element, for mouse hit-testing.
     url_text_bounds: Arc<Mutex<Bounds<Pixels>>>,
     internal_page: Option<InternalPage>,
+    /// Draft prompt for `oxide://forge`. Cleared when a session is started.
+    forge_prompt: String,
+    /// Forge session id being viewed / generated in this tab, if any.
+    forge_session_id: Option<u64>,
 }
 
 impl TabState {
@@ -158,10 +167,10 @@ impl TabState {
 
         Self {
             id,
-            url_input: String::from("https://"),
+            url_input: String::from("oxide://home"),
             host_state,
             status,
-            show_console: true,
+            show_console: false,
             run_tx: req_tx,
             run_rx: Arc::new(Mutex::new(res_rx)),
             image_textures: HashMap::new(),
@@ -174,12 +183,20 @@ impl TabState {
             last_frame: Instant::now(),
             keys_held: HashSet::new(),
             text_input_focus: None,
-            url_cursor: 8, // after "https://"
-            url_sel_start: 8,
+            url_cursor: 12,
+            url_sel_start: 12,
             url_selecting: false,
             url_text_bounds: Arc::new(Mutex::new(Bounds::default())),
-            internal_page: None,
+            internal_page: Some(InternalPage::Home),
+            forge_prompt: String::new(),
+            forge_session_id: None,
         }
+        .with_home_status()
+    }
+
+    fn with_home_status(self) -> Self {
+        *self.status.lock().unwrap() = PageStatus::Running("oxide://home".to_string());
+        self
     }
 
     fn display_title(&self) -> String {
@@ -288,6 +305,7 @@ impl TabState {
                     self.pending_history_url = None;
                     self.live_module = None;
                 } else {
+                    self.internal_page = None;
                     if let Some(url) = self.pending_history_url.take() {
                         let mut nav = self.host_state.navigation.lock().unwrap();
                         nav.push(HistoryEntry::new(&url));
@@ -977,6 +995,7 @@ fn sample_gradient(stops: &[GradientStop], t: f32) -> (u8, u8, u8, u8) {
 /// Result of a background `rfd` file dialog (must not run inside GPUI `App::update` — modal + focus events re-enter and panic).
 enum FilePickDone {
     Chosen { path: PathBuf, bytes: Vec<u8> },
+    Directory(PathBuf),
     Cancelled,
 }
 
@@ -993,10 +1012,17 @@ pub struct OxideBrowserView {
     /// Focus for the page (canvas + guest widgets); required for keyboard to reach `on_key_down` on the root.
     canvas_focus: FocusHandle,
     url_focus: FocusHandle,
+    /// Keyboard focus for the `oxide://forge` prompt input.
+    forge_focus: FocusHandle,
+    /// Keyboard focus for the `oxide://forge` Anthropic API key input.
+    forge_api_key_focus: FocusHandle,
+    forge_api_key_input: String,
     /// Receiver for [`FilePickDone`]; dialog runs on a background thread so the main thread never holds `App` during `NSOpenPanel`.
     file_pick_rx: Option<mpsc::Receiver<FilePickDone>>,
     download_manager: DownloadManager,
     show_downloads: bool,
+    /// Lazily-initialised Claude-backed guest app factory for `oxide://forge`.
+    forge: Arc<Mutex<Option<ForgeState>>>,
 }
 
 impl OxideBrowserView {
@@ -1018,10 +1044,189 @@ impl OxideBrowserView {
             show_menu: false,
             canvas_focus: cx.focus_handle(),
             url_focus: cx.focus_handle(),
+            forge_focus: cx.focus_handle(),
+            forge_api_key_focus: cx.focus_handle(),
+            forge_api_key_input: String::new(),
             file_pick_rx: None,
             download_manager: DownloadManager::new(),
             show_downloads: false,
+            forge: Arc::new(Mutex::new(None)),
         }
+    }
+
+    /// Ensure the Forge subsystem is initialised; returns `true` if available.
+    fn ensure_forge(&self) -> bool {
+        let mut g = self.forge.lock().unwrap();
+        if g.is_none() {
+            *g = ForgeState::new();
+        }
+        g.is_some()
+    }
+
+    fn forge_set_api_key(&mut self) {
+        let key = self.forge_api_key_input.trim().to_string();
+        if key.is_empty() {
+            return;
+        }
+        let mut g = self.forge.lock().unwrap();
+        match g.as_mut() {
+            Some(forge) => {
+                forge.set_api_key(key);
+            }
+            None => {
+                *g = ForgeState::with_api_key(key);
+            }
+        }
+        if g.is_some() {
+            self.forge_api_key_input.clear();
+        }
+    }
+
+    /// Snapshot the session active in the current tab, if any.
+    fn forge_current_snapshot(&self) -> Option<ForgeSnapshot> {
+        let id = self.tabs[self.active_tab].forge_session_id?;
+        let g = self.forge.lock().ok()?;
+        g.as_ref()?.snapshot(id)
+    }
+
+    fn forge_creations(&self) -> Vec<ForgeCreationSummary> {
+        let g = self.forge.lock().ok();
+        g.and_then(|g| g.as_ref().map(|forge| forge.list_creations()))
+            .unwrap_or_default()
+    }
+
+    fn forge_output_dir(&self) -> Option<PathBuf> {
+        let g = self.forge.lock().ok()?;
+        Some(g.as_ref()?.output_dir())
+    }
+
+    /// Submit the current tab's prompt. On success, the tab's
+    /// `forge_session_id` is set and the prompt is cleared.
+    fn forge_submit(&mut self) {
+        let idx = self.active_tab;
+        let prompt = self.tabs[idx].forge_prompt.trim().to_string();
+        if prompt.is_empty() {
+            return;
+        }
+        if !self.ensure_forge() {
+            return;
+        }
+        let session_id = self.tabs[idx].forge_session_id;
+        let result = {
+            let mut g = self.forge.lock().unwrap();
+            g.as_mut().map(|forge| match session_id {
+                Some(id) => forge.revise(id, prompt.clone()).map(|_| id),
+                None => forge.start(prompt.clone()),
+            })
+        };
+        match result {
+            Some(Ok(id)) => {
+                self.tabs[idx].forge_session_id = Some(id);
+                self.tabs[idx].forge_prompt.clear();
+            }
+            Some(Err(e)) => {
+                let console = self.tabs[idx].host_state.console.clone();
+                crate::capabilities::console_log(
+                    &console,
+                    ConsoleLevel::Error,
+                    format!("[FORGE] start failed: {e}"),
+                );
+            }
+            None => {}
+        }
+    }
+
+    fn forge_pick_output_dir(&mut self) {
+        if self.file_pick_rx.is_some() {
+            return;
+        }
+        let (tx, rx) = mpsc::channel();
+        self.file_pick_rx = Some(rx);
+        std::thread::spawn(move || {
+            let msg = rfd::FileDialog::new()
+                .set_title("Choose Oxide Forge Output Folder")
+                .pick_folder()
+                .map(FilePickDone::Directory)
+                .unwrap_or(FilePickDone::Cancelled);
+            let _ = tx.send(msg);
+        });
+    }
+
+    /// Kick off a `cargo build` for the current tab's session.
+    fn forge_build(&self) {
+        let id = match self.tabs[self.active_tab].forge_session_id {
+            Some(id) => id,
+            None => return,
+        };
+        let mut g = self.forge.lock().unwrap();
+        if let Some(forge) = g.as_mut() {
+            if let Err(e) = forge.build(id) {
+                crate::capabilities::console_log(
+                    &self.tabs[self.active_tab].host_state.console,
+                    ConsoleLevel::Error,
+                    format!("[FORGE] build failed: {e}"),
+                );
+            }
+        }
+    }
+
+    fn forge_delete_current_creation(&mut self) {
+        let id = match self.tabs[self.active_tab].forge_session_id {
+            Some(id) => id,
+            None => return,
+        };
+        let result = {
+            let mut g = self.forge.lock().unwrap();
+            g.as_mut().map(|forge| forge.delete_creation(id))
+        };
+        match result {
+            Some(Ok(())) => {
+                for tab in &mut self.tabs {
+                    if tab.forge_session_id == Some(id) {
+                        tab.forge_session_id = None;
+                        tab.forge_prompt.clear();
+                    }
+                }
+            }
+            Some(Err(e)) => {
+                crate::capabilities::console_log(
+                    &self.tabs[self.active_tab].host_state.console,
+                    ConsoleLevel::Error,
+                    format!("[FORGE] delete failed: {e}"),
+                );
+            }
+            None => {}
+        }
+    }
+
+    /// Load the built `.wasm` for the current session into a new tab.
+    fn forge_run_in_new_tab(&mut self) {
+        let id = match self.tabs[self.active_tab].forge_session_id {
+            Some(id) => id,
+            None => return,
+        };
+        let bytes = {
+            let g = self.forge.lock().unwrap();
+            g.as_ref().and_then(|f| f.artifact_bytes(id))
+        };
+        let Some(bytes) = bytes else {
+            return;
+        };
+        let slug = {
+            let g = self.forge.lock().unwrap();
+            g.as_ref()
+                .and_then(|f| f.snapshot(id))
+                .map(|s| s.slug)
+                .unwrap_or_else(|| format!("session-{id}"))
+        };
+        let new_idx = self.create_tab();
+        self.active_tab = new_idx;
+        let tab = &mut self.tabs[new_idx];
+        tab.url_input = format!("oxide://forge/run/{slug}");
+        tab.url_cursor = tab.url_input.len();
+        tab.url_sel_start = tab.url_input.len();
+        tab.internal_page = None;
+        let _ = tab.run_tx.send(RunRequest::LoadLocal(bytes));
     }
 
     fn poll_file_pick(&mut self, cx: &mut Context<Self>) {
@@ -1035,7 +1240,26 @@ impl OxideBrowserView {
                 let tab = &mut self.tabs[self.active_tab];
                 tab.url_input = file_url.clone();
                 tab.pending_history_url = Some(file_url);
+                tab.internal_page = None;
                 let _ = tab.run_tx.send(RunRequest::LoadLocal(bytes));
+                cx.notify();
+            }
+            Ok(FilePickDone::Directory(path)) => {
+                if self.ensure_forge() {
+                    let result = {
+                        let mut g = self.forge.lock().unwrap();
+                        g.as_mut().map(|forge| forge.set_output_dir(path.clone()))
+                    };
+                    if let Some(Err(e)) = result {
+                        crate::capabilities::console_log(
+                            &self.tabs[self.active_tab].host_state.console,
+                            ConsoleLevel::Error,
+                            format!("[FORGE] output folder failed: {e}"),
+                        );
+                    } else {
+                        self.tabs[self.active_tab].forge_session_id = None;
+                    }
+                }
                 cx.notify();
             }
             Ok(FilePickDone::Cancelled) => {}
@@ -1254,6 +1478,81 @@ impl Render for OxideBrowserView {
                     if event.keystroke.modifiers.secondary() && event.keystroke.key == "b" {
                         this.show_bookmarks = !this.show_bookmarks;
                         cx.notify();
+                        return;
+                    }
+                    if this.forge_api_key_focus.is_focused(window) {
+                        match event.keystroke.key.as_str() {
+                            "enter" => {
+                                this.forge_set_api_key();
+                                cx.notify();
+                                return;
+                            }
+                            "escape" => {
+                                this.forge_api_key_input.clear();
+                                cx.notify();
+                                return;
+                            }
+                            "backspace" => {
+                                this.forge_api_key_input.pop();
+                                cx.notify();
+                                return;
+                            }
+                            _ => {}
+                        }
+                        if event.keystroke.modifiers.secondary() && event.keystroke.key == "v" {
+                            if let Ok(mut cb) = arboard::Clipboard::new() {
+                                if let Ok(pasted) = cb.get_text() {
+                                    this.forge_api_key_input.push_str(pasted.trim());
+                                    cx.notify();
+                                }
+                            }
+                            return;
+                        }
+                        if let Some(s) = text_insert_from_keystroke(&event.keystroke) {
+                            this.forge_api_key_input.push_str(&s);
+                            cx.notify();
+                        }
+                        return;
+                    }
+                    if this.forge_focus.is_focused(window) {
+                        let active = this.active_tab;
+                        match event.keystroke.key.as_str() {
+                            "enter" => {
+                                if !event.keystroke.modifiers.shift {
+                                    this.forge_submit();
+                                    cx.notify();
+                                    return;
+                                }
+                                // Shift+Enter → insert newline
+                                this.tabs[active].forge_prompt.push('\n');
+                                cx.notify();
+                                return;
+                            }
+                            "escape" => {
+                                this.tabs[active].forge_prompt.clear();
+                                cx.notify();
+                                return;
+                            }
+                            "backspace" => {
+                                this.tabs[active].forge_prompt.pop();
+                                cx.notify();
+                                return;
+                            }
+                            _ => {}
+                        }
+                        if event.keystroke.modifiers.secondary() && event.keystroke.key == "v" {
+                            if let Ok(mut cb) = arboard::Clipboard::new() {
+                                if let Ok(pasted) = cb.get_text() {
+                                    this.tabs[active].forge_prompt.push_str(&pasted);
+                                    cx.notify();
+                                }
+                            }
+                            return;
+                        }
+                        if let Some(s) = text_insert_from_keystroke(&event.keystroke) {
+                            this.tabs[active].forge_prompt.push_str(&s);
+                            cx.notify();
+                        }
                         return;
                     }
                     if this.url_focus.is_focused(window) {
@@ -1926,6 +2225,107 @@ impl Render for OxideBrowserView {
 
         if let Some(ref page) = self.tabs[active].internal_page {
             match page {
+                InternalPage::Home => {
+                    content_col = content_col.child(
+                        div()
+                            .id("oxide_home_page")
+                            .flex_1()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .p_4()
+                            .child(
+                                div()
+                                    .w(px(560.0))
+                                    .p_5()
+                                    .rounded_lg()
+                                    .bg(gpui::rgb(0x222228))
+                                    .border_1()
+                                    .border_color(gpui::rgb(0x3a3a44))
+                                    .child(
+                                        div()
+                                            .text_xl()
+                                            .font_weight(gpui::FontWeight::BOLD)
+                                            .text_color(gpui::rgb(0x80d8d0))
+                                            .child("Oxide Browser"),
+                                    )
+                                    .child(
+                                        div()
+                                            .mt_2()
+                                            .text_sm()
+                                            .text_color(gpui::rgb(0xc8c8d4))
+                                            .child("A binary-first browser for WebAssembly apps. Oxide loads .wasm modules directly, runs them in a capability-based Wasmtime sandbox, and gives them a native GPU-accelerated canvas instead of an HTML/JavaScript runtime."),
+                                    )
+                                    .child(
+                                        div()
+                                            .mt_4()
+                                            .flex()
+                                            .flex_col()
+                                            .gap_2()
+                                            .text_xs()
+                                            .text_color(gpui::rgb(0xa6a6b8))
+                                            .child("Open a local .wasm file, enter an HTTP(S) .wasm URL, or build a new app with Forge.")
+                                            .child("Guest apps start with no filesystem, environment, or socket access. Every host interaction goes through explicit Oxide capabilities."),
+                                    )
+                                    .child(
+                                        div()
+                                            .mt_4()
+                                            .h(px(1.0))
+                                            .bg(gpui::rgb(0x3a3a44)),
+                                    )
+                                    .child(
+                                        div()
+                                            .mt_4()
+                                            .flex()
+                                            .flex_row()
+                                            .items_center()
+                                            .justify_between()
+                                            .gap_3()
+                                            .child(
+                                                div()
+                                                    .flex_1()
+                                                    .min_w_0()
+                                                    .child(
+                                                        div()
+                                                            .text_sm()
+                                                            .font_weight(gpui::FontWeight::SEMIBOLD)
+                                                            .text_color(gpui::rgb(0xe8e8f4))
+                                                            .child("Create with Oxide Forge"),
+                                                    )
+                                                    .child(
+                                                        div()
+                                                            .mt_1()
+                                                            .text_xs()
+                                                            .text_color(gpui::rgb(0x8a8aa0))
+                                                            .child("Describe an app and Forge will generate, build, and hot-load a sandboxed guest WASM module."),
+                                                    ),
+                                            )
+                                            .child(
+                                                div()
+                                                    .id("oxide_home_forge")
+                                                    .px_3()
+                                                    .py_2()
+                                                    .rounded_md()
+                                                    .bg(gpui::rgb(0x2f6f68))
+                                                    .text_sm()
+                                                    .text_color(gpui::rgb(0xffffff))
+                                                    .cursor_pointer()
+                                                    .child("oxide://forge")
+                                                    .on_click(cx.listener(
+                                                        |this, _: &ClickEvent, _, cx| {
+                                                            this.tabs[this.active_tab].navigate_to(
+                                                                "oxide://forge".to_string(),
+                                                                true,
+                                                                &this.download_manager,
+                                                            );
+                                                            cx.notify();
+                                                        },
+                                                    )),
+                                            ),
+                                    ),
+                            ),
+                    );
+                }
                 InternalPage::History => {
                     let all_entries: Vec<(Vec<u8>, String, String, u64)> = self
                         .history_store
@@ -2288,6 +2688,630 @@ impl Render for OxideBrowserView {
                                             .text_color(gpui::rgb(0x6a6a80))
                                             .child("github.com/niklabh/oxide"),
                                     ),
+                            ),
+                    );
+                }
+                InternalPage::Forge => {
+                    let forge_ready = self.ensure_forge();
+                    let snapshot = self.forge_current_snapshot();
+                    let creations = self.forge_creations();
+                    let output_dir = self
+                        .forge_output_dir()
+                        .map(|p| p.display().to_string())
+                        .unwrap_or_else(|| "(not configured)".to_string());
+                    let prompt_draft = self.tabs[active].forge_prompt.clone();
+                    let prompt_focused = self.forge_focus.is_focused(window);
+                    let api_key_focused = self.forge_api_key_focus.is_focused(window);
+                    let api_key_draft = self.forge_api_key_input.clone();
+                    let api_key_display = if api_key_draft.is_empty() {
+                        "Anthropic API key".to_string()
+                    } else {
+                        "•".repeat(api_key_draft.chars().count().min(32))
+                    };
+                    let api_key_color = if api_key_draft.is_empty() {
+                        gpui::rgb(0x5a5a6a)
+                    } else {
+                        gpui::rgb(0xe0e0ff)
+                    };
+                    let api_key_submit_enabled = !api_key_draft.trim().is_empty();
+
+                    let (status_word, status_color, status_hint) = if !forge_ready {
+                        (
+                            "API key required",
+                            gpui::rgb(0xf08050),
+                            "Enter an Anthropic API key to enable Forge.",
+                        )
+                    } else {
+                        (
+                            "ready",
+                            gpui::rgb(0x80d090),
+                            "Describe an app. Claude will write a guest WASM module in the Oxide sandbox.",
+                        )
+                    };
+
+                    let phase = snapshot.as_ref().map(|s| s.phase);
+                    let can_build = matches!(
+                        phase,
+                        Some(ForgePhase::StreamComplete)
+                            | Some(ForgePhase::Error)
+                            | Some(ForgePhase::BuildOk),
+                    );
+                    let can_run = matches!(phase, Some(ForgePhase::BuildOk));
+                    let can_delete = snapshot
+                        .as_ref()
+                        .map(|s| !matches!(s.phase, ForgePhase::Streaming | ForgePhase::Building))
+                        .unwrap_or(false);
+
+                    let caret = if prompt_focused && caret_blink_on {
+                        "\u{2588}"
+                    } else {
+                        ""
+                    };
+                    let prompt_display = if prompt_draft.is_empty() {
+                        "Describe an app…".to_string()
+                    } else {
+                        prompt_draft.clone()
+                    };
+                    let prompt_color = if prompt_draft.is_empty() {
+                        gpui::rgb(0x5a5a6a)
+                    } else {
+                        gpui::rgb(0xe0e0ff)
+                    };
+
+                    let submit_enabled = forge_ready && !prompt_draft.trim().is_empty();
+                    let submit_label = if self.tabs[active].forge_session_id.is_some() {
+                        "Apply changes"
+                    } else {
+                        "Create app"
+                    };
+
+                    let selected_id = self.tabs[active].forge_session_id;
+
+                    let list_panel = div()
+                        .id("oxide_forge_list")
+                        .w(px(260.0))
+                        .h_full()
+                        .flex()
+                        .flex_col()
+                        .min_h_0()
+                        .border_r_1()
+                        .border_color(gpui::rgb(0x2a2a32))
+                        .pr_3()
+                        .child(
+                            div()
+                                .flex()
+                                .flex_row()
+                                .items_center()
+                                .justify_between()
+                                .child(
+                                    div()
+                                        .text_sm()
+                                        .font_weight(gpui::FontWeight::BOLD)
+                                        .text_color(gpui::rgb(0xe8e8f4))
+                                        .child("Creations"),
+                                )
+                                .child(
+                                    div()
+                                        .id("oxide_forge_new_btn")
+                                        .px_2()
+                                        .py(px(5.0))
+                                        .rounded_sm()
+                                        .bg(gpui::rgb(0x2a2a36))
+                                        .text_xs()
+                                        .text_color(gpui::rgb(0xc8c8d4))
+                                        .cursor_pointer()
+                                        .child("New")
+                                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                            let tab = &mut this.tabs[this.active_tab];
+                                            tab.forge_session_id = None;
+                                            tab.forge_prompt.clear();
+                                            cx.notify();
+                                        })),
+                                ),
+                        )
+                        .child(
+                            div()
+                                .mt_2()
+                                .text_xs()
+                                .text_color(gpui::rgb(0x7a7a90))
+                                .child(format!(
+                                    "{} app{}",
+                                    creations.len(),
+                                    if creations.len() == 1 { "" } else { "s" }
+                                )),
+                        )
+                        .child(
+                            div()
+                                .id("oxide_forge_creation_scroll")
+                                .mt_3()
+                                .flex_1()
+                                .min_h_0()
+                                .overflow_scroll()
+                                .children(creations.iter().enumerate().map(|(i, item)| {
+                                    let id = item.id;
+                                    let selected = Some(id) == selected_id;
+                                    let title = if item.prompt.trim().is_empty() {
+                                        item.slug.clone()
+                                    } else {
+                                        truncate_tab_title(&item.prompt)
+                                    };
+                                    let path = item.project_dir.display().to_string();
+                                    div()
+                                        .id(("oxide_forge_creation", i))
+                                        .mb_2()
+                                        .p_2()
+                                        .rounded_md()
+                                        .cursor_pointer()
+                                        .bg(if selected {
+                                            gpui::rgb(0x2f2944)
+                                        } else {
+                                            gpui::rgb(0x202028)
+                                        })
+                                        .border_1()
+                                        .border_color(if selected {
+                                            gpui::rgb(0x7a5ae0)
+                                        } else {
+                                            gpui::rgb(0x2e2e38)
+                                        })
+                                        .child(
+                                            div()
+                                                .flex()
+                                                .flex_row()
+                                                .items_center()
+                                                .justify_between()
+                                                .gap_2()
+                                                .child(
+                                                    div()
+                                                        .flex_1()
+                                                        .min_w_0()
+                                                        .text_sm()
+                                                        .text_color(gpui::rgb(0xe4e4f0))
+                                                        .child(title),
+                                                )
+                                                .child(
+                                                    div()
+                                                        .text_xs()
+                                                        .text_color(phase_color_for(item.phase))
+                                                        .child(phase_label(item.phase)),
+                                                ),
+                                        )
+                                        .child(
+                                            div()
+                                                .mt_1()
+                                                .text_xs()
+                                                .text_color(gpui::rgb(0x747488))
+                                                .child(item.slug.clone()),
+                                        )
+                                        .child(
+                                            div()
+                                                .mt_1()
+                                                .text_xs()
+                                                .text_color(gpui::rgb(0x5f5f72))
+                                                .child(path),
+                                        )
+                                        .on_click(cx.listener(
+                                            move |this, _: &ClickEvent, _, cx| {
+                                                this.tabs[this.active_tab].forge_session_id =
+                                                    Some(id);
+                                                this.tabs[this.active_tab].forge_prompt.clear();
+                                                cx.notify();
+                                            },
+                                        ))
+                                })),
+                        );
+
+                    let mut detail_panel = div()
+                        .id("oxide_forge_detail")
+                        .flex_1()
+                        .min_h_0()
+                        .flex()
+                        .flex_col();
+
+                    if let Some(snap) = snapshot.clone() {
+                        let phase_text = if snap.retries_used > 0 {
+                            format!(
+                                "{} (auto-fix {}/{})",
+                                phase_label(snap.phase),
+                                snap.retries_used,
+                                snap.max_retries
+                            )
+                        } else {
+                            phase_label(snap.phase).to_string()
+                        };
+                        let phase_color = phase_color_for(snap.phase);
+                        let prompt_preview = truncate_tab_title(&snap.prompt);
+                        let code_text = snap.code.clone();
+                        let build_log = snap.build_log.clone();
+                        let err = snap.error.clone();
+                        let artifact = snap
+                            .artifact_path
+                            .as_ref()
+                            .map(|p| p.display().to_string())
+                            .unwrap_or_else(|| "No wasm artifact yet".to_string());
+
+                        detail_panel = detail_panel
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_row()
+                                    .items_center()
+                                    .justify_between()
+                                    .gap_2()
+                                    .child(
+                                        div()
+                                            .child(
+                                                div()
+                                                    .text_sm()
+                                                    .font_weight(gpui::FontWeight::BOLD)
+                                                    .text_color(gpui::rgb(0xe8e8f4))
+                                                    .child(prompt_preview),
+                                            )
+                                            .child(
+                                                div()
+                                                    .mt_1()
+                                                    .text_xs()
+                                                    .text_color(gpui::rgb(0x7a7a90))
+                                                    .child(format!(
+                                                        "{}  •  {}",
+                                                        snap.slug,
+                                                        snap.project_dir.display()
+                                                    )),
+                                            ),
+                                    )
+                                    .child(
+                                        div()
+                                            .px_2()
+                                            .py(px(2.0))
+                                            .rounded_sm()
+                                            .bg(gpui::rgb(0x22222c))
+                                            .text_xs()
+                                            .text_color(phase_color)
+                                            .child(phase_text),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .mt_2()
+                                    .text_xs()
+                                    .text_color(gpui::rgb(0x8a8aa0))
+                                    .child(artifact),
+                            )
+                            .child(
+                                div()
+                                    .id("oxide_forge_code")
+                                    .mt_2()
+                                    .flex_1()
+                                    .min_h_0()
+                                    .overflow_scroll()
+                                    .px_3()
+                                    .py_2()
+                                    .rounded_md()
+                                    .bg(gpui::rgb(0x15151c))
+                                    .border_1()
+                                    .border_color(gpui::rgb(0x2a2a34))
+                                    .text_xs()
+                                    .text_color(gpui::rgb(0xc0c0d8))
+                                    .font(font("Menlo"))
+                                    .child(if code_text.is_empty() {
+                                        "(awaiting stream…)".to_string()
+                                    } else {
+                                        code_text
+                                    }),
+                            )
+                            .child(
+                                div()
+                                    .id("oxide_forge_log")
+                                    .mt_2()
+                                    .max_h(px(160.0))
+                                    .overflow_scroll()
+                                    .px_3()
+                                    .py_2()
+                                    .rounded_md()
+                                    .bg(gpui::rgb(0x1a1520))
+                                    .border_1()
+                                    .border_color(gpui::rgb(0x3a2a3a))
+                                    .text_xs()
+                                    .text_color(gpui::rgb(0xf0c0a0))
+                                    .font(font("Menlo"))
+                                    .child(if let Some(e) = err {
+                                        format!("error: {e}\n\n{build_log}")
+                                    } else if build_log.is_empty() {
+                                        "(no build output)".to_string()
+                                    } else {
+                                        build_log
+                                    }),
+                            )
+                            .child(
+                                div()
+                                    .mt_2()
+                                    .flex()
+                                    .flex_row()
+                                    .gap_2()
+                                    .child(
+                                        div()
+                                            .id("oxide_forge_build_btn")
+                                            .px_3()
+                                            .py_2()
+                                            .rounded_md()
+                                            .bg(if can_build {
+                                                gpui::rgb(0x3a6a8a)
+                                            } else {
+                                                gpui::rgb(0x3a3a44)
+                                            })
+                                            .text_sm()
+                                            .text_color(gpui::rgb(0xffffff))
+                                            .cursor_pointer()
+                                            .child("Build")
+                                            .on_click(cx.listener(
+                                                |this, _: &ClickEvent, _, cx| {
+                                                    this.forge_build();
+                                                    cx.notify();
+                                                },
+                                            )),
+                                    )
+                                    .child(
+                                        div()
+                                            .id("oxide_forge_run_btn")
+                                            .px_3()
+                                            .py_2()
+                                            .rounded_md()
+                                            .bg(if can_run {
+                                                gpui::rgb(0x4a9a6a)
+                                            } else {
+                                                gpui::rgb(0x3a3a44)
+                                            })
+                                            .text_sm()
+                                            .text_color(gpui::rgb(0xffffff))
+                                            .cursor_pointer()
+                                            .child("Run in new tab")
+                                            .on_click(cx.listener(
+                                                |this, _: &ClickEvent, _, cx| {
+                                                    this.forge_run_in_new_tab();
+                                                    cx.notify();
+                                                },
+                                            )),
+                                    )
+                                    .child(
+                                        div()
+                                            .id("oxide_forge_delete_btn")
+                                            .px_3()
+                                            .py_2()
+                                            .rounded_md()
+                                            .bg(if can_delete {
+                                                gpui::rgb(0x8a3a3a)
+                                            } else {
+                                                gpui::rgb(0x3a3a44)
+                                            })
+                                            .text_sm()
+                                            .text_color(gpui::rgb(0xffffff))
+                                            .cursor_pointer()
+                                            .child("Delete")
+                                            .on_click(cx.listener(
+                                                |this, _: &ClickEvent, _, cx| {
+                                                    this.forge_delete_current_creation();
+                                                    cx.notify();
+                                                },
+                                            )),
+                                    ),
+                            );
+                    } else {
+                        detail_panel = detail_panel.child(
+                            div()
+                                .flex_1()
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .text_sm()
+                                .text_color(gpui::rgb(0x7a7a90))
+                                .child("Choose a creation or describe a new app."),
+                        );
+                    }
+
+                    content_col = content_col.child(
+                        div()
+                            .id("oxide_forge_page")
+                            .flex_1()
+                            .flex()
+                            .flex_col()
+                            .min_h_0()
+                            .p_4()
+                            .child(
+                                div()
+                                    .flex()
+                                    .flex_row()
+                                    .items_center()
+                                    .justify_between()
+                                    .gap_3()
+                                    .child(
+                                        div()
+                                            .flex_1()
+                                            .min_w_0()
+                                            .child(
+                                                div()
+                                                    .text_lg()
+                                                    .font_weight(gpui::FontWeight::BOLD)
+                                                    .text_color(gpui::rgb(0xb478ff))
+                                                    .child("Oxide Forge"),
+                                            )
+                                            .child(
+                                                div()
+                                                    .mt_1()
+                                                    .text_xs()
+                                                    .text_color(gpui::rgb(0x8a8aa0))
+                                                    .child(format!("{status_hint} Output: {output_dir}")),
+                                            ),
+                                    )
+                                    .child(
+                                        div()
+                                            .id("oxide_forge_choose_folder")
+                                            .px_2()
+                                            .py_1()
+                                            .rounded_sm()
+                                            .bg(gpui::rgb(0x2a2a36))
+                                            .text_xs()
+                                            .text_color(gpui::rgb(0xd0d0dc))
+                                            .cursor_pointer()
+                                            .child("Choose folder")
+                                            .on_click(cx.listener(
+                                                |this, _: &ClickEvent, _, cx| {
+                                                    this.forge_pick_output_dir();
+                                                    cx.notify();
+                                                },
+                                            )),
+                                    )
+                                    .child(
+                                        div()
+                                            .px_2()
+                                            .py_1()
+                                            .rounded_sm()
+                                            .bg(gpui::rgb(0x22222c))
+                                            .text_xs()
+                                            .text_color(status_color)
+                                            .child(status_word),
+                                    ),
+                            )
+                            .child(div().mt_3().h(px(1.0)).bg(gpui::rgb(0x2a2a32)))
+                            .child(
+                                div()
+                                    .id("oxide_forge_api_key_row")
+                                    .mt_3()
+                                    .flex()
+                                    .flex_row()
+                                    .gap_2()
+                                    .items_center()
+                                    .child(
+                                        div()
+                                            .id("oxide_forge_api_key_input")
+                                            .track_focus(&self.forge_api_key_focus)
+                                            .focusable()
+                                            .flex_1()
+                                            .px_3()
+                                            .py_2()
+                                            .rounded_md()
+                                            .bg(gpui::rgb(0x1b1b24))
+                                            .border_1()
+                                            .border_color(if api_key_focused {
+                                                gpui::rgb(0x4ea39a)
+                                            } else {
+                                                gpui::rgb(0x33333f)
+                                            })
+                                            .text_sm()
+                                            .text_color(api_key_color)
+                                            .child(if api_key_focused && caret_blink_on {
+                                                format!("{api_key_display}\u{2588}")
+                                            } else {
+                                                api_key_display
+                                            })
+                                            .on_click(cx.listener(
+                                                |this, _: &ClickEvent, window, cx| {
+                                                    window.focus(&this.forge_api_key_focus);
+                                                    cx.notify();
+                                                },
+                                            )),
+                                    )
+                                    .child(
+                                        div()
+                                            .id("oxide_forge_api_key_submit")
+                                            .px_3()
+                                            .py_2()
+                                            .rounded_md()
+                                            .bg(if api_key_submit_enabled {
+                                                gpui::rgb(0x2f6f68)
+                                            } else {
+                                                gpui::rgb(0x3a3a44)
+                                            })
+                                            .text_sm()
+                                            .text_color(gpui::rgb(0xffffff))
+                                            .cursor_pointer()
+                                            .child(if forge_ready {
+                                                "Update key"
+                                            } else {
+                                                "Set key"
+                                            })
+                                            .on_click(cx.listener(
+                                                |this, _: &ClickEvent, _, cx| {
+                                                    this.forge_set_api_key();
+                                                    cx.notify();
+                                                },
+                                            )),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .id("oxide_forge_prompt_row")
+                                    .mt_3()
+                                    .flex()
+                                    .flex_row()
+                                    .gap_2()
+                                    .items_center()
+                                    .child(
+                                        div()
+                                            .id("oxide_forge_prompt_input")
+                                            .track_focus(&self.forge_focus)
+                                            .focusable()
+                                            .flex_1()
+                                            .px_3()
+                                            .py_2()
+                                            .rounded_md()
+                                            .bg(gpui::rgb(0x22222c))
+                                            .border_1()
+                                            .border_color(if prompt_focused {
+                                                gpui::rgb(0x7a5ae0)
+                                            } else {
+                                                gpui::rgb(0x33333f)
+                                            })
+                                            .text_sm()
+                                            .text_color(prompt_color)
+                                            .child(format!("{prompt_display}{caret}"))
+                                            .on_click(cx.listener(
+                                                |this, _: &ClickEvent, window, cx| {
+                                                    window.focus(&this.forge_focus);
+                                                    cx.notify();
+                                                },
+                                            )),
+                                    )
+                                    .child(
+                                        div()
+                                            .id("oxide_forge_submit")
+                                            .px_3()
+                                            .py_2()
+                                            .rounded_md()
+                                            .bg(if submit_enabled {
+                                                gpui::rgb(0x7a5ae0)
+                                            } else {
+                                                gpui::rgb(0x3a3a44)
+                                            })
+                                            .text_sm()
+                                            .text_color(gpui::rgb(0xffffff))
+                                            .cursor_pointer()
+                                            .child(submit_label)
+                                            .on_click(cx.listener(
+                                                |this, _: &ClickEvent, _, cx| {
+                                                    this.forge_submit();
+                                                    cx.notify();
+                                                },
+                                            )),
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .mt_1()
+                                    .text_xs()
+                                    .text_color(gpui::rgb(0x6a6a80))
+                                    .child(
+                                        "Enter submits. Shift+Enter adds a line. Select an app on the left to keep iterating.",
+                                    ),
+                            )
+                            .child(
+                                div()
+                                    .mt_3()
+                                    .flex_1()
+                                    .min_h_0()
+                                    .flex()
+                                    .flex_row()
+                                    .gap_3()
+                                    .child(list_panel)
+                                    .child(detail_panel),
                             ),
                     );
                 }
@@ -3169,6 +4193,30 @@ impl Render for OxideBrowserView {
     }
 }
 
+/// Human-readable label for a [`ForgePhase`].
+fn phase_label(p: ForgePhase) -> &'static str {
+    match p {
+        ForgePhase::Idle => "idle",
+        ForgePhase::Streaming => "streaming",
+        ForgePhase::StreamComplete => "ready to build",
+        ForgePhase::Building => "building",
+        ForgePhase::BuildOk => "build ok",
+        ForgePhase::Error => "error",
+    }
+}
+
+/// Themed color for a [`ForgePhase`] badge.
+fn phase_color_for(p: ForgePhase) -> Rgba {
+    match p {
+        ForgePhase::Idle => gpui::rgb(0x8888a0),
+        ForgePhase::Streaming => gpui::rgb(0xffc060),
+        ForgePhase::StreamComplete => gpui::rgb(0x70b0ff),
+        ForgePhase::Building => gpui::rgb(0xffa040),
+        ForgePhase::BuildOk => gpui::rgb(0x80d090),
+        ForgePhase::Error => gpui::rgb(0xf06070),
+    }
+}
+
 /// Guest widget bounds in canvas-local coordinates (must match overlay hit-test skip logic).
 fn widget_bounds(cmd: &WidgetCommand) -> (f32, f32, f32, f32) {
     match cmd {
@@ -3302,9 +4350,11 @@ fn url_to_title(url: &str) -> String {
         return "Local Module".to_string();
     }
     match url {
+        "oxide://home" => return "Home".to_string(),
         "oxide://history" => return "History".to_string(),
         "oxide://bookmarks" => return "Bookmarks".to_string(),
         "oxide://about" => return "About Oxide".to_string(),
+        "oxide://forge" => return "Forge".to_string(),
         _ => {}
     }
     if let Some(stripped) = url
