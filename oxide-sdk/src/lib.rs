@@ -204,6 +204,37 @@ extern "C" {
         len: u32,
     );
 
+    #[link_name = "api_canvas_text_ex"]
+    #[allow(clippy::too_many_arguments)]
+    fn _api_canvas_text_ex(
+        x: f32,
+        y: f32,
+        size: f32,
+        r: u32,
+        g: u32,
+        b: u32,
+        a: u32,
+        family_ptr: u32,
+        family_len: u32,
+        weight: u32,
+        style: u32,
+        align: u32,
+        text_ptr: u32,
+        text_len: u32,
+    );
+
+    #[link_name = "api_canvas_measure_text"]
+    fn _api_canvas_measure_text(
+        size: f32,
+        family_ptr: u32,
+        family_len: u32,
+        weight: u32,
+        style: u32,
+        text_ptr: u32,
+        text_len: u32,
+        out_ptr: u32,
+    ) -> u32;
+
     #[link_name = "api_canvas_line"]
     fn _api_canvas_line(
         x1: f32,
@@ -1225,6 +1256,110 @@ pub fn canvas_text(x: f32, y: f32, size: f32, r: u8, g: u8, b: u8, a: u8, text: 
             text.as_ptr() as u32,
             text.len() as u32,
         )
+    }
+}
+
+/// Normal (upright) font style. Pass to [`canvas_text_ex`] / [`canvas_measure_text`].
+pub const FONT_STYLE_NORMAL: u32 = 0;
+/// Italic font style.
+pub const FONT_STYLE_ITALIC: u32 = 1;
+/// Oblique font style (slanted upright; falls back to italic where oblique isn't available).
+pub const FONT_STYLE_OBLIQUE: u32 = 2;
+
+/// Text is anchored at its left edge (baseline `(x, y)`).
+pub const TEXT_ALIGN_LEFT: u32 = 0;
+/// Text is horizontally centred around `x`.
+pub const TEXT_ALIGN_CENTER: u32 = 1;
+/// Text is anchored at its right edge (`x` is the right edge).
+pub const TEXT_ALIGN_RIGHT: u32 = 2;
+
+/// Shaped-line metrics returned by [`canvas_measure_text`]. All values are in pixels.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct TextMetrics {
+    /// Advance width of the shaped line.
+    pub width: f32,
+    /// Distance from baseline to the top of the tallest glyph (positive).
+    pub ascent: f32,
+    /// Distance from baseline to the bottom of the lowest glyph (positive).
+    pub descent: f32,
+}
+
+/// Draw text with explicit family, weight (CSS `100..=900`; `0` = default 400),
+/// style ([`FONT_STYLE_NORMAL`] / [`FONT_STYLE_ITALIC`] / [`FONT_STYLE_OBLIQUE`]),
+/// and horizontal alignment ([`TEXT_ALIGN_LEFT`] / [`TEXT_ALIGN_CENTER`] /
+/// [`TEXT_ALIGN_RIGHT`]).
+///
+/// Pass an empty `family` to use the system UI font. For `TEXT_ALIGN_CENTER`
+/// and `TEXT_ALIGN_RIGHT`, `x` is the centre and the right edge of the line
+/// respectively.
+#[allow(clippy::too_many_arguments)]
+pub fn canvas_text_ex(
+    x: f32,
+    y: f32,
+    size: f32,
+    r: u8,
+    g: u8,
+    b: u8,
+    a: u8,
+    family: &str,
+    weight: u32,
+    style: u32,
+    align: u32,
+    text: &str,
+) {
+    unsafe {
+        _api_canvas_text_ex(
+            x,
+            y,
+            size,
+            r as u32,
+            g as u32,
+            b as u32,
+            a as u32,
+            family.as_ptr() as u32,
+            family.len() as u32,
+            weight,
+            style,
+            align,
+            text.as_ptr() as u32,
+            text.len() as u32,
+        )
+    }
+}
+
+/// Measure a line of text shaped with the given font parameters. Returns the
+/// shaped advance width plus ascent/descent in pixels. Pass an empty `family`
+/// to use the system UI font; pass `0` for `weight` to use the default (400).
+///
+/// Returns zeroes if measurement isn't available (e.g. called outside
+/// `on_frame` or before the host text system is ready).
+pub fn canvas_measure_text(
+    size: f32,
+    family: &str,
+    weight: u32,
+    style: u32,
+    text: &str,
+) -> TextMetrics {
+    let mut out = [0u8; 12];
+    let ok = unsafe {
+        _api_canvas_measure_text(
+            size,
+            family.as_ptr() as u32,
+            family.len() as u32,
+            weight,
+            style,
+            text.as_ptr() as u32,
+            text.len() as u32,
+            out.as_mut_ptr() as u32,
+        )
+    };
+    if ok == 0 {
+        return TextMetrics::default();
+    }
+    TextMetrics {
+        width: f32::from_le_bytes([out[0], out[1], out[2], out[3]]),
+        ascent: f32::from_le_bytes([out[4], out[5], out[6], out[7]]),
+        descent: f32::from_le_bytes([out[8], out[9], out[10], out[11]]),
     }
 }
 
