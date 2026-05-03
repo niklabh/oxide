@@ -15,7 +15,7 @@ Oxide is a decentralised browser that fetches and executes `.wasm` (WebAssembly)
 
 ### Demo
 
-[![Watch the Oxide demo](https://img.youtube.com/vi/Rnmt_v-2-3U/maxresdefault.jpg)](https://www.youtube.com/watch?v=Rnmt_v-2-3U)
+<video src="https://oxide.foundation/assets/oxide-demo.mp4" poster="screens/oxide.png" controls width="100%"></video>
 
 ## Quick Start
 

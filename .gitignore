@@ -64,3 +64,5 @@ yarn-error.log*
 /.env.*
 
 .cursor/
+
+oxide-demo.mp4

@@ -356,14 +356,6 @@ img {
     background: var(--border);
 }
 
-.hero-visual {
-    margin-top: 60px;
-    width: 100%;
-    max-width: 900px;
-    margin-left: auto;
-    margin-right: auto;
-}
-
 .browser-preview {
     border-radius: var(--radius-lg);
     overflow: hidden;
@@ -417,9 +409,63 @@ img {
     flex-shrink: 0;
 }
 
-.browser-screenshot {
+.browser-video {
     display: block;
     width: 100%;
+    background: #000;
+}
+
+.video-stage {
+    position: relative;
+    line-height: 0;
+}
+
+.video-play-overlay {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 88px;
+    height: 88px;
+    padding: 0;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.25);
+    color: #fff;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+    transition: opacity 0.3s ease, transform 0.2s ease, background 0.2s ease;
+}
+
+.video-play-overlay svg {
+    margin-left: 4px;
+}
+
+.video-play-overlay:hover {
+    background: rgba(255, 255, 255, 0.18);
+    transform: translate(-50%, -50%) scale(1.06);
+}
+
+.video-stage.is-playing .video-play-overlay {
+    opacity: 0;
+    pointer-events: none;
+}
+
+/* ─── Demo ─── */
+.demo {
+    position: relative;
+    padding: 100px 0;
+    z-index: 1;
+}
+
+.demo-frame {
+    max-width: 1040px;
+    margin: 0 auto;
 }
 
 /* ─── Section Shared ─── */

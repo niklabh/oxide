@@ -4,6 +4,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initScrollAnimations();
     initCopyCA();
     initMobileMenu();
+    initVideoPlay();
 });
 
 /* ─── Particle Background ─── */
@@ -172,6 +173,23 @@ function initCopyCA() {
                 btn.querySelector('.copy-label').textContent = 'Copy';
             }, 2000);
         }
+    });
+}
+
+/* ─── Video Play Overlay ─── */
+function initVideoPlay() {
+    document.querySelectorAll('.video-stage').forEach(stage => {
+        const video = stage.querySelector('video');
+        const button = stage.querySelector('.video-play-overlay');
+        if (!video || !button) return;
+
+        button.addEventListener('click', () => {
+            video.play();
+        });
+
+        video.addEventListener('play', () => {
+            stage.classList.add('is-playing');
+        }, { once: true });
     });
 }
 

@@ -131,8 +131,8 @@
             </div>
             <div class="hero-stats" data-animate="fade-up" data-delay="400">
                 <div class="stat">
-                    <span class="stat-value">0</span>
-                    <span class="stat-label">Filesystem Access</span>
+                    <span class="stat-value">150+</span>
+                    <span class="stat-label">Host APIs</span>
                 </div>
                 <div class="stat-divider"></div>
                 <div class="stat">
@@ -151,18 +151,33 @@
                 </div>
             </div>
         </div>
-        <div class="hero-visual" data-animate="fade-up" data-delay="500">
-            <div class="browser-preview">
-                <div class="browser-chrome">
-                    <div class="browser-dots">
-                        <span></span><span></span><span></span>
+    </section>
+
+    <section class="demo" id="demo">
+        <div class="container">
+            <div class="section-header" data-animate="fade-up">
+                <span class="section-tag">DEMO</span>
+                <h2>See Oxide in Action</h2>
+                <p>Watch a guest <code>.wasm</code> module fetched, sandboxed, and rendered by the Oxide browser in real time.</p>
+            </div>
+            <div class="demo-frame" data-animate="fade-up" data-delay="100">
+                <div class="browser-preview">
+                    <div class="browser-chrome">
+                        <div class="browser-dots">
+                            <span></span><span></span><span></span>
+                        </div>
+                        <div class="browser-url">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                            oxide://demo.wasm
+                        </div>
                     </div>
-                    <div class="browser-url">
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-                        oxide://hello-oxide.wasm
+                    <div class="video-stage">
+                        <video class="browser-video" src="https://oxide.foundation/assets/oxide-demo.mp4" poster="assets/oxide-screenshot.png" controls preload="metadata" playsinline></video>
+                        <button class="video-play-overlay" type="button" aria-label="Play demo video">
+                            <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+                        </button>
                     </div>
                 </div>
-                <img src="assets/oxide-screenshot.png" alt="Oxide Browser Screenshot" class="browser-screenshot" loading="lazy">
             </div>
         </div>
     </section>
