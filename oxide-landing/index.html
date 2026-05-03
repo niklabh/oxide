@@ -182,6 +182,76 @@
         </div>
     </section>
 
+    <section class="forge" id="forge">
+        <div class="container">
+            <div class="section-header" data-animate="fade-up">
+                <span class="section-tag">FORGE · CLAUDE OPUS 4.7</span>
+                <h2>Describe an app. Ship it.</h2>
+                <p>Forge is built into Oxide. Claude writes the Rust, <code>cargo</code> compiles it to <code>.wasm</code>, and a new tab opens — all from a single prompt.</p>
+            </div>
+
+            <div class="forge-pipeline" data-animate="fade-up" data-delay="100" id="forge-pipeline">
+                <div class="forge-head">
+                    <div class="forge-head-l">// one prompt &rarr; compiled .wasm &rarr; live tab</div>
+                    <div class="forge-head-r">forge · live</div>
+                </div>
+
+                <div class="forge-grid">
+                    <div class="forge-col">
+                        <div class="forge-col-label">prompt</div>
+                        <div class="forge-col-num">01</div>
+                        <div class="forge-prompt-text">
+                            <span class="typed" id="forge-typed"></span>
+                        </div>
+                    </div>
+
+                    <div class="forge-col">
+                        <div class="forge-col-label">streaming rust</div>
+                        <div class="forge-col-num">02</div>
+                        <div class="forge-code" id="forge-code">
+                            <span class="ln"><span class="kw">use</span> oxide_sdk::*;</span>
+                            <span class="ln">&nbsp;</span>
+                            <span class="ln"><span class="com">// 80x60 grid, phosphor green cells</span></span>
+                            <span class="ln"><span class="kw">const</span> W: <span class="kw">u32</span> = <span class="num">80</span>;</span>
+                            <span class="ln"><span class="kw">const</span> H: <span class="kw">u32</span> = <span class="num">60</span>;</span>
+                            <span class="ln">&nbsp;</span>
+                            <span class="ln"><span class="kw">#[no_mangle]</span></span>
+                            <span class="ln"><span class="kw">pub extern</span> <span class="str">"C"</span> <span class="kw">fn</span> <span class="fn">start_app</span>() {</span>
+                            <span class="ln">&nbsp;&nbsp;&nbsp;&nbsp;canvas_clear(<span class="num">0x070711</span>);</span>
+                            <span class="ln">&nbsp;&nbsp;&nbsp;&nbsp;<span class="fn">randomise_grid</span>();</span>
+                            <span class="ln">}</span>
+                            <span class="ln">&nbsp;</span>
+                            <span class="ln"><span class="kw">#[no_mangle]</span></span>
+                            <span class="ln"><span class="kw">pub extern</span> <span class="str">"C"</span> <span class="kw">fn</span> <span class="fn">on_frame</span>(_: <span class="kw">u32</span>) {</span>
+                            <span class="ln">&nbsp;&nbsp;&nbsp;&nbsp;<span class="fn">step_life</span>();</span>
+                            <span class="ln">&nbsp;&nbsp;&nbsp;&nbsp;<span class="fn">draw_cells</span>(<span class="num">0x34d399</span>);</span>
+                            <span class="ln">}</span>
+                        </div>
+                    </div>
+
+                    <div class="forge-col">
+                        <div class="forge-col-label">build &amp; run</div>
+                        <div class="forge-col-num">03</div>
+                        <div class="forge-build" id="forge-build">
+                            <span class="ln">$ cargo build --target wasm32</span>
+                            <span class="ln dim">&nbsp;&nbsp;&nbsp;Compiling oxide-sdk v0.6</span>
+                            <span class="ln dim">&nbsp;&nbsp;&nbsp;Compiling life-app v0.1</span>
+                            <span class="ln"><span class="ok">&nbsp;&nbsp;&nbsp;Finished</span> in <span class="accent">3.2s</span></span>
+                            <span class="ln dim">&nbsp;&nbsp;&nbsp;wrote life-app.wasm (24 KB)</span>
+                        </div>
+                        <div class="forge-tab" id="forge-tab">
+                            <div class="forge-tab-bar">
+                                <div class="forge-tab-dot"></div>
+                                <span>oxide://forge/life-app</span>
+                            </div>
+                            <div class="forge-tab-canvas" id="forge-tab-canvas"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
     <section class="about" id="about">
         <div class="container">
             <div class="section-header" data-animate="fade-up">
