@@ -139,6 +139,6 @@ Exercises: MIDI input, multi-channel audio, keyboard polling.
   need hand-tuning.
 - After a successful run, type another prompt to iterate on the same
   app idea — e.g. "make the brush stroke smoother" after #4.
-- The session's `target/forge/<slug>/src/lib.rs` contains the generated
+- The session's selected Forge folder contains `<slug>/src/lib.rs` with the generated
   code verbatim — you can open it in your editor, edit, and click
   "Build" again for a manual rebuild.

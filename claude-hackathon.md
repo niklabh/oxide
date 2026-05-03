@@ -60,8 +60,8 @@ follow-up prompts. The whole loop lives inside the sandboxed browser.
 │  │  • artifact_path()  — returns built .wasm path                │    │
 │  └────────────────────────────┬───────────────────────────────────┘    │
 │                               │                                        │
-│  ┌── target/forge/<slug>/ ────▼───────────────────────────────────┐    │
-│  │  Cargo.toml, src/lib.rs, target/wasm32-unknown-unknown/…      │    │
+│  ┌── chosen Forge dir/<slug>/ ▼───────────────────────────────────┐    │
+│  │  Cargo.toml, src/lib.rs, <slug>.wasm, target/wasm32…          │    │
 │  └────────────────────────────┬───────────────────────────────────┘    │
 │                               │ file://…/main.wasm                    │
 │  ┌────────────────────────────▼───────────────────────────────────┐    │
@@ -78,7 +78,7 @@ follow-up prompts. The whole loop lives inside the sandboxed browser.
 | Compile | Shell out to host `cargo` | User already has Rust toolchain. |
 | Claude access | Direct Anthropic Messages API | Reuse `fetch.rs` streaming, one key. |
 | Forge UI | Native GPUI (not a guest wasm) | Needs privileged access to `cargo`. |
-| Generated project layout | `target/forge/<slug>/` | Isolated from workspace, gitignored. |
+| Generated project layout | User-selected Forge folder, defaulting to `target/forge/<slug>/` | Easy demo default, durable user-owned output. |
 | Secrets | `ANTHROPIC_API_KEY` env var | Standard, no secret in-repo. |
 
 ---
@@ -115,9 +115,9 @@ wasm32-unknown-unknown --release` in `forge/templates/base/` completes in
 - [x] `forge/templates/base/` compiles as a standalone example.
 - [x] Template is excluded from the root workspace with `[workspace]` in
       its own Cargo.toml.
-- [x] Template includes `[lib] crate-type = ["cdylib"]` and
-      `oxide-sdk = { path = "../../../oxide-sdk" }` which resolves
-      identically from both the template location and `target/forge/<slug>/`.
+- [x] Template includes `[lib] crate-type = ["cdylib"]`; Forge rewrites the
+      copied `oxide-sdk` dependency to the local absolute SDK path so projects
+      build from any user-selected output folder.
 - [x] `.gitignore` updated to exclude `target/forge/` and
       `forge/templates/*/target/`.
 
@@ -130,7 +130,7 @@ wasm32-unknown-unknown --release` in `forge/templates/base/` completes in
 - [x] `drive_anthropic_stream` — POST to
       `https://api.anthropic.com/v1/messages` with `stream: true`, parse
       SSE, append `content_block_delta.text` into the session's code buffer.
-      Model defaults to `claude-opus-4-20250514`, overridable with
+      Model defaults to `claude-opus-4-7`, overridable with
       `OXIDE_FORGE_MODEL`.
 - [x] `scaffold_project` + `write_lib_rs` — copy template files then
       overwrite `src/lib.rs` with the (un-fenced) generated code.

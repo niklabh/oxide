@@ -1,0 +1,17 @@
+The web runs on HTML. Three decades of it.
+
+What if the browser just ran WebAssembly. And an AI wrote the apps.
+
+This is Oxide. A browser written in Rust. It fetches dot-wasm files instead of HTML. Every app is a sandboxed WebAssembly module. Fuel-metered. Capped at 256 megabytes. With about one hundred and fifty host functions. If we didn't register it, it doesn't exist.
+
+No filesystem. No environment. No raw sockets.
+
+And this is Oxide Forge. You type what you want, in plain English. Claude Opus 4.7 writes the Rust. Cargo compiles it to WebAssembly. A new tab opens, running inside the same airtight sandbox.
+
+One sentence. One cargo build. A real app.
+
+The people about to start writing software are not programmers. They are teachers, students, doctors. The worst thing we can hand them, is a system where every prompt has root.
+
+Here, the model cannot escape. The worst it can do, is fail to compile.
+
+Oxide. The future of software is sandboxed binary.

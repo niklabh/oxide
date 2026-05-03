@@ -9,7 +9,7 @@
 
 Oxide is a decentralised browser that fetches and executes `.wasm` (WebAssembly) modules instead of HTML/JavaScript. Guest applications run in a secure, sandboxed environment with capability-based access to host APIs.
 
-> **New — [Oxide Forge](./claude-hackathon.md):** an AI-native layer inside Oxide where Claude Opus 4.7 writes, compiles, and hot-loads guest `.wasm` apps in the same browser. Open `oxide://forge`, describe what you want, watch it run. See the [hackathon plan](./claude-hackathon.md) and the [Forge Kit](./forge/README.md).
+[Oxide Forge](./claude-hackathon.md):** an AI-native layer inside Oxide where Claude Opus 4.7 writes, compiles, and hot-loads guest `.wasm` apps in the same browser. Open `oxide://forge`, describe what you want, watch it run. See the [hackathon plan](./claude-hackathon.md) and the [Forge Kit](./forge/README.md).
 
 ![oxide](screens/oxide.png)
 
@@ -208,8 +208,8 @@ platform.
 
 ```
  ┌───────────────────┐    ┌────────────────┐   ┌──────────────────┐
- │  user prompt      │───▶│  Claude stream │──▶│  write lib.rs    │
- │  (oxide://forge)  │    │  (Messages API)│   │  to target/forge │
+ │  prompt / revise  │───▶│  Claude stream │──▶│  write lib.rs    │
+ │  (oxide://forge)  │    │  (Messages API)│   │  to chosen dir   │
  └───────────────────┘    └────────────────┘   └────────┬─────────┘
                                                         │
  ┌───────────────────┐    ┌────────────────┐   ┌────────▼─────────┐
@@ -218,9 +218,12 @@ platform.
  └───────────────────┘    └────────────────┘   └──────────────────┘
 ```
 
-If `cargo build` fails, Forge feeds the compiler output back to Claude
-up to **3 times** automatically before surfacing the error — so the
-happy path is usually one prompt, one result.
+Forge keeps every creation in a list view. Select an existing app and
+prompt again to revise it; Forge includes the current `src/lib.rs`,
+rewrites the code, rebuilds, and copies the finished `<slug>.wasm` into
+that creation's folder. If `cargo build` fails, Forge feeds the compiler
+output back to Claude up to **3 times** automatically before surfacing
+the error.
 
 ### Under the hood
 
@@ -231,12 +234,16 @@ happy path is usually one prompt, one result.
 | `oxide://forge` native page | [`oxide-browser/src/ui.rs`](./oxide-browser/src/ui.rs) |
 | Base Cargo template copied per session | [`forge/templates/base/`](./forge/templates/base/) |
 
-Every generation reads the exact signatures from
-[`forge/CAPABILITIES.md`](./forge/CAPABILITIES.md), the idiomatic rules
-from [`forge/PATTERNS.md`](./forge/PATTERNS.md), and 12 runnable
-snippets in [`forge/RECIPES.md`](./forge/RECIPES.md). Generated code is
+Every generation is driven by the [`oxide-wasm-app`](./forge/skills/oxide-wasm-app/SKILL.md)
+[Agent Skill](https://agentskills.io/), which reads the exact signatures from
+[`CAPABILITIES.md`](./forge/skills/oxide-wasm-app/references/CAPABILITIES.md),
+the idiomatic rules from
+[`PATTERNS.md`](./forge/skills/oxide-wasm-app/references/PATTERNS.md),
+and 12 runnable snippets in
+[`RECIPES.md`](./forge/skills/oxide-wasm-app/references/RECIPES.md). Generated code is
 constrained to the same capability-based sandbox as every other guest
-app — **Forge adds no new host privileges**.
+app once loaded. The Forge build step intentionally runs host `cargo`
+because it is a native developer workflow.
 
 ### Try it
 
@@ -246,8 +253,12 @@ cargo run -p oxide-browser
 # → URL bar → oxide://forge → type a prompt → Enter
 ```
 
+Use **Choose folder** in `oxide://forge`, or set `OXIDE_FORGE_DIR`, to
+store generated projects and copied wasm artifacts somewhere other than
+`target/forge/`.
+
 Set `OXIDE_FORGE_MODEL` to override the default model
-(`claude-opus-4-20250514`).
+(`claude-opus-4-7`).
 
 ## Documentation
 
