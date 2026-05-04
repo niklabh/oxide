@@ -309,6 +309,23 @@ img {
     line-height: 1.7;
 }
 
+.hero-subtitle a {
+    color: var(--accent-secondary);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+}
+
+.hero-subtitle strong {
+    color: var(--text-primary);
+    font-weight: 600;
+}
+
+.about-card p a {
+    color: var(--accent-secondary);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
 .hero-actions {
     display: flex;
     align-items: center;
@@ -744,6 +761,12 @@ img {
     background: var(--bg-card-hover);
     border-color: var(--border-light);
     transform: translateY(-4px);
+}
+
+a.about-card--link {
+    display: block;
+    text-decoration: none;
+    color: inherit;
 }
 
 .about-icon {
@@ -1649,6 +1672,21 @@ img {
 
 .footer-brand .nav-logo {
     margin-bottom: 16px;
+}
+
+.footer-brand-logo {
+    text-decoration: none;
+    color: inherit;
+}
+
+.footer-inline-link {
+    color: var(--text-secondary);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.footer-inline-link:hover {
+    color: var(--accent-secondary);
 }
 
 .footer-brand p {

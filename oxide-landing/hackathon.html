@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Oxide Hackathon — Build Apps. Win 10M $OXIDE</title>
+    <meta name="description" content="Build a guest app for the Oxide browser. Submit a PR by 15 May 2026. Best app wins 10 million $OXIDE tokens. Winners announced 16 May.">
+    <meta name="keywords" content="oxide, hackathon, webassembly, rust, $OXIDE, developer, bounty">
+    <meta name="author" content="Oxide Foundation">
+    <meta name="robots" content="index, follow">
+    <meta name="theme-color" content="#07080c">
+    <link rel="canonical" href="https://oxide.foundation/hackathon.html">
+
+    <meta property="og:site_name" content="Oxide Browser">
+    <meta property="og:title" content="Oxide Hackathon — Build Apps. Win 10M $OXIDE">
+    <meta property="og:description" content="Submit a guest app to examples/ by 15 May 2026. Grand prize: 10 million $OXIDE. Development help on Telegram.">
+    <meta property="og:url" content="https://oxide.foundation/hackathon.html">
+    <meta property="og:type" content="website">
+    <meta property="og:image" content="https://oxide.foundation/og-image.png">
+
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:site" content="@oxide_browser">
+    <meta name="twitter:title" content="Oxide Hackathon — Build Apps. Win 10M $OXIDE">
+    <meta name="twitter:description" content="PR to the Oxide repo, app in examples/, deadline 15 May 2026.">
+
+    <link rel="icon" type="image/png" sizes="32x32" href="logo.png">
+    <link rel="apple-touch-icon" href="logo.png">
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <canvas id="particles-canvas"></canvas>
+
+    <nav class="navbar" id="navbar">
+        <div class="nav-container">
+            <a href="index.html" class="nav-logo">
+                <img src="logo.png" alt="Oxide" class="logo-img">
+                <span>OXIDE</span>
+            </a>
+            <div class="nav-links" id="nav-links">
+                <a href="index.html#about">About</a>
+                <a href="index.html#features">Features</a>
+                <a href="index.html#roadmap">Roadmap</a>
+                <a href="hackathon.html" aria-current="page">Hackathon</a>
+                <a href="https://github.com/niklabh/oxide/releases" target="_blank" rel="noopener">Download</a>
+                <a href="https://github.com/niklabh/oxide" target="_blank" rel="noopener">GitHub</a>
+            </div>
+            <div class="nav-actions">
+                <a href="https://pump.fun/coin/F9GohhDUsdcPCnARhrdrU68erD8ohfcW8pZZrjNPjHBQ" target="_blank" rel="noopener" class="btn btn-primary btn-sm">Buy $OXIDE</a>
+                <button class="mobile-toggle" id="mobile-toggle" aria-label="Toggle menu">
+                    <span></span><span></span><span></span>
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <section class="hero" id="hero">
+        <div class="hero-glow"></div>
+        <div class="hero-content">
+            <div class="hero-badge" data-animate="fade-up">
+                <span class="badge-dot"></span>
+                Submissions open &middot; Deadline 15 May 2026
+            </div>
+            <h1 data-animate="fade-up" data-delay="100">
+                Oxide<br>
+                <span class="gradient-text">Hackathon</span>
+            </h1>
+            <p class="hero-subtitle" data-animate="fade-up" data-delay="200">
+                Build a real guest app for the Oxide browser. Ship it as a pull request to the
+                <a href="https://github.com/niklabh/oxide" target="_blank" rel="noopener">Oxide repository</a>
+                under <code>examples/</code>. The best app wins
+                <strong>10&nbsp;million&nbsp;$OXIDE</strong> tokens. Winners announced <strong>16&nbsp;May&nbsp;2026</strong>.
+            </p>
+            <div class="hero-actions" data-animate="fade-up" data-delay="300">
+                <a href="https://github.com/niklabh/oxide" target="_blank" rel="noopener" class="btn btn-primary btn-lg">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+                    Start on GitHub
+                </a>
+                <a href="https://t.me/oxide_tg" target="_blank" rel="noopener" class="btn btn-outline btn-lg">
+                    Dev help on Telegram
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <section class="about" id="how">
+        <div class="container">
+            <div class="section-header" data-animate="fade-up">
+                <span class="section-tag">HOW TO PARTICIPATE</span>
+                <h2>Ship a guest app. Open a PR.</h2>
+                <p>Every submission must be a new or updated example under <code>examples/</code>, following the same patterns as existing demos in the repo.</p>
+            </div>
+            <div class="about-grid">
+                <div class="about-card" data-animate="fade-up" data-delay="100">
+                    <div class="about-icon">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                    </div>
+                    <h3>1. Build in Rust → WASM</h3>
+                    <p>Use <code>oxide-sdk</code> and compile with <code>wasm32-unknown-unknown</code>. See <a href="https://docs.oxide.foundation/" target="_blank" rel="noopener">docs.oxide.foundation</a> and repo <a href="https://github.com/niklabh/oxide/blob/main/CLAUDE.md" target="_blank" rel="noopener">CLAUDE.md</a>.</p>
+                </div>
+                <div class="about-card" data-animate="fade-up" data-delay="200">
+                    <div class="about-icon">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>
+                    </div>
+                    <h3>2. Put it in <code>examples/</code></h3>
+                    <p>Add your crate under <code>examples/</code> and wire it in the workspace so <code>cargo build --target wasm32-unknown-unknown --release -p your-app</code> works.</p>
+                </div>
+                <div class="about-card" data-animate="fade-up" data-delay="300">
+                    <div class="about-icon">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+                    </div>
+                    <h3>3. Pull request + proof + payout address</h3>
+                    <p>Open a PR to <a href="https://github.com/niklabh/oxide" target="_blank" rel="noopener">niklabh/oxide</a>. Include screenshots or a short video of your app running in Oxide, and a <strong>Solana wallet address</strong> in the PR description for prize distribution.</p>
+                </div>
+                <div class="about-card" data-animate="fade-up" data-delay="400">
+                    <div class="about-icon">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
+                    </div>
+                    <h3>Bonus: extend Oxide</h3>
+                    <p>Going further is encouraged: add a host capability or polish the runtime, then demonstrate it in your app. Clear docs and tests help reviewers.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="features" id="prize">
+        <div class="container">
+            <div class="section-header" data-animate="fade-up">
+                <span class="section-tag">PRIZE &amp; TIMELINE</span>
+                <h2>10,000,000 $OXIDE for the best app</h2>
+                <p>One grand prize for the strongest overall submission — originality, polish, use of Oxide APIs, and code quality all count.</p>
+            </div>
+            <div class="tech-grid" data-animate="fade-up" data-delay="100">
+                <div class="tech-card">
+                    <div class="tech-name">Grand prize</div>
+                    <div class="tech-desc">10,000,000 $OXIDE to the winning Solana address (same address must be in the PR).</div>
+                </div>
+                <div class="tech-card">
+                    <div class="tech-name">Submit by</div>
+                    <div class="tech-desc">15 May 2026 (end of day, your PR merged or ready for final review per maintainer guidance).</div>
+                </div>
+                <div class="tech-card">
+                    <div class="tech-name">Winners</div>
+                    <div class="tech-desc">Announced 16 May 2026 via project channels (see Community below).</div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="about" id="links">
+        <div class="container">
+            <div class="section-header" data-animate="fade-up">
+                <span class="section-tag">USEFUL LINKS</span>
+                <h2>Everything you need</h2>
+            </div>
+            <div class="about-grid">
+                <a href="https://oxide.foundation/" target="_blank" rel="noopener" class="about-card about-card--link" data-animate="fade-up" data-delay="100">
+                    <div class="about-icon">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/></svg>
+                    </div>
+                    <h3>oxide.foundation</h3>
+                    <p>Product overview, roadmap, and downloads.</p>
+                </a>
+                <a href="https://docs.oxide.foundation/" target="_blank" rel="noopener" class="about-card about-card--link" data-animate="fade-up" data-delay="200">
+                    <div class="about-icon">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+                    </div>
+                    <h3>Documentation</h3>
+                    <p>Guest SDK, host APIs, and architecture.</p>
+                </a>
+                <a href="https://x.com/compose/articles/edit/2045580745624928256" target="_blank" rel="noopener" class="about-card about-card--link" data-animate="fade-up" data-delay="300">
+                    <div class="about-icon">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+                    </div>
+                    <h3>X (Twitter)</h3>
+                    <p>Hackathon announcement article.</p>
+                </a>
+                <a href="https://t.me/oxide_tg" target="_blank" rel="noopener" class="about-card about-card--link" data-animate="fade-up" data-delay="400">
+                    <div class="about-icon">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="currentColor"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.479.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
+                    </div>
+                    <h3>Telegram</h3>
+                    <p>Development questions and community support.</p>
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <section class="community" id="community">
+        <div class="container">
+            <div class="section-header" data-animate="fade-up">
+                <span class="section-tag">COMMUNITY</span>
+                <h2>Get unstuck</h2>
+                <p>Ask in Telegram for build issues, API questions, and PR feedback.</p>
+            </div>
+            <div class="community-grid" data-animate="fade-up" data-delay="100">
+                <a href="https://t.me/oxide_tg" target="_blank" rel="noopener" class="community-card">
+                    <div class="community-icon telegram">
+                        <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor"><path d="M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0a12 12 0 0 0-.056 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.479.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z"/></svg>
+                    </div>
+                    <h3>Oxide Browser Chat</h3>
+                    <p>Dev help &amp; hackathon discussion</p>
+                    <span class="community-arrow">&rarr;</span>
+                </a>
+                <a href="https://github.com/niklabh/oxide" target="_blank" rel="noopener" class="community-card">
+                    <div class="community-icon github">
+                        <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+                    </div>
+                    <h3>GitHub</h3>
+                    <p>Fork, branch, open your PR</p>
+                    <span class="community-arrow">&rarr;</span>
+                </a>
+                <a href="https://x.com/OxideBrowser" target="_blank" rel="noopener" class="community-card">
+                    <div class="community-icon x">
+                        <svg width="28" height="28" viewBox="0 0 24 24" fill="currentColor"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>
+                    </div>
+                    <h3>@OxideBrowser</h3>
+                    <p>Updates on winners &amp; ships</p>
+                    <span class="community-arrow">&rarr;</span>
+                </a>
+            </div>
+        </div>
+    </section>
+
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-content">
+                <div class="footer-brand">
+                    <a href="index.html" class="nav-logo footer-brand-logo">
+                        <img src="logo.png" alt="Oxide" class="logo-img">
+                        <span>OXIDE</span>
+                    </a>
+                    <p>Hackathon page &middot; <a href="index.html" class="footer-inline-link">Back to home</a></p>
+                </div>
+                <div class="footer-links">
+                    <div class="footer-col">
+                        <h4>Project</h4>
+                        <a href="https://github.com/niklabh/oxide/releases" target="_blank" rel="noopener">Download</a>
+                        <a href="https://github.com/niklabh/oxide" target="_blank" rel="noopener">GitHub</a>
+                        <a href="https://docs.oxide.foundation/" target="_blank" rel="noopener">Documentation</a>
+                        <a href="hackathon.html">Hackathon</a>
+                    </div>
+                    <div class="footer-col">
+                        <h4>Community</h4>
+                        <a href="https://t.me/oxide_tg" target="_blank" rel="noopener">Telegram Chat</a>
+                        <a href="https://x.com/OxideBrowser" target="_blank" rel="noopener">X (Twitter)</a>
+                    </div>
+                    <div class="footer-col">
+                        <h4>Token</h4>
+                        <a href="https://pump.fun/coin/F9GohhDUsdcPCnARhrdrU68erD8ohfcW8pZZrjNPjHBQ" target="_blank" rel="noopener">Pump.fun</a>
+                    </div>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p>&copy; 2026 Oxide Foundation. All rights reserved.</p>
+            </div>
+        </div>
+    </footer>
+
+    <script src="script.js"></script>
+</body>
+</html>
