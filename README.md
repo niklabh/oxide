@@ -5,11 +5,11 @@
 [![License](https://img.shields.io/crates/l/oxide-sdk?style=flat-square)](https://github.com/niklabh/oxide/blob/main/LICENSE)
 [![docs.rs](https://img.shields.io/docsrs/oxide-sdk?style=flat-square)](https://docs.rs/oxide-sdk)
 [![CI](https://img.shields.io/github/actions/workflow/status/niklabh/oxide/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/niklabh/oxide/actions/workflows/ci.yml)
-[![Built with Opus 4.7](https://img.shields.io/badge/Built%20with-Claude%20Opus%204.7-b478ff?style=flat-square)](./claude-hackathon.md)
+[![Built with Opus 4.7](https://img.shields.io/badge/Built%20with-Claude%20Opus%204.7-b478ff?style=flat-square)](./oxide-forge.md)
 
 Oxide is a decentralised browser that fetches and executes `.wasm` (WebAssembly) modules instead of HTML/JavaScript. Guest applications run in a secure, sandboxed environment with capability-based access to host APIs.
 
-[Oxide Forge](./claude-hackathon.md):** an AI-native layer inside Oxide where Claude Opus 4.7 writes, compiles, and hot-loads guest `.wasm` apps in the same browser. Open `oxide://forge`, describe what you want, watch it run. See the [hackathon plan](./claude-hackathon.md) and the [Forge Kit](./forge/README.md).
+[Oxide Forge](./oxide-forge.md):** an AI-native layer inside Oxide where Claude Opus 4.7 writes, compiles, and hot-loads guest `.wasm` apps in the same browser. Open `oxide://forge`, describe what you want, watch it run. See the [hackathon plan](./oxide-forge.md) and the [Forge Kit](./forge/README.md).
 
 ![oxide](screens/oxide.png)
 
@@ -202,10 +202,6 @@ Security is **additive, not subtractive**: there is nothing to claw back because
 
 `oxide://forge` is a built-in page that turns natural-language prompts
 into compiled guest `.wasm` modules running in the same Oxide browser.
-It was built during the
-[Built with Opus 4.7 hackathon](./claude-hackathon.md) as a showcase of
-Claude Opus 4.7 acting as a first-class co-creator for the Oxide
-platform.
 
 ### Flow
 

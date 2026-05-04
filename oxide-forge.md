@@ -87,7 +87,7 @@ follow-up prompts. The whole loop lives inside the sandboxed browser.
 
 ### Phase 0 — Vision doc (this file)
 
-- [x] Write `claude-hackathon.md` with tickbox plan.
+- [x] Write `oxide-forge.md` with tickbox plan.
 - [x] Confirm scope: in-browser primary, cargo-based compile, 3–5 day budget.
 
 ### Phase 1 — Forge Kit (the brain Claude reads)
@@ -248,7 +248,7 @@ Each example dir contains a `PROMPT.md` with the exact prompt used.
 
 | File | Status | Owner | Notes |
 |---|---|---|---|
-| `claude-hackathon.md` | [x] | — | This file. |
+| `oxide-forge.md` | [x] | — | This file. |
 | `forge/README.md` | [ ] | Phase 1 | Index of the kit. |
 | `forge/SYSTEM_PROMPT.md` | [ ] | Phase 1 | Authoritative. |
 | `forge/CAPABILITIES.md` | [ ] | Phase 1 | |
