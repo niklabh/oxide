@@ -4499,12 +4499,7 @@ impl Render for OxideBrowserView {
                 };
                 popup = popup.child(kv("Hash", short_hash));
 
-                popup = popup.child(
-                    div()
-                        .mt_3()
-                        .h(px(1.0))
-                        .bg(gpui::rgb(0x3a3a44)),
-                );
+                popup = popup.child(div().mt_3().h(px(1.0)).bg(gpui::rgb(0x3a3a44)));
 
                 if let Some(ref att) = info.solana {
                     let short_pub = if att.publisher.len() > 12 {
