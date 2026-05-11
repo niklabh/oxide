@@ -10,6 +10,7 @@
 //!   [`HostState`] and page status from [`crate::runtime::BrowserHost`].
 //! - [`OxideBrowserView`] — Root view: tabs, toolbar, canvas [`canvas`] element, console, and bookmarks.
 
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
@@ -22,11 +23,11 @@ use gpui::{
     canvas, div, font, img, point, px, size, Application, Bounds, ClickEvent, FocusHandle,
     ImageSource, InteractiveElement, KeyDownEvent, KeyUpEvent, Keystroke, MouseButton,
     MouseDownEvent, MouseUpEvent, PathBuilder, Pixels, Point, Render, RenderImage, Rgba,
-    ScrollDelta, ScrollWheelEvent, SharedString, TextRun, TitlebarOptions, Window, WindowBounds,
-    WindowKind, WindowOptions,
+    ScrollDelta, ScrollHandle, ScrollWheelEvent, SharedString, TextRun, TitlebarOptions, Window,
+    WindowBounds, WindowKind, WindowOptions,
 };
 use image::Frame;
-use smallvec::smallvec;
+use smallvec::{smallvec, SmallVec};
 
 use crate::bookmarks::BookmarkStore;
 use crate::capabilities::{
@@ -106,6 +107,13 @@ fn format_friendly_timestamp(timestamp_ms: u64) -> String {
     }
 }
 
+/// Which guest overlay text widget holds keyboard focus (single-line field vs multi-line area).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum GuestTextFocus {
+    SingleLine(u32),
+    MultiLine(u32),
+}
+
 struct TabState {
     id: u64,
     url_input: String,
@@ -124,8 +132,8 @@ struct TabState {
     live_module: Option<LiveModule>,
     last_frame: Instant,
     keys_held: HashSet<u32>,
-    /// Guest `TextInput` widget id with keyboard focus, if any.
-    text_input_focus: Option<u32>,
+    /// Guest text widget holding keyboard focus, if any.
+    guest_text_focus: Option<GuestTextFocus>,
     /// Cursor byte offset in `url_input`.
     url_cursor: usize,
     /// Selection anchor byte offset; when != `url_cursor`, the range between them is selected.
@@ -139,6 +147,8 @@ struct TabState {
     forge_prompt: String,
     /// Forge session id being viewed / generated in this tab, if any.
     forge_session_id: Option<u64>,
+    /// GPUI scroll handles for guest text areas (UI thread only; not part of [`HostState`]).
+    textarea_scroll_handles: RefCell<HashMap<u32, ScrollHandle>>,
 }
 
 impl TabState {
@@ -182,7 +192,7 @@ impl TabState {
             live_module: None,
             last_frame: Instant::now(),
             keys_held: HashSet::new(),
-            text_input_focus: None,
+            guest_text_focus: None,
             url_cursor: 12,
             url_sel_start: 12,
             url_selecting: false,
@@ -190,6 +200,7 @@ impl TabState {
             internal_page: Some(InternalPage::Home),
             forge_prompt: String::new(),
             forge_session_id: None,
+            textarea_scroll_handles: RefCell::new(HashMap::new()),
         }
         .with_home_status()
     }
@@ -317,6 +328,8 @@ impl TabState {
                         }
                     }
                     self.host_state.widget_states.lock().unwrap().clear();
+                    self.host_state.widget_text_caret.lock().unwrap().clear();
+                    self.textarea_scroll_handles.borrow_mut().clear();
                     self.host_state.widget_clicked.lock().unwrap().clear();
                     self.host_state.widget_commands.lock().unwrap().clear();
                     self.live_module = result.live_module;
@@ -1061,6 +1074,8 @@ pub struct OxideBrowserView {
     show_downloads: bool,
     /// Lazily-initialised Claude-backed guest app factory for `oxide://forge`.
     forge: Arc<Mutex<Option<ForgeState>>>,
+    /// Whether the manifest / Solana attestation popup is open for the active tab.
+    show_attestation: bool,
 }
 
 impl OxideBrowserView {
@@ -1089,6 +1104,7 @@ impl OxideBrowserView {
             download_manager: DownloadManager::new(),
             show_downloads: false,
             forge: Arc::new(Mutex::new(None)),
+            show_attestation: false,
         }
     }
 
@@ -1601,12 +1617,143 @@ impl Render for OxideBrowserView {
                     if this.url_focus.is_focused(window) {
                         return;
                     }
-                    if let Some(id) = this.tabs[this.active_tab].text_input_focus {
-                        let mut states = this.tabs[this.active_tab]
-                            .host_state
-                            .widget_states
-                            .lock()
-                            .unwrap();
+                    if let Some(focus) = this.tabs[this.active_tab].guest_text_focus {
+                        let id = match focus {
+                            GuestTextFocus::SingleLine(i) | GuestTextFocus::MultiLine(i) => i,
+                        };
+                        let multiline = matches!(focus, GuestTextFocus::MultiLine(_));
+                        let hs = this.tabs[this.active_tab].host_state.clone();
+
+                        if multiline {
+                            let mut states = hs.widget_states.lock().unwrap();
+                            let mut caret_m = hs.widget_text_caret.lock().unwrap();
+                            let mut text = match states.get(&id) {
+                                Some(WidgetValue::Text(t)) => t.clone(),
+                                _ => String::new(),
+                            };
+                            let mut caret = caret_m.get(&id).copied().unwrap_or(text.len());
+                            caret = caret.min(text.len());
+                            caret = text.floor_char_boundary(caret);
+
+                            if event.keystroke.modifiers.secondary() {
+                                match event.keystroke.key.as_str() {
+                                    "c" => {
+                                        if let Ok(mut cb) = arboard::Clipboard::new() {
+                                            let _ = cb.set_text(&text);
+                                        }
+                                    }
+                                    "v" => {
+                                        if let Ok(mut cb) = arboard::Clipboard::new() {
+                                            if let Ok(pasted) = cb.get_text() {
+                                                text.insert_str(caret, &pasted);
+                                                caret += pasted.len();
+                                                caret = text.floor_char_boundary(caret);
+                                                caret_m.insert(id, caret);
+                                                states.insert(id, WidgetValue::Text(text));
+                                            }
+                                        }
+                                    }
+                                    "x" => {
+                                        if let Ok(mut cb) = arboard::Clipboard::new() {
+                                            let _ = cb.set_text(&text);
+                                        }
+                                        caret = 0;
+                                        caret_m.insert(id, caret);
+                                        states.insert(id, WidgetValue::Text(String::new()));
+                                    }
+                                    "a" => {}
+                                    _ => {}
+                                }
+                                cx.notify();
+                                return;
+                            }
+
+                            if event.keystroke.key == "tab" {
+                                cx.notify();
+                                return;
+                            }
+                            if event.keystroke.key == "enter" {
+                                text.insert(caret, '\n');
+                                caret += 1;
+                                caret = text.floor_char_boundary(caret);
+                                caret_m.insert(id, caret);
+                                states.insert(id, WidgetValue::Text(text));
+                                cx.notify();
+                                return;
+                            }
+
+                            match event.keystroke.key.as_str() {
+                                "left" => {
+                                    if caret > 0 {
+                                        let mut j = caret - 1;
+                                        while !text.is_char_boundary(j) {
+                                            j -= 1;
+                                        }
+                                        caret = j;
+                                    }
+                                }
+                                "right" => {
+                                    if caret < text.len() {
+                                        let mut j = caret + 1;
+                                        while j < text.len() && !text.is_char_boundary(j) {
+                                            j += 1;
+                                        }
+                                        caret = j.min(text.len());
+                                    }
+                                }
+                                "up" => {
+                                    let col = caret - textarea_line_start(&text, caret);
+                                    if let Some(st) = textarea_prev_line_start(&text, caret) {
+                                        let el = textarea_line_end(&text, st);
+                                        caret = (st + col).min(el);
+                                        caret = text.floor_char_boundary(caret);
+                                    }
+                                }
+                                "down" => {
+                                    let col = caret - textarea_line_start(&text, caret);
+                                    if let Some(st) = textarea_next_line_start(&text, caret) {
+                                        let el = textarea_line_end(&text, st);
+                                        caret = (st + col).min(el);
+                                        caret = text.floor_char_boundary(caret);
+                                    }
+                                }
+                                "home" => {
+                                    caret = textarea_line_start(&text, caret);
+                                }
+                                "end" => {
+                                    caret = textarea_line_end(&text, caret);
+                                }
+                                "delete" => {
+                                    if caret < text.len() {
+                                        let end = textarea_next_char_boundary(&text, caret);
+                                        text.replace_range(caret..end, "");
+                                    }
+                                }
+                                "backspace" => {
+                                    if caret > 0 {
+                                        let prev = textarea_prev_char_boundary(&text, caret);
+                                        text.replace_range(prev..caret, "");
+                                        caret = prev;
+                                    }
+                                }
+                                _ => {
+                                    if let Some(s) = text_insert_from_keystroke(&event.keystroke) {
+                                        text.insert_str(caret, &s);
+                                        caret += s.len();
+                                        caret = text.floor_char_boundary(caret.min(text.len()));
+                                    }
+                                }
+                            }
+
+                            caret = caret.min(text.len());
+                            caret = text.floor_char_boundary(caret);
+                            caret_m.insert(id, caret);
+                            states.insert(id, WidgetValue::Text(text));
+                            cx.notify();
+                            return;
+                        }
+
+                        let mut states = hs.widget_states.lock().unwrap();
                         let mut text = match states.get(&id) {
                             Some(WidgetValue::Text(t)) => t.clone(),
                             _ => String::new(),
@@ -1635,6 +1782,10 @@ impl Render for OxideBrowserView {
                                 "a" => {}
                                 _ => {}
                             }
+                            cx.notify();
+                            return;
+                        }
+                        if event.keystroke.key == "enter" {
                             cx.notify();
                             return;
                         }
@@ -1764,6 +1915,23 @@ impl Render for OxideBrowserView {
             (icon, color)
         };
 
+        // Snapshot manifest / Solana attestation for the active tab. The
+        // indicator next to the URL bar reflects three states:
+        //   * green  – manifest hash verified AND on-chain entry found
+        //   * yellow – manifest fetched (no hash, mismatch, or not on chain)
+        //   * none   – no manifest (local file, internal page, or missing sidecar)
+        let attestation_snapshot = self.tabs[active]
+            .host_state
+            .manifest_info
+            .lock()
+            .unwrap()
+            .clone();
+        let attestation_state = match attestation_snapshot.as_ref() {
+            Some(info) if info.hash_verified && info.solana.is_some() => Some(true),
+            Some(_) => Some(false),
+            None => None,
+        };
+
         root = root.child(
             div()
                 .h(px(44.0))
@@ -1812,6 +1980,25 @@ impl Render for OxideBrowserView {
                         .text_color(status_color)
                         .child(status_icon.to_string()),
                 )
+                .when(attestation_state.is_some(), |row| {
+                    let color = if attestation_state == Some(true) {
+                        gpui::rgb(0x50e070)
+                    } else {
+                        gpui::rgb(0xffc832)
+                    };
+                    row.child(
+                        div()
+                            .id("oxide_attest_indicator")
+                            .cursor_pointer()
+                            .text_sm()
+                            .text_color(color)
+                            .child("●")
+                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                this.show_attestation = !this.show_attestation;
+                                cx.notify();
+                            })),
+                    )
+                })
                 .child({
                     let url_text_for_canvas =
                         SharedString::from(self.tabs[active].url_input.clone());
@@ -3360,7 +3547,7 @@ impl Render for OxideBrowserView {
                 }
             }
         } else {
-            let text_input_focus_id = self.tabs[active].text_input_focus;
+            let guest_text_focus = self.tabs[active].guest_text_focus;
             let caret_blink_on = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .map(|d| (d.as_millis() / 530) % 2 == 0)
@@ -3459,7 +3646,7 @@ impl Render for OxideBrowserView {
                                 return;
                             }
                         }
-                        tab.text_input_focus = None;
+                        tab.guest_text_focus = None;
                         this.canvas_focus.focus(window);
                     }
                 }))
@@ -3531,6 +3718,10 @@ impl Render for OxideBrowserView {
                 .lock()
                 .unwrap()
                 .clone();
+
+            let textarea_host = self.tabs[active].host_state.clone();
+
+            let textarea_scroll_handles = &self.tabs[active].textarea_scroll_handles;
 
             let canvas_with_widgets =
                 widget_commands
@@ -3712,7 +3903,9 @@ impl Render for OxideBrowserView {
                                     _ => None,
                                 })
                                 .unwrap_or_default();
-                            let show_caret = text_input_focus_id == Some(id) && caret_blink_on;
+                            let show_caret = guest_text_focus
+                                == Some(GuestTextFocus::SingleLine(id))
+                                && caret_blink_on;
                             el.child(
                                 div()
                                     .id(("oxide_ti", id as usize))
@@ -3725,11 +3918,14 @@ impl Render for OxideBrowserView {
                                     .rounded_md()
                                     .bg(gpui::rgb(0x121218))
                                     .border_1()
-                                    .border_color(if text_input_focus_id == Some(id) {
-                                        gpui::rgb(0x6a6a8a)
-                                    } else {
-                                        gpui::rgb(0x3a3a48)
-                                    })
+                                    .border_color(
+                                        if guest_text_focus == Some(GuestTextFocus::SingleLine(id))
+                                        {
+                                            gpui::rgb(0x6a6a8a)
+                                        } else {
+                                            gpui::rgb(0x3a3a48)
+                                        },
+                                    )
                                     .cursor_pointer()
                                     .flex()
                                     .flex_row()
@@ -3759,11 +3955,143 @@ impl Render for OxideBrowserView {
                                     })
                                     .on_click(cx.listener(
                                         move |this, _: &ClickEvent, window, cx| {
-                                            this.tabs[this.active_tab].text_input_focus = Some(id);
+                                            this.tabs[this.active_tab].guest_text_focus =
+                                                Some(GuestTextFocus::SingleLine(id));
                                             this.canvas_focus.focus(window);
                                             cx.notify();
                                         },
                                     )),
+                            )
+                        }
+                        WidgetCommand::TextArea { id, x, y, w, h } => {
+                            let value = widget_states_snapshot
+                                .get(&id)
+                                .and_then(|v| match v {
+                                    WidgetValue::Text(t) => Some(t.clone()),
+                                    _ => None,
+                                })
+                                .unwrap_or_default();
+                            let caret_byte = textarea_host
+                                .widget_text_caret
+                                .lock()
+                                .unwrap()
+                                .get(&id)
+                                .copied()
+                                .unwrap_or(value.len())
+                                .min(value.len());
+                            let show_caret = guest_text_focus
+                                == Some(GuestTextFocus::MultiLine(id))
+                                && caret_blink_on;
+
+                            let wrap_px = textarea_wrap_px(w);
+                            let (caret_x, caret_y, caret_h) =
+                                textarea_caret_geom(window, &value, wrap_px, caret_byte);
+
+                            let scroll_handle = textarea_scroll_handles
+                                .borrow_mut()
+                                .entry(id)
+                                .or_default()
+                                .clone();
+                            let scroll_for_click = scroll_handle.clone();
+
+                            let host_click = textarea_host.clone();
+                            let ta_id = id;
+                            let cx_ta = x;
+                            let cy_ta = y;
+                            let ww = w;
+
+                            el.child(
+                                div()
+                                    .id(("oxide_ta", id as usize))
+                                    .absolute()
+                                    .left(px(x))
+                                    .top(px(y))
+                                    .w(px(w))
+                                    .h(px(h))
+                                    .px_2()
+                                    .pb_2()
+                                    .rounded_md()
+                                    .bg(gpui::rgb(0x121218))
+                                    .border_1()
+                                    .border_color(
+                                        if guest_text_focus == Some(GuestTextFocus::MultiLine(id)) {
+                                            gpui::rgb(0x6a6a8a)
+                                        } else {
+                                            gpui::rgb(0x3a3a48)
+                                        },
+                                    )
+                                    .cursor_pointer()
+                                    .overflow_y_scroll()
+                                    .track_scroll(&scroll_handle)
+                                    .on_click(cx.listener(
+                                        move |this, event: &ClickEvent, window, cx| {
+                                            this.tabs[this.active_tab].guest_text_focus =
+                                                Some(GuestTextFocus::MultiLine(ta_id));
+                                            this.canvas_focus.focus(window);
+
+                                            let sc = scroll_for_click.offset();
+                                            let sx = f32::from(sc.x);
+                                            let sy = f32::from(sc.y);
+
+                                            let (ox, oy) = *this.tabs[this.active_tab]
+                                                .host_state
+                                                .canvas_offset
+                                                .lock()
+                                                .unwrap();
+                                            let p = event.position();
+                                            let lx = f32::from(p.x) - ox;
+                                            let ly = f32::from(p.y) - oy;
+
+                                            let wrap = textarea_wrap_px(ww);
+                                            let doc = {
+                                                let st = host_click.widget_states.lock().unwrap();
+                                                match st.get(&ta_id) {
+                                                    Some(WidgetValue::Text(t)) => t.clone(),
+                                                    _ => String::new(),
+                                                }
+                                            };
+
+                                            let rel_x = lx - cx_ta - TEXTAREA_INNER_PAD - sx;
+                                            let rel_y = ly - cy_ta - TEXTAREA_INNER_PAD - sy;
+
+                                            let ix = textarea_hit_index(
+                                                window, &doc, wrap, rel_x, rel_y,
+                                            );
+                                            let ix = doc.floor_char_boundary(ix.min(doc.len()));
+
+                                            host_click
+                                                .widget_text_caret
+                                                .lock()
+                                                .unwrap()
+                                                .insert(ta_id, ix);
+                                            cx.notify();
+                                        },
+                                    ))
+                                    .child(
+                                        div()
+                                            .relative()
+                                            .w_full()
+                                            .min_h_full()
+                                            .child(
+                                                div()
+                                                    .text_sm()
+                                                    .text_color(gpui::rgb(0xe4e4ec))
+                                                    .child(SharedString::from(value)),
+                                            )
+                                            .when(show_caret, |d| {
+                                                d.child(
+                                                    div()
+                                                        .absolute()
+                                                        .left(px(caret_x))
+                                                        .top(px(caret_y))
+                                                        .w(px(2.0))
+                                                        .h(px(caret_h))
+                                                        .mt(px(1.0))
+                                                        .rounded_sm()
+                                                        .bg(gpui::rgb(0xe8e8f0)),
+                                                )
+                                            }),
+                                    ),
                             )
                         }
                     });
@@ -4073,6 +4401,166 @@ impl Render for OxideBrowserView {
             );
         }
 
+        if self.show_attestation {
+            if let Some(info) = attestation_snapshot.clone() {
+                root = root.child(
+                    div()
+                        .id("oxide_attest_scrim")
+                        .absolute()
+                        .size_full()
+                        .top_0()
+                        .left_0()
+                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                            this.show_attestation = false;
+                            cx.notify();
+                        })),
+                );
+
+                let title = info
+                    .manifest
+                    .name
+                    .clone()
+                    .unwrap_or_else(|| "Module".to_string());
+                let title_color = if info.hash_verified && info.solana.is_some() {
+                    gpui::rgb(0x80e090)
+                } else {
+                    gpui::rgb(0xffc832)
+                };
+                let mut popup = div()
+                    .id("oxide_attest_popup")
+                    .absolute()
+                    .top(px(88.0))
+                    .left(px(80.0))
+                    .w(px(380.0))
+                    .rounded_md()
+                    .bg(gpui::rgb(0x2c2c36))
+                    .border_1()
+                    .border_color(gpui::rgb(0x3a3a44))
+                    .p_3()
+                    .shadow_lg()
+                    .child(
+                        div()
+                            .text_sm()
+                            .font_weight(gpui::FontWeight::BOLD)
+                            .text_color(title_color)
+                            .child(title),
+                    );
+
+                if let Some(desc) = info.manifest.description.clone() {
+                    popup = popup.child(
+                        div()
+                            .mt_1()
+                            .text_xs()
+                            .text_color(gpui::rgb(0xc8c8d4))
+                            .child(desc),
+                    );
+                }
+
+                let kv = |label: &str, value: String| -> gpui::Div {
+                    div()
+                        .mt_2()
+                        .flex()
+                        .flex_row()
+                        .gap_2()
+                        .text_xs()
+                        .child(
+                            div()
+                                .w(px(72.0))
+                                .text_color(gpui::rgb(0x7a7a90))
+                                .child(label.to_string()),
+                        )
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .text_color(gpui::rgb(0xdcdce6))
+                                .child(value),
+                        )
+                };
+
+                if let Some(developer) = info.manifest.developer.clone() {
+                    popup = popup.child(kv("Developer", developer));
+                }
+                if let Some(repo) = info.manifest.repo.clone() {
+                    popup = popup.child(kv("Repo", repo));
+                }
+                if let Some(icon) = info.manifest.icon.clone() {
+                    popup = popup.child(kv("Icon", icon));
+                }
+
+                let short_hash = if info.actual_hash_hex.len() >= 16 {
+                    format!(
+                        "{}…{}",
+                        &info.actual_hash_hex[..8],
+                        &info.actual_hash_hex[info.actual_hash_hex.len() - 8..]
+                    )
+                } else {
+                    info.actual_hash_hex.clone()
+                };
+                popup = popup.child(kv("Hash", short_hash));
+
+                popup = popup.child(
+                    div()
+                        .mt_3()
+                        .h(px(1.0))
+                        .bg(gpui::rgb(0x3a3a44)),
+                );
+
+                if let Some(ref att) = info.solana {
+                    let short_pub = if att.publisher.len() > 12 {
+                        format!(
+                            "{}…{}",
+                            &att.publisher[..6],
+                            &att.publisher[att.publisher.len() - 6..]
+                        )
+                    } else {
+                        att.publisher.clone()
+                    };
+                    popup = popup
+                        .child(
+                            div()
+                                .mt_2()
+                                .text_xs()
+                                .font_weight(gpui::FontWeight::SEMIBOLD)
+                                .text_color(gpui::rgb(0x80e090))
+                                .child("✓ Registered on Solana"),
+                        )
+                        .child(kv("Publisher", short_pub))
+                        .child(kv("Name", att.name.clone()))
+                        .child(kv("Version", format!("v{}", att.version)))
+                        .child(kv("Cluster", att.cluster_rpc.clone()));
+                } else if info.hash_verified {
+                    popup = popup.child(
+                        div()
+                            .mt_2()
+                            .text_xs()
+                            .text_color(gpui::rgb(0xffc832))
+                            .child("Hash matches manifest, but no Solana attestation was found."),
+                    );
+                } else if info.manifest.hash.is_some() {
+                    popup = popup.child(
+                        div()
+                            .mt_2()
+                            .text_xs()
+                            .text_color(gpui::rgb(0xf07070))
+                            .child("⚠ Manifest hash does not match the downloaded .wasm."),
+                    );
+                } else {
+                    popup = popup.child(
+                        div()
+                            .mt_2()
+                            .text_xs()
+                            .text_color(gpui::rgb(0x9a9ab0))
+                            .child("Manifest has no hash; Solana check skipped."),
+                    );
+                }
+
+                root = root.child(popup);
+            } else {
+                self.show_attestation = false;
+            }
+        }
+
         if self.show_menu {
             root = root.child(
                 div()
@@ -4260,6 +4748,187 @@ fn phase_color_for(p: ForgePhase) -> Rgba {
     }
 }
 
+/// Guest textarea inner padding (`px_2`).
+const TEXTAREA_INNER_PAD: f32 = 8.0;
+const TEXTAREA_FONT_PX: f32 = 14.0;
+
+#[inline]
+fn textarea_line_height_px() -> Pixels {
+    px(TEXTAREA_FONT_PX * 1.2)
+}
+
+fn textarea_line_start(s: &str, caret: usize) -> usize {
+    s[..caret].rfind('\n').map(|i| i + 1).unwrap_or(0)
+}
+
+fn textarea_line_end(s: &str, caret: usize) -> usize {
+    caret
+        + s[caret..]
+            .find('\n')
+            .unwrap_or_else(|| s.len().saturating_sub(caret))
+}
+
+fn textarea_prev_line_start(s: &str, caret: usize) -> Option<usize> {
+    let ls = textarea_line_start(s, caret);
+    if ls == 0 {
+        return None;
+    }
+    let sep = ls.saturating_sub(1);
+    Some(s[..sep].rfind('\n').map(|i| i + 1).unwrap_or(0))
+}
+
+fn textarea_next_line_start(s: &str, caret: usize) -> Option<usize> {
+    let le = textarea_line_end(s, caret);
+    if le >= s.len() {
+        return None;
+    }
+    Some((le + 1).min(s.len()))
+}
+
+fn textarea_prev_char_boundary(s: &str, caret: usize) -> usize {
+    if caret == 0 {
+        return 0;
+    }
+    let mut j = caret - 1;
+    while !s.is_char_boundary(j) {
+        j -= 1;
+    }
+    j
+}
+
+fn textarea_next_char_boundary(s: &str, caret: usize) -> usize {
+    if caret >= s.len() {
+        return caret;
+    }
+    let mut j = caret + 1;
+    while j < s.len() && !s.is_char_boundary(j) {
+        j += 1;
+    }
+    j
+}
+
+fn textarea_wrap_px(w_outer: f32) -> Pixels {
+    px((w_outer - TEXTAREA_INNER_PAD * 2.0).max(8.0))
+}
+
+fn textarea_text_run(len: usize) -> TextRun {
+    TextRun {
+        len,
+        font: font(".SystemUIFont"),
+        color: gpui::hsla(0.73, 0.04, 0.93, 1.0),
+        background_color: None,
+        underline: None,
+        strikethrough: None,
+    }
+}
+
+fn textarea_shape_lines(
+    window: &Window,
+    text: &str,
+    wrap: Pixels,
+) -> SmallVec<[gpui::WrappedLine; 1]> {
+    if text.is_empty() {
+        return SmallVec::new();
+    }
+    let run = textarea_text_run(text.len());
+    window
+        .text_system()
+        .shape_text(
+            SharedString::from(text.to_string()),
+            px(TEXTAREA_FONT_PX),
+            &[run],
+            Some(wrap),
+            None,
+        )
+        .unwrap_or_else(|_| SmallVec::new())
+}
+
+fn textarea_hit_index(window: &Window, text: &str, wrap: Pixels, rel_x: f32, rel_y: f32) -> usize {
+    if text.is_empty() {
+        return 0;
+    }
+    let lh = textarea_line_height_px();
+    let lines = textarea_shape_lines(window, text, wrap);
+    let mut byte_off = 0usize;
+    let mut y_acc = 0.0_f32;
+    let mut iter = lines.iter().peekable();
+
+    while let Some(wl) = iter.next() {
+        let line_len = wl.text.len();
+        let block_h = f32::from(wl.size(lh).height);
+        if rel_y < y_acc + block_h {
+            let sub_y = (rel_y - y_acc).max(0.);
+            let ix = match wl.closest_index_for_position(point(px(rel_x.max(0.)), px(sub_y)), lh) {
+                Ok(ix) | Err(ix) => ix.min(line_len),
+            };
+            return (byte_off + ix).min(text.len());
+        }
+
+        byte_off += line_len;
+        if iter.peek().is_some()
+            && byte_off < text.len()
+            && text.as_bytes().get(byte_off) == Some(&b'\n')
+        {
+            byte_off += 1;
+        }
+        y_acc += block_h;
+    }
+    text.len()
+}
+
+fn textarea_caret_geom(
+    window: &Window,
+    text: &str,
+    wrap: Pixels,
+    caret_byte: usize,
+) -> (f32, f32, f32) {
+    let cb = text.floor_char_boundary(caret_byte.min(text.len()));
+    let lh = textarea_line_height_px();
+    let bar_h = (TEXTAREA_FONT_PX * 1.05).max(12.0);
+    let lines = textarea_shape_lines(window, text, wrap);
+    if lines.is_empty() {
+        return (0.0, TEXTAREA_FONT_PX * 0.75, bar_h);
+    }
+
+    let mut byte_off = 0usize;
+    let mut y_acc = 0.0_f32;
+    let mut iter = lines.iter().peekable();
+
+    while let Some(wl) = iter.next() {
+        let line_len = wl.text.len();
+        let block_h = f32::from(wl.size(lh).height);
+        if cb >= byte_off && cb <= byte_off + line_len {
+            let local_ix = (cb - byte_off).min(line_len).min(wl.len());
+            if let Some(p) = wl.position_for_index(local_ix, lh) {
+                let x = f32::from(p.x);
+                let y = y_acc + f32::from(p.y);
+                return (x, y, bar_h);
+            }
+        }
+
+        byte_off += line_len;
+        if iter.peek().is_some()
+            && byte_off < text.len()
+            && text.as_bytes().get(byte_off) == Some(&b'\n')
+        {
+            byte_off += 1;
+        }
+        y_acc += block_h;
+    }
+
+    if let Some(wl) = lines.last() {
+        let line_len = wl.text.len();
+        let block_h = f32::from(wl.size(lh).height);
+        if let Some(p) = wl.position_for_index(line_len.min(wl.len()), lh) {
+            let x = f32::from(p.x);
+            let y = y_acc - block_h + f32::from(p.y);
+            return (x, y, bar_h);
+        }
+    }
+
+    (0.0, 0.0, bar_h)
+}
+
 /// Guest widget bounds in canvas-local coordinates (must match overlay hit-test skip logic).
 fn widget_bounds(cmd: &WidgetCommand) -> (f32, f32, f32, f32) {
     match cmd {
@@ -4267,6 +4936,7 @@ fn widget_bounds(cmd: &WidgetCommand) -> (f32, f32, f32, f32) {
         WidgetCommand::Checkbox { x, y, .. } => (*x, *y, 220.0, 30.0),
         WidgetCommand::Slider { x, y, w, .. } => (*x, *y, *w, 28.0),
         WidgetCommand::TextInput { x, y, w, .. } => (*x, *y, *w, 28.0),
+        WidgetCommand::TextArea { x, y, w, h, .. } => (*x, *y, *w, *h),
     }
 }
 
@@ -4291,7 +4961,7 @@ fn truncate_tab_title(title: &str) -> String {
     }
 }
 
-/// Typed character for URL bar and guest [`WidgetCommand::TextInput`] fields.
+/// Typed character for URL bar and guest [`WidgetCommand::TextInput`] / [`WidgetCommand::TextArea`] fields.
 /// Uses `key_char` when set; otherwise mirrors [`Keystroke::with_simulated_ime`] for plain typing.
 fn text_insert_from_keystroke(ks: &Keystroke) -> Option<String> {
     if ks.modifiers.control || ks.modifiers.platform || ks.modifiers.function || ks.modifiers.alt {

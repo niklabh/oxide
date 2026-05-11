@@ -1,0 +1,12 @@
+[package]
+name = "markdown-editor"
+version = "0.1.0"
+edition = "2021"
+description = "Split markdown editor + live preview for Oxide"
+license = "Apache-2.0"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+oxide-sdk = { path = "../../oxide-sdk" }
