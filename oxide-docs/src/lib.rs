@@ -409,6 +409,7 @@
 //! | [`oxide_sdk::ui_checkbox`] | Checkbox, returns current checked state |
 //! | [`oxide_sdk::ui_slider`] | Slider, returns current value |
 //! | [`oxide_sdk::ui_text_input`] | Text input field, returns current text |
+//! | [`oxide_sdk::ui_text_area`] | Multi-line text area, returns current text |
 //!
 //! ## Crypto & Encoding
 //!

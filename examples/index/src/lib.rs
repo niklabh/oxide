@@ -13,6 +13,7 @@ const BLUE: (u8, u8, u8) = (80, 160, 240);
 const ORANGE: (u8, u8, u8) = (240, 170, 60);
 const PURPLE: (u8, u8, u8) = (160, 90, 220);
 const PINK: (u8, u8, u8) = (240, 140, 200);
+const TEAL: (u8, u8, u8) = (62, 196, 188);
 const DIVIDER: (u8, u8, u8) = (50, 45, 70);
 
 struct Card {
@@ -64,6 +65,14 @@ const CARDS: &[Card] = &[
         url: "https://oxide.foundation/events_demo.wasm",
         color: PINK,
         icon_char: "E",
+    },
+    Card {
+        title: "Markdown Editor",
+        subtitle: "markdown_editor.wasm",
+        description: "Side-by-side markdown source and live preview with multi-line text area.",
+        url: "https://oxide.foundation/markdown_editor.wasm",
+        color: TEAL,
+        icon_char: "D",
     },
 ];
 

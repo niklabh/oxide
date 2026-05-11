@@ -103,7 +103,7 @@
 //! | **Events** | [`on_event`], [`off_event`], [`emit_event`], [`event_type`], [`event_data`], [`event_data_into`] |
 //! | **Navigation** | [`navigate`], [`push_state`], [`replace_state`], [`get_url`], [`history_back`], [`history_forward`] |
 //! | **Input** | [`mouse_position`], [`mouse_button_down`], [`mouse_button_clicked`], [`key_down`], [`key_pressed`], [`scroll_delta`], [`modifiers`] |
-//! | **Widgets** | [`ui_button`], [`ui_checkbox`], [`ui_slider`], [`ui_text_input`] |
+//! | **Widgets** | [`ui_button`], [`ui_checkbox`], [`ui_slider`], [`ui_text_input`], [`ui_text_area`] |
 //! | **Crypto** | [`hash_sha256`], [`hash_sha256_hex`], [`base64_encode`], [`base64_decode`] |
 //! | **Other** | [`clipboard_write`], [`clipboard_read`], [`random_u64`], [`random_f64`], [`notify`], [`upload_file`], [`load_module`] |
 //!
@@ -560,6 +560,19 @@ extern "C" {
         x: f32,
         y: f32,
         w: f32,
+        init_ptr: u32,
+        init_len: u32,
+        out_ptr: u32,
+        out_cap: u32,
+    ) -> u32;
+
+    #[link_name = "api_ui_text_area"]
+    fn _api_ui_text_area(
+        id: u32,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
         init_ptr: u32,
         init_len: u32,
         out_ptr: u32,
@@ -3331,4 +3344,35 @@ pub fn ui_text_input(id: u32, x: f32, y: f32, w: f32, initial: &str) -> String {
         )
     };
     String::from_utf8_lossy(&buf[..len as usize]).to_string()
+}
+
+/// Render a multi-line text area of height `h` (pixels). Returns the current UTF-8 text.
+///
+/// `initial` seeds the widget the first time this `id` is seen. Prefer a buffer large enough
+/// for your document (`out_cap` is currently 131072 bytes — see implementation).
+///
+/// Typed **Enter** inserts a newline. Use for editors, compose boxes, JSON buffers, etc.
+pub fn ui_text_area(id: u32, x: f32, y: f32, w: f32, h: f32, initial: &str) -> String {
+    const OUT_CAP: usize = 131072;
+    thread_local! {
+        static BUF: std::cell::RefCell<Vec<u8>> = std::cell::RefCell::new(vec![0u8; OUT_CAP]);
+    }
+    BUF.with(|cell| {
+        let mut buf = cell.borrow_mut();
+        let len = unsafe {
+            _api_ui_text_area(
+                id,
+                x,
+                y,
+                w,
+                h,
+                initial.as_ptr() as u32,
+                initial.len() as u32,
+                buf.as_mut_ptr() as u32,
+                OUT_CAP as u32,
+            )
+        };
+        let end = (len as usize).min(buf.len());
+        String::from_utf8_lossy(&buf[..end]).into_owned()
+    })
 }

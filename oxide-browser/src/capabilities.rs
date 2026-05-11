@@ -166,6 +166,8 @@ pub struct HostState {
     pub widget_commands: Arc<Mutex<Vec<WidgetCommand>>>,
     /// Persistent widget values (checkbox, slider, text input state).
     pub widget_states: Arc<Mutex<HashMap<u32, WidgetValue>>>,
+    /// UTF-8 **byte** caret position for multi-line [`WidgetCommand::TextArea`] widgets keyed by widget `id`.
+    pub widget_text_caret: Arc<Mutex<HashMap<u32, usize>>>,
     /// Button IDs that were clicked during the last render pass.
     pub widget_clicked: Arc<Mutex<HashSet<u32>>>,
     /// Top-left corner of the canvas panel in GPUI screen coords.
@@ -547,6 +549,14 @@ pub enum WidgetCommand {
     },
     /// Single-line text field; current text stored in [`WidgetValue::Text`].
     TextInput { id: u32, x: f32, y: f32, w: f32 },
+    /// Multi-line text area (`h` px tall); uses [`WidgetValue::Text`] for this `id`.
+    TextArea {
+        id: u32,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+    },
 }
 
 /// Persistent control state for interactive widgets, keyed by widget `id` across frames.
@@ -587,6 +597,7 @@ impl Default for HostState {
             input_state: Arc::new(Mutex::new(InputState::default())),
             widget_commands: Arc::new(Mutex::new(Vec::new())),
             widget_states: Arc::new(Mutex::new(HashMap::new())),
+            widget_text_caret: Arc::new(Mutex::new(HashMap::new())),
             widget_clicked: Arc::new(Mutex::new(HashSet::new())),
             canvas_offset: Arc::new(Mutex::new((0.0, 0.0))),
             bookmark_store: crate::bookmarks::new_shared(),
@@ -3470,6 +3481,46 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
                 .lock()
                 .unwrap()
                 .push(WidgetCommand::TextInput { id, x, y, w });
+            let bytes = text.as_bytes();
+            let write_len = bytes.len().min(out_cap as usize);
+            write_guest_bytes(&mem, &mut caller, out_ptr, &bytes[..write_len]).ok();
+            write_len as u32
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_ui_text_area",
+        |mut caller: Caller<'_, HostState>,
+         id: u32,
+         x: f32,
+         y: f32,
+         w: f32,
+         h: f32,
+         init_ptr: u32,
+         init_len: u32,
+         out_ptr: u32,
+         out_cap: u32|
+         -> u32 {
+            let mem = caller.data().memory.expect("memory not set");
+            let text = {
+                let mut states = caller.data().widget_states.lock().unwrap();
+                let entry = states.entry(id).or_insert_with(|| {
+                    let init =
+                        read_guest_string(&mem, &caller, init_ptr, init_len).unwrap_or_default();
+                    WidgetValue::Text(init)
+                });
+                match entry {
+                    WidgetValue::Text(t) => t.clone(),
+                    _ => String::new(),
+                }
+            };
+            caller
+                .data()
+                .widget_commands
+                .lock()
+                .unwrap()
+                .push(WidgetCommand::TextArea { id, x, y, w, h });
             let bytes = text.as_bytes();
             let write_len = bytes.len().min(out_cap as usize);
             write_guest_bytes(&mem, &mut caller, out_ptr, &bytes[..write_len]).ok();
