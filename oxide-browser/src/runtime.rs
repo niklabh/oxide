@@ -234,6 +234,7 @@ impl BrowserHost {
         self.host_state.console.lock().unwrap().clear();
         self.host_state.hyperlinks.lock().unwrap().clear();
         *self.host_state.current_url.lock().unwrap() = url.to_string();
+        *self.host_state.manifest_info.lock().unwrap() = None;
 
         let parsed = OxideUrl::parse(&url).map_err(|e| anyhow::anyhow!("{e}"))?;
 
@@ -253,6 +254,14 @@ impl BrowserHost {
 
         *self.status.lock().unwrap() = PageStatus::Running(url.to_string());
 
+        // Best-effort sidecar manifest + Solana attestation lookup. Errors are
+        // intentionally silent — a missing manifest or unreachable RPC must
+        // never block the page from running.
+        if parsed.is_fetchable() {
+            let info = crate::manifest::check_for_module(&url, &wasm_bytes).await;
+            *self.host_state.manifest_info.lock().unwrap() = info;
+        }
+
         self.run_module(&wasm_bytes)
     }
 
@@ -265,6 +274,7 @@ impl BrowserHost {
         self.host_state.canvas.lock().unwrap().commands.clear();
         self.host_state.console.lock().unwrap().clear();
         self.host_state.hyperlinks.lock().unwrap().clear();
+        *self.host_state.manifest_info.lock().unwrap() = None;
         *self.status.lock().unwrap() = PageStatus::Running("(local)".to_string());
         self.run_module(wasm_bytes)
     }

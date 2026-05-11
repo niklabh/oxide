@@ -213,6 +213,11 @@ pub struct HostState {
     /// calling `on_frame` and clears it immediately after, so this is only
     /// `Some` during guest frame callbacks.
     pub text_system: Arc<Mutex<Option<Arc<gpui::WindowTextSystem>>>>,
+    /// Sidecar manifest + Solana attestation for the currently-loaded module,
+    /// if any. Set by the runtime after a successful fetch; cleared on the next
+    /// navigation. `None` is the normal state for local/internal loads and for
+    /// hosted URLs without a `.json` sidecar.
+    pub manifest_info: Arc<Mutex<Option<crate::manifest::ManifestInfo>>>,
 }
 
 /// A single console log line: local time, severity, and message text.
@@ -619,6 +624,7 @@ impl Default for HostState {
             events: Arc::new(Mutex::new(crate::events::EventState::default())),
             focused: Arc::new(AtomicBool::new(true)),
             text_system: Arc::new(Mutex::new(None)),
+            manifest_info: Arc::new(Mutex::new(None)),
         }
     }
 }

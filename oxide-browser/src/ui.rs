@@ -1074,6 +1074,8 @@ pub struct OxideBrowserView {
     show_downloads: bool,
     /// Lazily-initialised Claude-backed guest app factory for `oxide://forge`.
     forge: Arc<Mutex<Option<ForgeState>>>,
+    /// Whether the manifest / Solana attestation popup is open for the active tab.
+    show_attestation: bool,
 }
 
 impl OxideBrowserView {
@@ -1102,6 +1104,7 @@ impl OxideBrowserView {
             download_manager: DownloadManager::new(),
             show_downloads: false,
             forge: Arc::new(Mutex::new(None)),
+            show_attestation: false,
         }
     }
 
@@ -1912,6 +1915,23 @@ impl Render for OxideBrowserView {
             (icon, color)
         };
 
+        // Snapshot manifest / Solana attestation for the active tab. The
+        // indicator next to the URL bar reflects three states:
+        //   * green  – manifest hash verified AND on-chain entry found
+        //   * yellow – manifest fetched (no hash, mismatch, or not on chain)
+        //   * none   – no manifest (local file, internal page, or missing sidecar)
+        let attestation_snapshot = self.tabs[active]
+            .host_state
+            .manifest_info
+            .lock()
+            .unwrap()
+            .clone();
+        let attestation_state = match attestation_snapshot.as_ref() {
+            Some(info) if info.hash_verified && info.solana.is_some() => Some(true),
+            Some(_) => Some(false),
+            None => None,
+        };
+
         root = root.child(
             div()
                 .h(px(44.0))
@@ -1960,6 +1980,25 @@ impl Render for OxideBrowserView {
                         .text_color(status_color)
                         .child(status_icon.to_string()),
                 )
+                .when(attestation_state.is_some(), |row| {
+                    let color = if attestation_state == Some(true) {
+                        gpui::rgb(0x50e070)
+                    } else {
+                        gpui::rgb(0xffc832)
+                    };
+                    row.child(
+                        div()
+                            .id("oxide_attest_indicator")
+                            .cursor_pointer()
+                            .text_sm()
+                            .text_color(color)
+                            .child("●")
+                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                this.show_attestation = !this.show_attestation;
+                                cx.notify();
+                            })),
+                    )
+                })
                 .child({
                     let url_text_for_canvas =
                         SharedString::from(self.tabs[active].url_input.clone());
@@ -4360,6 +4399,166 @@ impl Render for OxideBrowserView {
                     .text_color(gpui::rgb(0x8c8cb4))
                     .child(url),
             );
+        }
+
+        if self.show_attestation {
+            if let Some(info) = attestation_snapshot.clone() {
+                root = root.child(
+                    div()
+                        .id("oxide_attest_scrim")
+                        .absolute()
+                        .size_full()
+                        .top_0()
+                        .left_0()
+                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                            this.show_attestation = false;
+                            cx.notify();
+                        })),
+                );
+
+                let title = info
+                    .manifest
+                    .name
+                    .clone()
+                    .unwrap_or_else(|| "Module".to_string());
+                let title_color = if info.hash_verified && info.solana.is_some() {
+                    gpui::rgb(0x80e090)
+                } else {
+                    gpui::rgb(0xffc832)
+                };
+                let mut popup = div()
+                    .id("oxide_attest_popup")
+                    .absolute()
+                    .top(px(88.0))
+                    .left(px(80.0))
+                    .w(px(380.0))
+                    .rounded_md()
+                    .bg(gpui::rgb(0x2c2c36))
+                    .border_1()
+                    .border_color(gpui::rgb(0x3a3a44))
+                    .p_3()
+                    .shadow_lg()
+                    .child(
+                        div()
+                            .text_sm()
+                            .font_weight(gpui::FontWeight::BOLD)
+                            .text_color(title_color)
+                            .child(title),
+                    );
+
+                if let Some(desc) = info.manifest.description.clone() {
+                    popup = popup.child(
+                        div()
+                            .mt_1()
+                            .text_xs()
+                            .text_color(gpui::rgb(0xc8c8d4))
+                            .child(desc),
+                    );
+                }
+
+                let kv = |label: &str, value: String| -> gpui::Div {
+                    div()
+                        .mt_2()
+                        .flex()
+                        .flex_row()
+                        .gap_2()
+                        .text_xs()
+                        .child(
+                            div()
+                                .w(px(72.0))
+                                .text_color(gpui::rgb(0x7a7a90))
+                                .child(label.to_string()),
+                        )
+                        .child(
+                            div()
+                                .flex_1()
+                                .min_w_0()
+                                .text_color(gpui::rgb(0xdcdce6))
+                                .child(value),
+                        )
+                };
+
+                if let Some(developer) = info.manifest.developer.clone() {
+                    popup = popup.child(kv("Developer", developer));
+                }
+                if let Some(repo) = info.manifest.repo.clone() {
+                    popup = popup.child(kv("Repo", repo));
+                }
+                if let Some(icon) = info.manifest.icon.clone() {
+                    popup = popup.child(kv("Icon", icon));
+                }
+
+                let short_hash = if info.actual_hash_hex.len() >= 16 {
+                    format!(
+                        "{}…{}",
+                        &info.actual_hash_hex[..8],
+                        &info.actual_hash_hex[info.actual_hash_hex.len() - 8..]
+                    )
+                } else {
+                    info.actual_hash_hex.clone()
+                };
+                popup = popup.child(kv("Hash", short_hash));
+
+                popup = popup.child(
+                    div()
+                        .mt_3()
+                        .h(px(1.0))
+                        .bg(gpui::rgb(0x3a3a44)),
+                );
+
+                if let Some(ref att) = info.solana {
+                    let short_pub = if att.publisher.len() > 12 {
+                        format!(
+                            "{}…{}",
+                            &att.publisher[..6],
+                            &att.publisher[att.publisher.len() - 6..]
+                        )
+                    } else {
+                        att.publisher.clone()
+                    };
+                    popup = popup
+                        .child(
+                            div()
+                                .mt_2()
+                                .text_xs()
+                                .font_weight(gpui::FontWeight::SEMIBOLD)
+                                .text_color(gpui::rgb(0x80e090))
+                                .child("✓ Registered on Solana"),
+                        )
+                        .child(kv("Publisher", short_pub))
+                        .child(kv("Name", att.name.clone()))
+                        .child(kv("Version", format!("v{}", att.version)))
+                        .child(kv("Cluster", att.cluster_rpc.clone()));
+                } else if info.hash_verified {
+                    popup = popup.child(
+                        div()
+                            .mt_2()
+                            .text_xs()
+                            .text_color(gpui::rgb(0xffc832))
+                            .child("Hash matches manifest, but no Solana attestation was found."),
+                    );
+                } else if info.manifest.hash.is_some() {
+                    popup = popup.child(
+                        div()
+                            .mt_2()
+                            .text_xs()
+                            .text_color(gpui::rgb(0xf07070))
+                            .child("⚠ Manifest hash does not match the downloaded .wasm."),
+                    );
+                } else {
+                    popup = popup.child(
+                        div()
+                            .mt_2()
+                            .text_xs()
+                            .text_color(gpui::rgb(0x9a9ab0))
+                            .child("Manifest has no hash; Solana check skipped."),
+                    );
+                }
+
+                root = root.child(popup);
+            } else {
+                self.show_attestation = false;
+            }
         }
 
         if self.show_menu {
