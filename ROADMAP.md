@@ -369,7 +369,6 @@ The core architecture is live: a Rust-native browser that fetches and executes `
 
 - [ ] **App Store revenue sharing** — builders earn $OXIDE based on app usage and ratings
 - [ ] **Developer grants** — quarterly grant program for ambitious Oxide apps
-- [ ] **Hackathon prizes** — sponsored hackathons with $OXIDE prize pools
 - [ ] **Showcase program** — featured apps on the landing page and plugin registry
 - [ ] **SDK bounties** — rewards for porting the SDK to new languages (C, C++, Go, Zig, AssemblyScript)
 - [ ] **Template marketplace** — builders earn from starter templates and boilerplates
@@ -423,14 +422,14 @@ The core architecture is live: a Rust-native browser that fetches and executes `
 
 ### AI Co-Creation (Oxide Forge)
 
-**Goal:** Make Claude Opus 4.7 / Claude Code a first-class co-creator, enabling natural-language-to-secure-WASM development inside the browser (hackathon focus).
+**Goal:** Make Claude Opus 4.7 / Claude Code a first-class co-creator, enabling natural-language-to-secure-WASM development inside the browser 
 
 - [ ] **Oxide Forge** — In-browser AI agent that turns natural language descriptions into complete, spec-compliant guest WASM modules following Oxide patterns (`start_app`/`on_frame`, immediate-mode drawing, strict CLAUDE.md guidelines).
 - [ ] Dynamic generation + registration of new host functions (exact 4-step pattern: state in `HostState`, `register_*_functions`, SDK wrapper, memory FFI helpers).
 - [ ] Real-time debugging of FFI boundaries, fuel limits, GPUI rendering, and sandbox violations.
 - [ ] Auto-generates tests, docs, examples, and assets (e.g. video scripts like `oxide-ai-video-script.md`).
 - [ ] Live iteration/hot-reload loop: describe → Claude builds → instantly runs in sandbox.
-- [ ] Hackathon deliverable: compelling vertical demo (AI creative tools or multi-agent collaboration) showing 10x faster decentralized app development.
+- [ ] Compelling vertical demo (AI creative tools or multi-agent collaboration) showing 10x faster decentralized app development.
 
 ---
 
