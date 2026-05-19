@@ -21,7 +21,5 @@ members = [
     "examples/file-picker-demo",
     "examples/gradient-demo",
     "examples/typography-demo",
-    "examples/markdown-editor",
 ]
-exclude = ["solana-wasm-registry"]
 resolver = "2"
