@@ -93,6 +93,7 @@
 //! | **HTTP (streaming)** | [`fetch_begin`], [`fetch_begin_get`], [`fetch_state`], [`fetch_status`], [`fetch_recv`], [`fetch_error`], [`fetch_abort`], [`fetch_remove`] |
 //! | **Protobuf** | [`proto::ProtoEncoder`], [`proto::ProtoDecoder`] |
 //! | **Storage** | [`storage_set`], [`storage_get`], [`storage_remove`], [`kv_store_set`], [`kv_store_get`], [`kv_store_delete`] |
+//! | **Download & Print** | [`download_data`], [`download_url`], [`canvas_print_pdf`] |
 //! | **Audio** | [`audio_play`], [`audio_play_url`], [`audio_detect_format`], [`audio_play_with_format`], [`audio_pause`], [`audio_channel_play`] |
 //! | **Video** | [`video_load`], [`video_load_url`], [`video_render`], [`video_play`], [`video_hls_open_variant`], [`subtitle_load_srt`] |
 //! | **Media capture** | [`camera_open`], [`camera_capture_frame`], [`microphone_open`], [`microphone_read_samples`], [`screen_capture`] |
@@ -105,7 +106,7 @@
 //! | **Input** | [`mouse_position`], [`mouse_button_down`], [`mouse_button_clicked`], [`key_down`], [`key_pressed`], [`scroll_delta`], [`modifiers`] |
 //! | **Widgets** | [`ui_button`], [`ui_checkbox`], [`ui_slider`], [`ui_text_input`] |
 //! | **Crypto** | [`hash_sha256`], [`hash_sha256_hex`], [`base64_encode`], [`base64_decode`] |
-//! | **Other** | [`clipboard_write`], [`clipboard_read`], [`random_u64`], [`random_f64`], [`notify`], [`upload_file`], [`load_module`] |
+//! | **Other** | [`clipboard_write`], [`clipboard_read`], [`random_u64`], [`random_f64`], [`notify`], [`upload_file`], [`load_module`], [`download_data`], [`download_url`], [`canvas_print_pdf`] |
 //!
 //! ## Guest Module Contract
 //!
@@ -923,6 +924,22 @@ extern "C" {
 
     #[link_name = "api_url_decode"]
     fn _api_url_decode(input_ptr: u32, input_len: u32, out_ptr: u32, out_cap: u32) -> u32;
+
+    // ── Download & Print-to-PDF ──────────────────────────────────────
+
+    #[link_name = "api_download_data"]
+    fn _api_download_data(
+        data_ptr: u32,
+        data_len: u32,
+        filename_ptr: u32,
+        filename_len: u32,
+    ) -> i32;
+
+    #[link_name = "api_download_url"]
+    fn _api_download_url(url_ptr: u32, url_len: u32) -> i32;
+
+    #[link_name = "api_canvas_print_pdf"]
+    fn _api_canvas_print_pdf(filename_ptr: u32, filename_len: u32) -> i32;
 }
 
 // ─── Console API ────────────────────────────────────────────────────────────
@@ -3331,4 +3348,42 @@ pub fn ui_text_input(id: u32, x: f32, y: f32, w: f32, initial: &str) -> String {
         )
     };
     String::from_utf8_lossy(&buf[..len as usize]).to_string()
+}
+
+// ─── Download & Print-to-PDF API ─────────────────────────────────────────────
+
+/// Save arbitrary bytes as a file in the host Downloads directory.
+///
+/// Returns 0 on success, -1 on failure (empty data or filename).
+pub fn download_data(data: &[u8], filename: &str) -> i32 {
+    unsafe {
+        _api_download_data(
+            data.as_ptr() as u32,
+            data.len() as u32,
+            filename.as_ptr() as u32,
+            filename.len() as u32,
+        )
+    }
+}
+
+/// Download a remote URL as a file in the host Downloads directory.
+///
+/// The download runs in the background with progress tracking.
+/// Returns 0 on success, -1 on failure.
+pub fn download_url(url: &str) -> i32 {
+    unsafe { _api_download_url(url.as_ptr() as u32, url.len() as u32) }
+}
+
+/// Export the current canvas content as a PDF file.
+///
+/// Renders canvas draw commands (rectangles, text, lines, circles, arcs,
+/// beziers, rounded rects) to a vector PDF saved in the Downloads directory.
+/// Images, gradients, transforms, clipping, and opacity are not yet
+/// supported — use `download_data` with a self-rendered image for those.
+///
+/// The output filename is auto-generated with a timestamp.
+///
+/// Returns 0 on success, -1 on failure.
+pub fn canvas_print_pdf(filename: &str) -> i32 {
+    unsafe { _api_canvas_print_pdf(filename.as_ptr() as u32, filename.len() as u32) }
 }

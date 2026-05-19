@@ -74,6 +74,16 @@ impl DownloadManager {
         self.downloads.clone()
     }
 
+    /// Save arbitrary bytes as a file in the system Downloads directory.
+    /// Returns the path to the saved file on success.
+    pub fn save_data(&self, data: &[u8], filename: &str) -> std::io::Result<PathBuf> {
+        let dest_dir = dirs::download_dir()
+            .unwrap_or_else(|| dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")));
+        let dest = unique_path(&dest_dir, filename);
+        std::fs::write(&dest, data)?;
+        Ok(dest)
+    }
+
     /// Kick off a background download for `url`.  Returns immediately.
     /// The file is saved into the system Downloads directory.
     pub fn start_download(&self, url: String) {
@@ -266,7 +276,7 @@ fn filename_from_url(url: &str) -> String {
 }
 
 /// If `dir/name` exists, try `name (1)`, `name (2)`, etc.
-fn unique_path(dir: &std::path::Path, name: &str) -> PathBuf {
+pub(crate) fn unique_path(dir: &std::path::Path, name: &str) -> PathBuf {
     let candidate = dir.join(name);
     if !candidate.exists() {
         return candidate;
