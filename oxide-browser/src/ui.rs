@@ -210,9 +210,20 @@ impl TabState {
     }
 
     fn navigate(&mut self, dm: &DownloadManager) {
-        let url = self.url_input.trim().to_string();
+        let mut url = self.url_input.trim().to_string();
         if url.is_empty() {
             return;
+        }
+        let is_search = (!url.contains('.')
+            && !url.starts_with("oxide://")
+            && !url.starts_with("http://")
+            && !url.starts_with("https://"))
+            || url.contains(' ');
+        if is_search {
+            self.forge_prompt = url;
+            url = "oxide://forge".to_string();
+            self.url_input = url.clone();
+            self.url_clamp_cursor();
         }
         if let Some(page) = try_internal_page(&url) {
             self.internal_page = Some(page);
@@ -231,7 +242,16 @@ impl TabState {
         let _ = self.run_tx.send(RunRequest::FetchAndRun { url });
     }
 
-    fn navigate_to(&mut self, url: String, push_history: bool, dm: &DownloadManager) {
+    fn navigate_to(&mut self, mut url: String, push_history: bool, dm: &DownloadManager) {
+        let is_search = (!url.contains('.')
+            && !url.starts_with("oxide://")
+            && !url.starts_with("http://")
+            && !url.starts_with("https://"))
+            || url.contains(' ');
+        if is_search {
+            self.forge_prompt = url;
+            url = "oxide://forge".to_string();
+        }
         self.url_input = url.clone();
         let len = self.url_input.len();
         self.url_cursor = len;
@@ -255,6 +275,22 @@ impl TabState {
             self.pending_history_url = Some(url.clone());
         }
         let _ = self.run_tx.send(RunRequest::FetchAndRun { url });
+    }
+
+    fn reload(&mut self) {
+        *self.host_state.scroll_x.lock().unwrap() = 0.0;
+        *self.host_state.scroll_y.lock().unwrap() = 0.0;
+        let url = self.url_input.clone();
+        if !url.is_empty() {
+            if let Some(page) = try_internal_page(&url) {
+                self.internal_page = Some(page);
+                self.live_module = None;
+                *self.status.lock().unwrap() = PageStatus::Running(url.clone());
+            } else {
+                self.internal_page = None;
+                let _ = self.run_tx.send(RunRequest::FetchAndRun { url });
+            }
+        }
     }
 
     fn go_back(&mut self) {
@@ -1061,6 +1097,12 @@ pub struct OxideBrowserView {
     show_downloads: bool,
     /// Lazily-initialised Claude-backed guest app factory for `oxide://forge`.
     forge: Arc<Mutex<Option<ForgeState>>>,
+    /// Whether the user is currently dragging the scrollbar thumb.
+    scroll_dragging: bool,
+    /// The screen Y position where the scrollbar drag started.
+    scroll_drag_start_y: f32,
+    /// The absolute scroll Y offset when the scrollbar drag started.
+    scroll_drag_start_scroll_y: f32,
 }
 
 impl OxideBrowserView {
@@ -1089,6 +1131,9 @@ impl OxideBrowserView {
             download_manager: DownloadManager::new(),
             show_downloads: false,
             forge: Arc::new(Mutex::new(None)),
+            scroll_dragging: false,
+            scroll_drag_start_y: 0.0,
+            scroll_drag_start_scroll_y: 0.0,
         }
     }
 
@@ -1475,6 +1520,11 @@ impl Render for OxideBrowserView {
                             event.keystroke.modifiers.control || event.keystroke.modifiers.platform;
                         input.modifiers_alt = event.keystroke.modifiers.alt;
                     }
+                    if event.keystroke.modifiers.secondary() && event.keystroke.key == "r" {
+                        this.tabs[this.active_tab].reload();
+                        cx.notify();
+                        return;
+                    }
                     if event.keystroke.modifiers.secondary() && event.keystroke.key == "t" {
                         let i = this.create_tab();
                         this.active_tab = i;
@@ -1803,6 +1853,19 @@ impl Render for OxideBrowserView {
                         .child("▶")
                         .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                             this.tabs[this.active_tab].go_forward();
+                            cx.notify();
+                        })),
+                )
+                .child(
+                    div()
+                        .id("oxide_reload")
+                        .cursor_pointer()
+                        .text_sm()
+                        .text_color(gpui::rgb(0xb8b8c4))
+                        .hover(|style| style.text_color(gpui::rgb(0xffffff)))
+                        .child("↻")
+                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                            this.tabs[this.active_tab].reload();
                             cx.notify();
                         })),
                 )
@@ -3375,12 +3438,32 @@ impl Render for OxideBrowserView {
                 .relative()
                 .on_mouse_move(cx.listener({
                     let hyperlinks_hover = hyperlinks_hover.clone();
-                    move |this, event: &gpui::MouseMoveEvent, _, _cx| {
+                    move |this, event: &gpui::MouseMoveEvent, _, cx| {
                         let tab = &mut this.tabs[this.active_tab];
                         let mut input = tab.host_state.input_state.lock().unwrap();
                         input.mouse_x = f32::from(event.position.x);
                         input.mouse_y = f32::from(event.position.y);
                         drop(input);
+
+                        if this.scroll_dragging {
+                            let viewport_h = tab.host_state.canvas.lock().unwrap().height as f32;
+                            let content_h = *tab.host_state.content_height.lock().unwrap() as f32;
+                            if content_h > viewport_h && viewport_h > 0.0 {
+                                let max_scroll_y = content_h - viewport_h;
+                                let thumb_height =
+                                    ((viewport_h / content_h) * viewport_h).max(20.0);
+                                let max_thumb_top = viewport_h - thumb_height;
+                                if max_thumb_top > 0.0 {
+                                    let dy = f32::from(event.position.y) - this.scroll_drag_start_y;
+                                    let d_scroll = dy * (max_scroll_y / max_thumb_top);
+                                    let new_scroll_y = (this.scroll_drag_start_scroll_y + d_scroll)
+                                        .clamp(0.0, max_scroll_y);
+                                    *tab.host_state.scroll_y.lock().unwrap() = new_scroll_y;
+                                }
+                            }
+                            cx.notify();
+                        }
+
                         let (ox, oy) = *tab.host_state.canvas_offset.lock().unwrap();
                         let lx = f32::from(event.position.x) - ox;
                         let ly = f32::from(event.position.y) - oy;
@@ -3412,6 +3495,7 @@ impl Render for OxideBrowserView {
                 .on_mouse_up(
                     MouseButton::Left,
                     cx.listener(|this, _: &MouseUpEvent, _, _cx| {
+                        this.scroll_dragging = false;
                         let tab = &mut this.tabs[this.active_tab];
                         let mut input = tab.host_state.input_state.lock().unwrap();
                         input.mouse_buttons_down[0] = false;
@@ -3463,19 +3547,39 @@ impl Render for OxideBrowserView {
                         this.canvas_focus.focus(window);
                     }
                 }))
-                .on_scroll_wheel(cx.listener(|this, event: &ScrollWheelEvent, _, _cx| {
+                .on_scroll_wheel(cx.listener(|this, event: &ScrollWheelEvent, _, cx| {
                     let tab = &mut this.tabs[this.active_tab];
                     let mut input = tab.host_state.input_state.lock().unwrap();
+                    let (dx, dy);
                     match event.delta {
                         ScrollDelta::Pixels(p) => {
                             input.scroll_x += f32::from(p.x);
                             input.scroll_y += f32::from(p.y);
+                            dx = f32::from(p.x);
+                            dy = f32::from(p.y);
                         }
                         ScrollDelta::Lines(l) => {
                             input.scroll_x += l.x * 20.0;
                             input.scroll_y += l.y * 20.0;
+                            dx = l.x * 20.0;
+                            dy = l.y * 20.0;
                         }
                     }
+                    drop(input);
+
+                    let viewport_w = tab.host_state.canvas.lock().unwrap().width as f32;
+                    let viewport_h = tab.host_state.canvas.lock().unwrap().height as f32;
+                    let content_w = *tab.host_state.content_width.lock().unwrap() as f32;
+                    let content_h = *tab.host_state.content_height.lock().unwrap() as f32;
+
+                    let max_x = (content_w - viewport_w).max(0.0);
+                    let max_y = (content_h - viewport_h).max(0.0);
+
+                    let mut sx = tab.host_state.scroll_x.lock().unwrap();
+                    let mut sy = tab.host_state.scroll_y.lock().unwrap();
+                    *sx = (*sx - dx).clamp(0.0, max_x);
+                    *sy = (*sy - dy).clamp(0.0, max_y);
+                    cx.notify();
                 }))
                 .on_drop(cx.listener(|this, paths: &gpui::ExternalPaths, _, _cx| {
                     let tab = &mut this.tabs[this.active_tab];
@@ -3767,6 +3871,60 @@ impl Render for OxideBrowserView {
                             )
                         }
                     });
+
+            let viewport_h = {
+                let canvas_state = self.tabs[active].host_state.canvas.lock().unwrap();
+                canvas_state.height as f32
+            };
+            let content_h = *self.tabs[active].host_state.content_height.lock().unwrap() as f32;
+            let scroll_y = *self.tabs[active].host_state.scroll_y.lock().unwrap();
+
+            let canvas_with_widgets = if content_h > viewport_h && viewport_h > 0.0 {
+                let max_scroll_y = content_h - viewport_h;
+                let thumb_height = ((viewport_h / content_h) * viewport_h).max(20.0);
+                let max_thumb_top = viewport_h - thumb_height;
+                let thumb_top = (scroll_y / max_scroll_y) * max_thumb_top;
+
+                let thumb = div()
+                    .id("oxide_scrollbar_thumb")
+                    .absolute()
+                    .top(px(thumb_top))
+                    .left(px(0.0))
+                    .w(px(8.0))
+                    .h(px(thumb_height))
+                    .rounded_full()
+                    .bg(rgba8(0xff, 0xff, 0xff, 0x44))
+                    .hover(|style| style.bg(rgba8(0xff, 0xff, 0xff, 0x66)))
+                    .active(|style| style.bg(rgba8(0xff, 0xff, 0xff, 0x88)))
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |this, event: &MouseDownEvent, _, cx| {
+                            this.scroll_dragging = true;
+                            this.scroll_drag_start_y = f32::from(event.position.y);
+                            this.scroll_drag_start_scroll_y = *this.tabs[this.active_tab]
+                                .host_state
+                                .scroll_y
+                                .lock()
+                                .unwrap();
+                            cx.notify();
+                        }),
+                    );
+
+                let track = div()
+                    .id("oxide_scrollbar_track")
+                    .absolute()
+                    .right(px(2.0))
+                    .top(px(0.0))
+                    .bottom(px(0.0))
+                    .w(px(8.0))
+                    .rounded_full()
+                    .bg(rgba8(0x00, 0x00, 0x00, 0x11))
+                    .child(thumb);
+
+                canvas_with_widgets.child(track)
+            } else {
+                canvas_with_widgets
+            };
 
             content_col = content_col.child(canvas_with_widgets);
         }
