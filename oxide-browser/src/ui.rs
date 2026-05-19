@@ -214,9 +214,16 @@ impl TabState {
         if url.is_empty() {
             return;
         }
-        let is_search = (!url.contains('.') && !url.starts_with("oxide://") && !url.starts_with("http://") && !url.starts_with("https://")) || url.contains(' ');
+        let is_search = (!url.contains('.')
+            && !url.starts_with("oxide://")
+            && !url.starts_with("http://")
+            && !url.starts_with("https://"))
+            || url.contains(' ');
         if is_search {
-            url = format!("https://www.google.com/search?q={}", crate::url::percent_encode(&url));
+            url = format!(
+                "https://www.google.com/search?q={}",
+                crate::url::percent_encode(&url)
+            );
             self.url_input = url.clone();
             self.url_clamp_cursor();
         }
@@ -238,9 +245,16 @@ impl TabState {
     }
 
     fn navigate_to(&mut self, mut url: String, push_history: bool, dm: &DownloadManager) {
-        let is_search = (!url.contains('.') && !url.starts_with("oxide://") && !url.starts_with("http://") && !url.starts_with("https://")) || url.contains(' ');
+        let is_search = (!url.contains('.')
+            && !url.starts_with("oxide://")
+            && !url.starts_with("http://")
+            && !url.starts_with("https://"))
+            || url.contains(' ');
         if is_search {
-            url = format!("https://www.google.com/search?q={}", crate::url::percent_encode(&url));
+            url = format!(
+                "https://www.google.com/search?q={}",
+                crate::url::percent_encode(&url)
+            );
         }
         self.url_input = url.clone();
         let len = self.url_input.len();
@@ -3440,12 +3454,14 @@ impl Render for OxideBrowserView {
                             let content_h = *tab.host_state.content_height.lock().unwrap() as f32;
                             if content_h > viewport_h && viewport_h > 0.0 {
                                 let max_scroll_y = content_h - viewport_h;
-                                let thumb_height = ((viewport_h / content_h) * viewport_h).max(20.0);
+                                let thumb_height =
+                                    ((viewport_h / content_h) * viewport_h).max(20.0);
                                 let max_thumb_top = viewport_h - thumb_height;
                                 if max_thumb_top > 0.0 {
                                     let dy = f32::from(event.position.y) - this.scroll_drag_start_y;
                                     let d_scroll = dy * (max_scroll_y / max_thumb_top);
-                                    let new_scroll_y = (this.scroll_drag_start_scroll_y + d_scroll).clamp(0.0, max_scroll_y);
+                                    let new_scroll_y = (this.scroll_drag_start_scroll_y + d_scroll)
+                                        .clamp(0.0, max_scroll_y);
                                     *tab.host_state.scroll_y.lock().unwrap() = new_scroll_y;
                                 }
                             }
@@ -3884,12 +3900,19 @@ impl Render for OxideBrowserView {
                     .bg(rgba8(0xff, 0xff, 0xff, 0x44))
                     .hover(|style| style.bg(rgba8(0xff, 0xff, 0xff, 0x66)))
                     .active(|style| style.bg(rgba8(0xff, 0xff, 0xff, 0x88)))
-                    .on_mouse_down(MouseButton::Left, cx.listener(move |this, event: &MouseDownEvent, _, cx| {
-                        this.scroll_dragging = true;
-                        this.scroll_drag_start_y = f32::from(event.position.y);
-                        this.scroll_drag_start_scroll_y = *this.tabs[this.active_tab].host_state.scroll_y.lock().unwrap();
-                        cx.notify();
-                    }));
+                    .on_mouse_down(
+                        MouseButton::Left,
+                        cx.listener(move |this, event: &MouseDownEvent, _, cx| {
+                            this.scroll_dragging = true;
+                            this.scroll_drag_start_y = f32::from(event.position.y);
+                            this.scroll_drag_start_scroll_y = *this.tabs[this.active_tab]
+                                .host_state
+                                .scroll_y
+                                .lock()
+                                .unwrap();
+                            cx.notify();
+                        }),
+                    );
 
                 let track = div()
                     .id("oxide_scrollbar_track")

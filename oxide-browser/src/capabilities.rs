@@ -1556,13 +1556,13 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
         |caller: Caller<'_, HostState>, x: f32, y: f32| {
             let content_w = *caller.data().content_width.lock().unwrap();
             let content_h = *caller.data().content_height.lock().unwrap();
-            
+
             let viewport_w = caller.data().canvas.lock().unwrap().width;
             let viewport_h = caller.data().canvas.lock().unwrap().height;
-            
+
             let max_x = (content_w as f32 - viewport_w as f32).max(0.0);
             let max_y = (content_h as f32 - viewport_h as f32).max(0.0);
-            
+
             *caller.data().scroll_x.lock().unwrap() = x.clamp(0.0, max_x);
             *caller.data().scroll_y.lock().unwrap() = y.clamp(0.0, max_y);
         },
