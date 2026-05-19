@@ -231,16 +231,11 @@ impl ForgeUserConfig {
     }
 
     pub fn provider(&self, p: ForgeProvider) -> ForgeProviderSettings {
-        self.providers
-            .get(p.id())
-            .cloned()
-            .unwrap_or_default()
+        self.providers.get(p.id()).cloned().unwrap_or_default()
     }
 
     pub fn provider_mut(&mut self, p: ForgeProvider) -> &mut ForgeProviderSettings {
-        self.providers
-            .entry(p.id().to_string())
-            .or_default()
+        self.providers.entry(p.id().to_string()).or_default()
     }
 
     pub fn active_settings(&self) -> ForgeProviderSettings {
@@ -298,7 +293,14 @@ pub fn mask_api_key(key: &str) -> String {
         return "•".repeat(key.chars().count());
     }
     let prefix: String = key.chars().take(4).collect();
-    let suffix: String = key.chars().rev().take(4).collect::<String>().chars().rev().collect();
+    let suffix: String = key
+        .chars()
+        .rev()
+        .take(4)
+        .collect::<String>()
+        .chars()
+        .rev()
+        .collect();
     format!("{prefix}…{suffix}")
 }
 

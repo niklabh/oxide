@@ -3174,9 +3174,12 @@ impl Render for OxideBrowserView {
                                     .flex()
                                     .flex_col()
                                     .gap_2()
-                                    .children(snap.messages.iter().enumerate().map(
-                                        |(i, msg)| forge_chat_bubble(i, msg, snap.phase),
-                                    )),
+                                    .children(
+                                        snap.messages
+                                            .iter()
+                                            .enumerate()
+                                            .map(|(i, msg)| forge_chat_bubble(i, msg, snap.phase)),
+                                    ),
                             );
 
                         code_panel = code_panel
@@ -4718,37 +4721,22 @@ impl Render for OxideBrowserView {
 }
 
 /// Render one chat bubble in the Forge conversation panel.
-fn forge_chat_bubble(
-    index: usize,
-    msg: &ForgeChatMessage,
-    phase: ForgePhase,
-) -> impl IntoElement {
+fn forge_chat_bubble(index: usize, msg: &ForgeChatMessage, phase: ForgePhase) -> impl IntoElement {
     let is_user = msg.role == ForgeMessageRole::User;
     let preview = if msg.content.len() > 4000 {
         format!("{}…", &msg.content[..4000])
     } else {
         msg.content.clone()
     };
-    let streaming_tail = if !is_user
-        && phase == ForgePhase::Streaming
-        && msg.content.is_empty()
-    {
+    let streaming_tail = if !is_user && phase == ForgePhase::Streaming && msg.content.is_empty() {
         "▍"
     } else {
         ""
     };
     let (bg, fg, label) = if is_user {
-        (
-            gpui::rgb(0x3a2f5a),
-            gpui::rgb(0xf0ecff),
-            "You",
-        )
+        (gpui::rgb(0x3a2f5a), gpui::rgb(0xf0ecff), "You")
     } else {
-        (
-            gpui::rgb(0x242430),
-            gpui::rgb(0xd8d8e8),
-            "Forge",
-        )
+        (gpui::rgb(0x242430), gpui::rgb(0xd8d8e8), "Forge")
     };
     div()
         .id(("oxide_forge_msg", index))
@@ -4756,12 +4744,7 @@ fn forge_chat_bubble(
         .flex()
         .flex_col()
         .items_start()
-        .child(
-            div()
-                .text_xs()
-                .text_color(gpui::rgb(0x7a7a90))
-                .child(label),
-        )
+        .child(div().text_xs().text_color(gpui::rgb(0x7a7a90)).child(label))
         .child(
             div()
                 .mt_1()

@@ -78,7 +78,8 @@ const CARDS: &[Card] = &[
     Card {
         title: "File Picker Demo",
         subtitle: "file_picker_demo.wasm",
-        description: "Native file/folder selection, handle-based traversal, and local file reading.",
+        description:
+            "Native file/folder selection, handle-based traversal, and local file reading.",
         url: "https://oxide.foundation/file_picker_demo.wasm",
         color: YELLOW,
         icon_char: "F",

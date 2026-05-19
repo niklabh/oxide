@@ -361,17 +361,7 @@ impl Canvas {
         align: u32,
     ) {
         crate::canvas_text_ex(
-            pos.x,
-            pos.y,
-            size,
-            color.r,
-            color.g,
-            color.b,
-            color.a,
-            family,
-            weight,
-            style,
-            align,
+            pos.x, pos.y, size, color.r, color.g, color.b, color.a, family, weight, style, align,
             text,
         );
     }

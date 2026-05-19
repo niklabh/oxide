@@ -236,11 +236,7 @@ impl ForgeState {
         Self::from_config(&config)
     }
 
-    fn with_credentials(
-        provider: ForgeProvider,
-        api_key: String,
-        model: String,
-    ) -> Option<Self> {
+    fn with_credentials(provider: ForgeProvider, api_key: String, model: String) -> Option<Self> {
         let api_key = api_key.trim().to_string();
         if api_key.is_empty() {
             return None;
@@ -1324,11 +1320,8 @@ fn load_session_from_dir(project_dir: &Path) -> Option<SharedSession> {
         .and_then(Value::as_str)
         .and_then(ForgeProvider::from_id)
         .unwrap_or(ForgeProvider::Anthropic);
-    let model = provider.normalize_model(
-        v.get("model")
-            .and_then(Value::as_str)
-            .unwrap_or_default(),
-    );
+    let model =
+        provider.normalize_model(v.get("model").and_then(Value::as_str).unwrap_or_default());
     let messages = v
         .get("messages")
         .and_then(Value::as_array)
