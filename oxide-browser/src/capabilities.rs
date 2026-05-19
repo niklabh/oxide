@@ -214,6 +214,14 @@ pub struct HostState {
     /// calling `on_frame` and clears it immediately after, so this is only
     /// `Some` during guest frame callbacks.
     pub text_system: Arc<Mutex<Option<Arc<gpui::WindowTextSystem>>>>,
+    /// Virtual width of guest content.
+    pub content_width: Arc<Mutex<u32>>,
+    /// Virtual height of guest content.
+    pub content_height: Arc<Mutex<u32>>,
+    /// Absolute scroll horizontal offset.
+    pub scroll_x: Arc<Mutex<f32>>,
+    /// Absolute scroll vertical offset.
+    pub scroll_y: Arc<Mutex<f32>>,
 }
 
 /// A single console log line: local time, severity, and message text.
@@ -612,6 +620,10 @@ impl Default for HostState {
             download_manager: DownloadManager::new(),
             focused: Arc::new(AtomicBool::new(true)),
             text_system: Arc::new(Mutex::new(None)),
+            content_width: Arc::new(Mutex::new(0)),
+            content_height: Arc::new(Mutex::new(0)),
+            scroll_x: Arc::new(Mutex::new(0.0)),
+            scroll_y: Arc::new(Mutex::new(0.0)),
         }
     }
 }
@@ -1516,6 +1528,43 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
         |caller: Caller<'_, HostState>| -> u64 {
             let canvas = caller.data().canvas.lock().unwrap();
             ((canvas.width as u64) << 32) | (canvas.height as u64)
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_set_content_size",
+        |caller: Caller<'_, HostState>, w: u32, h: u32| {
+            *caller.data().content_width.lock().unwrap() = w;
+            *caller.data().content_height.lock().unwrap() = h;
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_get_scroll_position",
+        |caller: Caller<'_, HostState>| -> u64 {
+            let x = *caller.data().scroll_x.lock().unwrap();
+            let y = *caller.data().scroll_y.lock().unwrap();
+            ((x.to_bits() as u64) << 32) | (y.to_bits() as u64)
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_set_scroll_position",
+        |caller: Caller<'_, HostState>, x: f32, y: f32| {
+            let content_w = *caller.data().content_width.lock().unwrap();
+            let content_h = *caller.data().content_height.lock().unwrap();
+            
+            let viewport_w = caller.data().canvas.lock().unwrap().width;
+            let viewport_h = caller.data().canvas.lock().unwrap().height;
+            
+            let max_x = (content_w as f32 - viewport_w as f32).max(0.0);
+            let max_y = (content_h as f32 - viewport_h as f32).max(0.0);
+            
+            *caller.data().scroll_x.lock().unwrap() = x.clamp(0.0, max_x);
+            *caller.data().scroll_y.lock().unwrap() = y.clamp(0.0, max_y);
         },
     )?;
 

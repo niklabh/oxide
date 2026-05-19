@@ -321,6 +321,21 @@ impl Canvas {
         crate::canvas_dimensions()
     }
 
+    /// Set the virtual size of the canvas content to enable host scrollbars.
+    pub fn set_content_size(&self, width: u32, height: u32) {
+        crate::set_content_size(width, height);
+    }
+
+    /// Get the current absolute `(scroll_x, scroll_y)` coordinates.
+    pub fn scroll_position(&self) -> (f32, f32) {
+        crate::scroll_position()
+    }
+
+    /// Programmatically set the absolute scroll position.
+    pub fn set_scroll_position(&self, x: f32, y: f32) {
+        crate::set_scroll_position(x, y);
+    }
+
     /// Get the canvas width in pixels.
     pub fn width(&self) -> u32 {
         self.dimensions().0

@@ -252,6 +252,15 @@ extern "C" {
     #[link_name = "api_canvas_dimensions"]
     fn _api_canvas_dimensions() -> u64;
 
+    #[link_name = "api_set_content_size"]
+    fn _api_set_content_size(w: u32, h: u32);
+
+    #[link_name = "api_get_scroll_position"]
+    fn _api_get_scroll_position() -> u64;
+
+    #[link_name = "api_set_scroll_position"]
+    fn _api_set_scroll_position(x: f32, y: f32);
+
     #[link_name = "api_canvas_image"]
     fn _api_canvas_image(x: f32, y: f32, w: f32, h: f32, data_ptr: u32, data_len: u32);
 
@@ -1393,6 +1402,28 @@ pub fn canvas_line(x1: f32, y1: f32, x2: f32, y2: f32, r: u8, g: u8, b: u8, a: u
 pub fn canvas_dimensions() -> (u32, u32) {
     let packed = unsafe { _api_canvas_dimensions() };
     ((packed >> 32) as u32, (packed & 0xFFFF_FFFF) as u32)
+}
+
+/// Set the virtual size of the canvas content. If the content is larger than
+/// the screen/viewport dimensions, the browser host will automatically render
+/// interactive overlay scrollbars and track absolute scroll coordinates.
+pub fn set_content_size(width: u32, height: u32) {
+    unsafe { _api_set_content_size(width, height) }
+}
+
+/// Returns the current absolute `(scroll_x, scroll_y)` coordinates in pixels.
+/// Guest applications should query these coordinates each frame and translate
+/// their drawing elements accordingly to support scrolling.
+pub fn scroll_position() -> (f32, f32) {
+    let packed = unsafe { _api_get_scroll_position() };
+    let x_bits = (packed >> 32) as u32;
+    let y_bits = (packed & 0xFFFF_FFFF) as u32;
+    (f32::from_bits(x_bits), f32::from_bits(y_bits))
+}
+
+/// Programmatically set the absolute scroll position `(x, y)` in pixels.
+pub fn set_scroll_position(x: f32, y: f32) {
+    unsafe { _api_set_scroll_position(x, y) }
 }
 
 /// Draw an image on the canvas from encoded image bytes (PNG, JPEG, GIF, WebP).
