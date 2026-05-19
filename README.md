@@ -185,15 +185,15 @@ Open **`index`** in the browser for a visual catalog, or run `cargo run -p oxide
 │  │  URL Bar │  │        Canvas          │  │     Console     │   │
 │  └────┬─────┘  └───────────┬────────────┘  └────────┬────────┘   │
 │       │                    │                        │            │
-│  ┌────▼────────────────────▼────────────────────────▼──────────┐  │
+│  ┌────▼────────────────────▼────────────────────────▼─────────┐  │
 │  │                    Host Runtime                            │  │
 │  │  wasmtime engine  ·  fuel metering  ·  bounded memory      │  │
 │  └────────────────────────────┬───────────────────────────────┘  │
 │                               │                                  │
 │  ┌────────────────────────────▼───────────────────────────────┐  │
 │  │                  Capability Layer                          │  │
-│  │  "oxide" import module — ~150 host functions                │  │
-│  │  canvas · gpu · audio · video · capture · fetch · streaming │  │
+│  │  "oxide" import module — ~150 host functions               │  │
+│  │  canvas · gpu · audio · video · capture · fetch · streaming│  │
 │  │  websocket · webrtc · midi · timers · animation frames     │  │
 │  │  console · storage · clipboard · widgets · crypto · ...    │  │
 │  └────────────────────────────┬───────────────────────────────┘  │
