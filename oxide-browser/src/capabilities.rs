@@ -22,6 +22,7 @@ use wasmtime::*;
 
 use crate::audio_format;
 use crate::bookmarks::SharedBookmarkStore;
+use crate::download::DownloadManager;
 use crate::engine::ModuleLoader;
 use crate::history::SharedHistoryStore;
 use crate::navigation::NavigationStack;
@@ -202,6 +203,8 @@ pub struct HostState {
     /// Event listeners, queued events, and built-in event detector state
     /// (resize, focus, online/offline, touch, gamepad, drag-drop).
     pub events: Arc<Mutex<crate::events::EventState>>,
+    /// Download manager for saving files and exporting canvas content.
+    pub download_manager: DownloadManager,
     /// Whether the canvas currently has keyboard/window focus. Set by the UI
     /// layer each frame; consumed by the event system to fire `focus` /
     /// `blur` / `visibility_change`.
@@ -606,6 +609,7 @@ impl Default for HostState {
             fetch: Arc::new(Mutex::new(None)),
             file_picker: Arc::new(Mutex::new(crate::file_picker::FilePickerState::default())),
             events: Arc::new(Mutex::new(crate::events::EventState::default())),
+            download_manager: DownloadManager::new(),
             focused: Arc::new(AtomicBool::new(true)),
             text_system: Arc::new(Mutex::new(None)),
         }
@@ -785,6 +789,389 @@ fn audio_try_play(
         );
     }
     engine.play_bytes_on(channel, data)
+}
+
+/// Minimal PDF writer — builds a PDF document byte-by-byte with standard
+/// Type 1 fonts (no embedding needed). Supports text, rectangles, lines,
+/// circles, arcs, beziers, and rounded rects.
+fn render_canvas_to_pdf(canvas: &CanvasState, user_filename: &str) -> anyhow::Result<()> {
+    use std::io::{Cursor, Seek, Write};
+
+    const PT_PER_PX: f32 = 0.75;
+    let w_pt = canvas.width as f32 * PT_PER_PX;
+    let h_pt = canvas.height as f32 * PT_PER_PX;
+
+    let mut buf = Cursor::new(Vec::new());
+    let mut offsets: Vec<u64> = Vec::new();
+
+    // Object 1: Catalog
+    offsets.push(buf.stream_position()?);
+    writeln!(buf, "1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj")?;
+
+    // Object 2: Pages
+    offsets.push(buf.stream_position()?);
+    writeln!(buf, "2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj")?;
+
+    // Object 5: Font (Helvetica)
+    offsets.push(buf.stream_position()?);
+    writeln!(
+        buf,
+        "5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj"
+    )?;
+
+    let mut content = Vec::new();
+    let flip_y = |y: f32| -> f32 { h_pt - y };
+
+    for cmd in &canvas.commands {
+        match cmd {
+            DrawCommand::Clear { r, g, b, a: _ } => {
+                let rf = *r as f32 / 255.0;
+                let gf = *g as f32 / 255.0;
+                let bf = *b as f32 / 255.0;
+                write!(content, "{rf:.3} {gf:.3} {bf:.3} rg ")?;
+                writeln!(content, "0 0 {w_pt:.1} {h_pt:.1} re f")?;
+            }
+            DrawCommand::Rect {
+                x,
+                y,
+                w: rw,
+                h: rh,
+                r,
+                g,
+                b,
+                a: _,
+            } => {
+                let rf = *r as f32 / 255.0;
+                let gf = *g as f32 / 255.0;
+                let bf = *b as f32 / 255.0;
+                let xp = *x * PT_PER_PX;
+                let yp = flip_y((*y + *rh) * PT_PER_PX);
+                let wp = *rw * PT_PER_PX;
+                let hp = *rh * PT_PER_PX;
+                write!(content, "{rf:.3} {gf:.3} {bf:.3} rg ")?;
+                writeln!(content, "{xp:.1} {yp:.1} {wp:.1} {hp:.1} re f")?;
+            }
+            DrawCommand::Text {
+                x,
+                y,
+                size,
+                r,
+                g,
+                b,
+                a: _,
+                text,
+            } => {
+                let rf = *r as f32 / 255.0;
+                let gf = *g as f32 / 255.0;
+                let bf = *b as f32 / 255.0;
+                let font_size = *size * PT_PER_PX;
+                let xp = *x * PT_PER_PX;
+                let yp = flip_y(*y * PT_PER_PX);
+                let escaped = escape_pdf_string(text);
+                write!(content, "BT {rf:.3} {gf:.3} {bf:.3} rg ")?;
+                writeln!(
+                    content,
+                    "/F1 {font_size:.1} Tf {xp:.1} {yp:.1} Td ({escaped}) Tj ET"
+                )?;
+            }
+            DrawCommand::Line {
+                x1,
+                y1,
+                x2,
+                y2,
+                r,
+                g,
+                b,
+                a: _,
+                thickness,
+            } => {
+                let rf = *r as f32 / 255.0;
+                let gf = *g as f32 / 255.0;
+                let bf = *b as f32 / 255.0;
+                let tp = *thickness * PT_PER_PX;
+                let x1p = *x1 * PT_PER_PX;
+                let y1p = flip_y(*y1 * PT_PER_PX);
+                let x2p = *x2 * PT_PER_PX;
+                let y2p = flip_y(*y2 * PT_PER_PX);
+                write!(content, "{rf:.3} {gf:.3} {bf:.3} RG {tp:.1} w ")?;
+                writeln!(content, "{x1p:.1} {y1p:.1} m {x2p:.1} {y2p:.1} l S")?;
+            }
+            DrawCommand::Circle {
+                cx,
+                cy,
+                radius,
+                r,
+                g,
+                b,
+                a: _,
+            } => {
+                let rf = *r as f32 / 255.0;
+                let gf = *g as f32 / 255.0;
+                let bf = *b as f32 / 255.0;
+                let cxp = *cx * PT_PER_PX;
+                let cyp = flip_y(*cy * PT_PER_PX);
+                let rp = *radius * PT_PER_PX;
+                let k = 0.5522848f32;
+                let kr = k * rp;
+                write!(content, "{rf:.3} {gf:.3} {bf:.3} rg ")?;
+                write!(content, "{:.1} {:.1} m ", cxp + rp, cyp)?;
+                write!(
+                    content,
+                    "{:.1} {:.1} {:.1} {:.1} {:.1} {:.1} c ",
+                    cxp + rp,
+                    cyp + kr,
+                    cxp + kr,
+                    cyp + rp,
+                    cxp,
+                    cyp + rp
+                )?;
+                write!(
+                    content,
+                    "{:.1} {:.1} {:.1} {:.1} {:.1} {:.1} c ",
+                    cxp - kr,
+                    cyp + rp,
+                    cxp - rp,
+                    cyp + kr,
+                    cxp - rp,
+                    cyp
+                )?;
+                write!(
+                    content,
+                    "{:.1} {:.1} {:.1} {:.1} {:.1} {:.1} c ",
+                    cxp - rp,
+                    cyp - kr,
+                    cxp - kr,
+                    cyp - rp,
+                    cxp,
+                    cyp - rp
+                )?;
+                writeln!(
+                    content,
+                    "{:.1} {:.1} {:.1} {:.1} {:.1} {:.1} c f",
+                    cxp + kr,
+                    cyp - rp,
+                    cxp + rp,
+                    cyp - kr,
+                    cxp + rp,
+                    cyp
+                )?;
+            }
+            DrawCommand::RoundedRect {
+                x,
+                y,
+                w: rw,
+                h: rh,
+                radius,
+                r,
+                g,
+                b,
+                a: _,
+            } => {
+                let rf = *r as f32 / 255.0;
+                let gf = *g as f32 / 255.0;
+                let bf = *b as f32 / 255.0;
+                let xp = *x * PT_PER_PX;
+                let yp = flip_y(*y * PT_PER_PX);
+                let wp = *rw * PT_PER_PX;
+                let hp = *rh * PT_PER_PX;
+                let rad = (*radius * PT_PER_PX).min(wp / 2.0).min(hp / 2.0);
+                let k = 0.5522848f32;
+                let kr = k * rad;
+                let x0 = xp;
+                let y0 = yp - hp;
+                let x1 = xp + wp;
+                let y1 = yp;
+                write!(content, "{rf:.3} {gf:.3} {bf:.3} rg ")?;
+                write!(content, "{:.1} {:.1} m ", x0 + rad, y0)?;
+                write!(content, "{:.1} {:.1} l ", x1 - rad, y0)?;
+                write!(
+                    content,
+                    "{:.1} {:.1} {:.1} {:.1} {:.1} {:.1} c ",
+                    x1 - rad + kr,
+                    y0,
+                    x1,
+                    y0 + rad - kr,
+                    x1,
+                    y0 + rad
+                )?;
+                write!(content, "{:.1} {:.1} l ", x1, y1 - rad)?;
+                write!(
+                    content,
+                    "{:.1} {:.1} {:.1} {:.1} {:.1} {:.1} c ",
+                    x1,
+                    y1 - rad + kr,
+                    x1 - rad + kr,
+                    y1,
+                    x1 - rad,
+                    y1
+                )?;
+                write!(content, "{:.1} {:.1} l ", x0 + rad, y1)?;
+                write!(
+                    content,
+                    "{:.1} {:.1} {:.1} {:.1} {:.1} {:.1} c ",
+                    x0 + rad - kr,
+                    y1,
+                    x0,
+                    y1 - rad + kr,
+                    x0,
+                    y1 - rad
+                )?;
+                write!(content, "{:.1} {:.1} l ", x0, y0 + rad)?;
+                writeln!(
+                    content,
+                    "{:.1} {:.1} {:.1} {:.1} {:.1} {:.1} c f",
+                    x0,
+                    y0 + rad - kr,
+                    x0 + rad - kr,
+                    y0,
+                    x0 + rad,
+                    y0
+                )?;
+            }
+            DrawCommand::Arc {
+                cx,
+                cy,
+                radius,
+                start_angle,
+                end_angle,
+                r,
+                g,
+                b,
+                a: _,
+                thickness,
+            } => {
+                let rf = *r as f32 / 255.0;
+                let gf = *g as f32 / 255.0;
+                let bf = *b as f32 / 255.0;
+                let tp = *thickness * PT_PER_PX;
+                let cxp = *cx * PT_PER_PX;
+                let cyp = flip_y(*cy * PT_PER_PX);
+                let rp = *radius * PT_PER_PX;
+                let segs = 32u32;
+                let angle_range = if *end_angle > *start_angle {
+                    *end_angle - *start_angle
+                } else {
+                    *end_angle + 2.0 * std::f32::consts::PI - *start_angle
+                };
+                write!(content, "{rf:.3} {gf:.3} {bf:.3} RG {tp:.1} w ")?;
+                let a0 = *start_angle;
+                let mut first = true;
+                for i in 0..=segs {
+                    let a = a0 + angle_range * i as f32 / segs as f32;
+                    let px = cxp + rp * a.cos();
+                    let py = cyp - rp * a.sin();
+                    if first {
+                        write!(content, "{px:.1} {py:.1} m ")?;
+                        first = false;
+                    } else {
+                        write!(content, "{px:.1} {py:.1} l ")?;
+                    }
+                }
+                writeln!(content, "S")?;
+            }
+            DrawCommand::Bezier {
+                x1,
+                y1,
+                cp1x,
+                cp1y,
+                cp2x,
+                cp2y,
+                x2,
+                y2,
+                r,
+                g,
+                b,
+                a: _,
+                thickness,
+            } => {
+                let rf = *r as f32 / 255.0;
+                let gf = *g as f32 / 255.0;
+                let bf = *b as f32 / 255.0;
+                let tp = *thickness * PT_PER_PX;
+                let x1p = *x1 * PT_PER_PX;
+                let y1p = flip_y(*y1 * PT_PER_PX);
+                let cp1xp = *cp1x * PT_PER_PX;
+                let cp1yp = flip_y(*cp1y * PT_PER_PX);
+                let cp2xp = *cp2x * PT_PER_PX;
+                let cp2yp = flip_y(*cp2y * PT_PER_PX);
+                let x2p = *x2 * PT_PER_PX;
+                let y2p = flip_y(*y2 * PT_PER_PX);
+                write!(content, "{rf:.3} {gf:.3} {bf:.3} RG {tp:.1} w ")?;
+                writeln!(content, "{x1p:.1} {y1p:.1} m {cp1xp:.1} {cp1yp:.1} {cp2xp:.1} {cp2yp:.1} {x2p:.1} {y2p:.1} c S")?;
+            }
+            DrawCommand::Image { .. }
+            | DrawCommand::Gradient { .. }
+            | DrawCommand::TextEx { .. }
+            | DrawCommand::Save
+            | DrawCommand::Restore
+            | DrawCommand::Transform { .. }
+            | DrawCommand::Clip { .. }
+            | DrawCommand::Opacity { .. } => {}
+        }
+    }
+
+    // Object 4: Page content stream
+    let content_len = content.len();
+    offsets.push(buf.stream_position()?);
+    writeln!(buf, "4 0 obj<</Length {content_len}>>stream")?;
+    buf.write_all(&content)?;
+    writeln!(buf)?;
+    writeln!(buf, "endstream")?;
+    writeln!(buf, "endobj")?;
+
+    // Object 3: Page
+    offsets.push(buf.stream_position()?);
+    writeln!(
+        buf,
+        "3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 {w_pt:.1} {h_pt:.1}]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>endobj"
+    )?;
+
+    // xref table
+    let xref_offset = buf.stream_position()?;
+    let obj_count = offsets.len() as u64 + 1;
+    writeln!(buf, "xref\n0 {obj_count}\n0000000000 65535 f ")?;
+    for off in &offsets {
+        writeln!(buf, "{off:010} 00000 n ")?;
+    }
+
+    write!(
+        buf,
+        "trailer<</Size {obj_count}/Root 1 0 R>>\nstartxref\n{xref_offset}\n%%EOF\n"
+    )?;
+
+    let pdf_bytes = buf.into_inner();
+    let dest_dir = dirs::download_dir()
+        .unwrap_or_else(|| dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from(".")));
+    let name_to_save = if user_filename.trim().is_empty() {
+        format!(
+            "{}",
+            chrono::Local::now().format("oxide-canvas-%Y%m%d-%H%M%S.pdf")
+        )
+    } else if user_filename.to_lowercase().ends_with(".pdf") {
+        user_filename.to_string()
+    } else {
+        format!("{}.pdf", user_filename)
+    };
+    let dest = crate::download::unique_path(&dest_dir, &name_to_save);
+    std::fs::write(&dest, &pdf_bytes)?;
+    Ok(())
+}
+
+fn escape_pdf_string(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        match ch {
+            '(' => out.push_str("\\("),
+            ')' => out.push_str("\\)"),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x80 => out.push(c),
+            _ => {} // Skip non-ASCII — standard PDF fonts only support Latin-1
+        }
+    }
+    out
 }
 
 /// Register every `oxide` import on `linker` so guest modules can link against them.
@@ -3672,6 +4059,96 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
 
     // ── Native File / Folder Picker API ───────────────────────────────
     crate::file_picker::register_file_picker_functions(linker)?;
+
+    // ── Download Manager API ──────────────────────────────────────────
+
+    linker.func_wrap(
+        "oxide",
+        "api_download_data",
+        |caller: Caller<'_, HostState>,
+         data_ptr: u32,
+         data_len: u32,
+         filename_ptr: u32,
+         filename_len: u32|
+         -> i32 {
+            let mem = caller.data().memory.expect("memory not set");
+            let data = read_guest_bytes(&mem, &caller, data_ptr, data_len).unwrap_or_default();
+            let filename =
+                read_guest_string(&mem, &caller, filename_ptr, filename_len).unwrap_or_default();
+            if data.is_empty() || filename.is_empty() {
+                return -1;
+            }
+            match caller.data().download_manager.save_data(&data, &filename) {
+                Ok(_) => {
+                    console_log(
+                        &caller.data().console,
+                        ConsoleLevel::Log,
+                        format!("[DOWNLOAD] Saved {} bytes to {}", data.len(), filename),
+                    );
+                    0
+                }
+                Err(e) => {
+                    console_log(
+                        &caller.data().console,
+                        ConsoleLevel::Error,
+                        format!("[DOWNLOAD] Failed to save {}: {e}", filename),
+                    );
+                    -1
+                }
+            }
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_download_url",
+        |caller: Caller<'_, HostState>, url_ptr: u32, url_len: u32| -> i32 {
+            let mem = caller.data().memory.expect("memory not set");
+            let url = read_guest_string(&mem, &caller, url_ptr, url_len).unwrap_or_default();
+            if url.is_empty() {
+                return -1;
+            }
+            caller.data().download_manager.start_download(url.clone());
+            console_log(
+                &caller.data().console,
+                ConsoleLevel::Log,
+                format!("[DOWNLOAD] Started download for {url}"),
+            );
+            0
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_canvas_print_pdf",
+        |caller: Caller<'_, HostState>, filename_ptr: u32, filename_len: u32| -> i32 {
+            let mem = caller.data().memory.expect("memory not set");
+            let filename =
+                read_guest_string(&mem, &caller, filename_ptr, filename_len).unwrap_or_default();
+            if filename.is_empty() {
+                return -1;
+            }
+            let canvas = caller.data().canvas.lock().unwrap().clone();
+            match render_canvas_to_pdf(&canvas, &filename) {
+                Ok(_) => {
+                    console_log(
+                        &caller.data().console,
+                        ConsoleLevel::Log,
+                        format!("[PRINT] Canvas exported to PDF: {filename}"),
+                    );
+                    0
+                }
+                Err(e) => {
+                    console_log(
+                        &caller.data().console,
+                        ConsoleLevel::Error,
+                        format!("[PRINT] PDF export failed: {e}"),
+                    );
+                    -1
+                }
+            }
+        },
+    )?;
 
     Ok(())
 }
