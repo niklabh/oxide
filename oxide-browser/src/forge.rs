@@ -1,4 +1,4 @@
-//! Oxide Forge — Claude-powered guest app generation layer.
+//! Oxide Forge — multi-provider AI guest app generation layer.
 //!
 //! Turns a user's natural-language prompt into a compiled guest `.wasm`
 //! module that can be hot-loaded into an Oxide tab. Driven entirely by
@@ -18,8 +18,8 @@
 //!    session directory and populates either `artifact_path` or
 //!    `build_log` on completion.
 //!
-//! The Anthropic API key can be read from the `ANTHROPIC_API_KEY` environment
-//! variable at startup or configured from the `oxide://forge` UI. The system
+//! API keys for Anthropic, OpenAI, Google Gemini, and xAI can be configured
+//! in the `oxide://forge` settings panel or via environment variables. The system
 //! prompt is composed at boot from the `oxide-wasm-app` Agent Skill under
 //! `forge/skills/oxide-wasm-app/` (see <https://agentskills.io/>): its
 //! `SKILL.md` body plus every markdown file it bundles in `references/`.
@@ -37,6 +37,8 @@ use serde_json::{json, Value};
 use tokio::io::AsyncReadExt;
 use tokio::runtime::Runtime;
 
+use crate::forge_config::{ForgeProvider, ForgeUserConfig};
+
 // ── Configuration ──────────────────────────────────────────────────────────
 
 /// Default model. Override with `OXIDE_FORGE_MODEL` env var.
@@ -47,12 +49,29 @@ const MAX_TOKENS: u32 = 8192;
 
 const ANTHROPIC_VERSION: &str = "2023-06-01";
 const ANTHROPIC_URL: &str = "https://api.anthropic.com/v1/messages";
+const OPENAI_URL: &str = "https://api.openai.com/v1/chat/completions";
+const XAI_URL: &str = "https://api.x.ai/v1/chat/completions";
+const GEMINI_BASE: &str = "https://generativelanguage.googleapis.com/v1beta/models";
 
 /// How many times Forge will auto-retry on `cargo build` failure before
 /// giving up and surfacing the error to the user.
 const MAX_AUTO_RETRIES: u32 = 3;
 
 // ── Public phase / snapshot types ──────────────────────────────────────────
+
+/// Role of a message in the Forge chat thread.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ForgeMessageRole {
+    User,
+    Assistant,
+}
+
+/// One turn in the Forge chat UI (Cursor-style conversation).
+#[derive(Clone, Debug)]
+pub struct ForgeChatMessage {
+    pub role: ForgeMessageRole,
+    pub content: String,
+}
 
 /// Coarse-grained state machine for a single Forge session, surfaced to the UI.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -97,6 +116,12 @@ pub struct ForgeSnapshot {
     pub project_dir: PathBuf,
     /// Last mutation timestamp, milliseconds since Unix epoch.
     pub updated_at_ms: u64,
+    /// Cursor-style chat history for this creation.
+    pub messages: Vec<ForgeChatMessage>,
+    /// Active LLM provider for this session's generations.
+    pub provider: ForgeProvider,
+    /// Model id used for the last request.
+    pub model: String,
 }
 
 #[derive(Clone, Debug)]
@@ -127,6 +152,9 @@ struct Session {
     retries_used: u32,
     auto_fix: bool,
     updated_at_ms: u64,
+    messages: Vec<ForgeChatMessage>,
+    provider: ForgeProvider,
+    model: String,
 }
 
 impl Session {
@@ -146,6 +174,9 @@ impl Session {
             auto_fix: self.auto_fix,
             project_dir: self.project_dir.clone(),
             updated_at_ms: self.updated_at_ms,
+            messages: self.messages.clone(),
+            provider: self.provider,
+            model: self.model.clone(),
         }
     }
 
@@ -178,27 +209,35 @@ pub struct ForgeState {
     forge_dir: PathBuf,
     template_dir: PathBuf,
     system_prompt: String,
+    provider: ForgeProvider,
     api_key: String,
     model: String,
 }
 
 impl ForgeState {
-    /// Initialise Forge from `ANTHROPIC_API_KEY`. Returns `None` if:
-    /// - the `ANTHROPIC_API_KEY` env var is unset, or
-    /// - the tokio runtime cannot be created.
+    /// Initialise Forge from saved config and environment variables.
     pub fn new() -> Option<Self> {
-        let api_key = std::env::var("ANTHROPIC_API_KEY").ok()?;
-        Self::with_api_key(api_key)
+        Self::from_config(&ForgeUserConfig::load())
     }
 
-    /// Initialise Forge with an API key supplied by the UI. Returns `None` if
-    /// the key is empty or the tokio runtime cannot be created.
-    ///
-    /// The repo layout is resolved from `CARGO_MANIFEST_DIR` at compile time.
-    /// Output defaults to `$OXIDE_FORGE_DIR` when set, otherwise
-    /// `target/forge/`.
+    /// Initialise Forge from user configuration. Returns `None` when no API
+    /// key is configured for the active provider, or the runtime cannot start.
+    pub fn from_config(config: &ForgeUserConfig) -> Option<Self> {
+        let api_key = config.active_api_key()?;
+        let provider = config.active_provider;
+        let model = config.active_model();
+        Self::with_credentials(provider, api_key, model)
+    }
+
+    /// Initialise Forge with explicit credentials (used when saving keys in UI).
     pub fn with_api_key(api_key: impl Into<String>) -> Option<Self> {
-        let api_key = api_key.into().trim().to_string();
+        let mut config = ForgeUserConfig::load();
+        config.set_api_key(config.active_provider, api_key.into());
+        Self::from_config(&config)
+    }
+
+    fn with_credentials(provider: ForgeProvider, api_key: String, model: String) -> Option<Self> {
+        let api_key = api_key.trim().to_string();
         if api_key.is_empty() {
             return None;
         }
@@ -210,7 +249,6 @@ impl ForgeState {
             .unwrap_or_else(|| repo_root.join("target").join("forge"));
         let template_dir = repo_root.join("forge").join("templates").join("base");
 
-        // Best-effort: create target/forge/ up front so the UI can deep-link.
         let _ = std::fs::create_dir_all(&forge_dir);
 
         let system_prompt = build_system_prompt(&repo_root).unwrap_or_else(|_| {
@@ -220,8 +258,12 @@ impl ForgeState {
                 .to_string()
         });
 
-        let model =
-            std::env::var("OXIDE_FORGE_MODEL").unwrap_or_else(|_| DEFAULT_MODEL.to_string());
+        let model = if model.trim().is_empty() {
+            let from_env = std::env::var("OXIDE_FORGE_MODEL").unwrap_or_default();
+            provider.normalize_model(&from_env)
+        } else {
+            provider.normalize_model(&model)
+        };
 
         let mut state = Self {
             runtime,
@@ -230,6 +272,7 @@ impl ForgeState {
             forge_dir,
             template_dir,
             system_prompt,
+            provider,
             api_key,
             model,
         };
@@ -237,7 +280,38 @@ impl ForgeState {
         Some(state)
     }
 
-    /// Replace the Anthropic API key used by future Forge requests.
+    /// Apply UI configuration (provider, model, active API key).
+    pub fn apply_config(&mut self, config: &ForgeUserConfig) -> bool {
+        if let Some(key) = config.active_api_key() {
+            self.provider = config.active_provider;
+            self.model = config.active_model();
+            self.api_key = key;
+            true
+        } else {
+            false
+        }
+    }
+
+    pub fn provider(&self) -> ForgeProvider {
+        self.provider
+    }
+
+    pub fn model(&self) -> &str {
+        &self.model
+    }
+
+    pub fn set_provider(&mut self, provider: ForgeProvider) {
+        self.provider = provider;
+    }
+
+    pub fn set_model(&mut self, model: impl Into<String>) {
+        let model = model.into().trim().to_string();
+        if !model.is_empty() {
+            self.model = model;
+        }
+    }
+
+    /// Replace the API key for the active provider.
     pub fn set_api_key(&mut self, api_key: impl Into<String>) -> bool {
         let api_key = api_key.into().trim().to_string();
         if api_key.is_empty() {
@@ -270,6 +344,9 @@ impl ForgeState {
             retries_used: 0,
             auto_fix: true,
             updated_at_ms: now_ms(),
+            messages: Vec::new(),
+            provider: self.provider,
+            model: self.model.clone(),
         }));
 
         self.sessions.insert(id, session.clone());
@@ -278,9 +355,10 @@ impl ForgeState {
         let system = self.system_prompt.clone();
         let api_key = self.api_key.clone();
         let model = self.model.clone();
+        let provider = self.provider;
 
         self.runtime.spawn(async move {
-            run_stream_then_build(session, system, api_key, model, prompt).await;
+            run_stream_then_build(session, system, provider, api_key, model, prompt).await;
         });
 
         Ok(id)
@@ -295,7 +373,7 @@ impl ForgeState {
             .ok_or_else(|| anyhow!("unknown forge session {id}"))?
             .clone();
 
-        let revision_prompt = {
+        let (revision_prompt, chat_user) = {
             let mut s = session.lock().unwrap();
             if matches!(s.phase, ForgePhase::Streaming | ForgePhase::Building) {
                 bail!("session {id} is busy (phase={:?})", s.phase);
@@ -307,20 +385,31 @@ impl ForgeState {
             s.retries_used = 0;
             s.bump();
             persist_locked_session(&s);
-            format!(
+            let api = format!(
                 "Revise this existing Oxide app.\n\n\
                  User change request:\n{}\n\n\
                  Current src/lib.rs:\n```rust\n{}\n```\n\n\
                  Reply with the complete updated src/lib.rs in one ```rust fenced block.",
                 prompt, s.code
-            )
+            );
+            (api, prompt)
         };
 
         let system = self.system_prompt.clone();
         let api_key = self.api_key.clone();
         let model = self.model.clone();
+        let provider = self.provider;
         self.runtime.spawn(async move {
-            run_stream_then_build(session, system, api_key, model, revision_prompt).await;
+            run_stream_then_build_with(
+                session,
+                system,
+                provider,
+                api_key,
+                model,
+                chat_user,
+                revision_prompt,
+            )
+            .await;
         });
 
         Ok(())
@@ -472,12 +561,43 @@ impl ForgeState {
 async fn run_stream_then_build(
     session: SharedSession,
     system: String,
+    provider: ForgeProvider,
     api_key: String,
     model: String,
     initial_prompt: String,
 ) {
-    // First pass uses the user's prompt as-is.
-    if !stream_one_attempt(&session, &system, &api_key, &model, &initial_prompt).await {
+    run_stream_then_build_with(
+        session,
+        system,
+        provider,
+        api_key,
+        model,
+        initial_prompt.clone(),
+        initial_prompt,
+    )
+    .await;
+}
+
+async fn run_stream_then_build_with(
+    session: SharedSession,
+    system: String,
+    provider: ForgeProvider,
+    api_key: String,
+    model: String,
+    chat_user: String,
+    api_prompt: String,
+) {
+    if !stream_one_attempt(
+        &session,
+        &system,
+        provider,
+        &api_key,
+        &model,
+        &chat_user,
+        &api_prompt,
+    )
+    .await
+    {
         return;
     }
 
@@ -509,7 +629,17 @@ async fn run_stream_then_build(
             persist_locked_session(&s);
         }
 
-        if !stream_one_attempt(&session, &system, &api_key, &model, &retry_prompt).await {
+        if !stream_one_attempt(
+            &session,
+            &system,
+            provider,
+            &api_key,
+            &model,
+            "Fixing compile errors…",
+            &retry_prompt,
+        )
+        .await
+        {
             break;
         }
     }
@@ -520,9 +650,11 @@ async fn run_stream_then_build(
 async fn stream_one_attempt(
     session: &SharedSession,
     system: &str,
+    provider: ForgeProvider,
     api_key: &str,
     model: &str,
-    user_prompt: &str,
+    chat_user: &str,
+    api_prompt: &str,
 ) -> bool {
     {
         let mut s = session.lock().unwrap();
@@ -530,11 +662,21 @@ async fn stream_one_attempt(
         s.code.clear();
         s.artifact_path = None;
         s.error = None;
+        s.provider = provider;
+        s.model = model.to_string();
+        s.messages.push(ForgeChatMessage {
+            role: ForgeMessageRole::User,
+            content: chat_user.to_string(),
+        });
+        s.messages.push(ForgeChatMessage {
+            role: ForgeMessageRole::Assistant,
+            content: String::new(),
+        });
         s.bump();
         persist_locked_session(&s);
     }
 
-    if let Err(e) = drive_anthropic_stream(session, system, api_key, model, user_prompt).await {
+    if let Err(e) = drive_llm_stream(session, system, provider, api_key, model, api_prompt).await {
         let mut s = session.lock().unwrap();
         s.phase = ForgePhase::Error;
         s.error = Some(e.to_string());
@@ -559,11 +701,30 @@ async fn stream_one_attempt(
     }
 
     let mut s = session.lock().unwrap();
-    s.code = code_on_disk;
+    s.code = code_on_disk.clone();
+    if let Some(last) = s.messages.last_mut() {
+        if last.role == ForgeMessageRole::Assistant {
+            last.content = code_on_disk;
+        }
+    }
     s.phase = ForgePhase::StreamComplete;
     s.bump();
     persist_locked_session(&s);
     true
+}
+
+fn append_stream_delta(session: &SharedSession, delta: &str) {
+    if delta.is_empty() {
+        return;
+    }
+    let mut s = session.lock().unwrap();
+    s.code.push_str(delta);
+    if let Some(last) = s.messages.last_mut() {
+        if last.role == ForgeMessageRole::Assistant {
+            last.content.push_str(delta);
+        }
+    }
+    s.bump();
 }
 
 /// Compose a "please fix this" prompt from the last failed attempt.
@@ -603,25 +764,111 @@ fn truncate_middle(text: &str, max_bytes: usize) -> String {
     )
 }
 
+async fn drive_llm_stream(
+    session: &SharedSession,
+    system: &str,
+    provider: ForgeProvider,
+    api_key: &str,
+    model: &str,
+    api_prompt: &str,
+) -> Result<()> {
+    match provider {
+        ForgeProvider::Anthropic => {
+            drive_anthropic_stream(session, system, api_key, model, api_prompt).await
+        }
+        ForgeProvider::Openai => {
+            drive_openai_stream(session, system, api_key, model, OPENAI_URL, api_prompt).await
+        }
+        ForgeProvider::Xai => {
+            drive_openai_stream(session, system, api_key, model, XAI_URL, api_prompt).await
+        }
+        ForgeProvider::Gemini => {
+            drive_gemini_stream(session, system, api_key, model, api_prompt).await
+        }
+    }
+}
+
+fn http_client() -> Result<reqwest::Client> {
+    reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(20))
+        .read_timeout(std::time::Duration::from_secs(120))
+        .build()
+        .context("build http client")
+}
+
+fn chat_history_for_api(session: &SharedSession, api_prompt: &str) -> Vec<(String, String)> {
+    let s = session.lock().unwrap();
+    let mut history: Vec<(String, String)> = s
+        .messages
+        .iter()
+        .filter(|m| !m.content.is_empty())
+        .map(|m| {
+            let role = match m.role {
+                ForgeMessageRole::User => "user",
+                ForgeMessageRole::Assistant => "assistant",
+            };
+            (role.to_string(), m.content.clone())
+        })
+        .collect();
+    // Replace the last user turn with the full API prompt (may include code context).
+    if let Some((role, content)) = history.last_mut() {
+        if role == "user" {
+            *content = api_prompt.to_string();
+        }
+    }
+    history
+}
+
+async fn consume_sse_stream(
+    session: &SharedSession,
+    resp: reqwest::Response,
+    parse_event: impl Fn(&[u8]) -> Option<String>,
+) -> Result<()> {
+    let status = resp.status();
+    if !status.is_success() {
+        let err_body = resp.text().await.unwrap_or_default();
+        bail!("API {}: {}", status, err_body);
+    }
+
+    let mut stream = resp.bytes_stream();
+    let mut buf = Vec::<u8>::new();
+    while let Some(next) = stream.next().await {
+        let chunk = next.context("stream read")?;
+        buf.extend_from_slice(&chunk);
+
+        while let Some(pos) = find_event_boundary(&buf) {
+            let event = buf.drain(..pos).collect::<Vec<u8>>();
+            let skip = if buf.starts_with(b"\r\n\r\n") { 4 } else { 2 };
+            buf.drain(..skip.min(buf.len()));
+
+            if let Some(delta) = parse_event(&event) {
+                append_stream_delta(session, &delta);
+            }
+        }
+    }
+    Ok(())
+}
+
 async fn drive_anthropic_stream(
     session: &SharedSession,
     system: &str,
     api_key: &str,
     model: &str,
-    user_prompt: &str,
+    api_prompt: &str,
 ) -> Result<()> {
-    let client = reqwest::Client::builder()
-        .connect_timeout(std::time::Duration::from_secs(20))
-        .read_timeout(std::time::Duration::from_secs(120))
-        .build()
-        .context("build http client")?;
+    let client = http_client()?;
+    let history = chat_history_for_api(session, api_prompt);
+    let messages: Vec<Value> = history
+        .into_iter()
+        .map(|(role, content)| json!({ "role": role, "content": content }))
+        .collect();
 
     let body = json!({
         "model": model,
         "max_tokens": MAX_TOKENS,
         "stream": true,
         "system": system,
-        "messages": [{ "role": "user", "content": user_prompt }],
+        "messages": messages,
     });
     let body_bytes = serde_json::to_vec(&body).context("serialise request body")?;
 
@@ -633,40 +880,82 @@ async fn drive_anthropic_stream(
         .body(body_bytes)
         .send()
         .await
-        .context("POST /v1/messages")?;
+        .context("POST anthropic /v1/messages")?;
 
-    let status = resp.status();
-    if !status.is_success() {
-        let err_body = resp.text().await.unwrap_or_default();
-        bail!("anthropic {}: {}", status, err_body);
+    consume_sse_stream(session, resp, parse_anthropic_sse_event).await
+}
+
+async fn drive_openai_stream(
+    session: &SharedSession,
+    system: &str,
+    api_key: &str,
+    model: &str,
+    url: &str,
+    api_prompt: &str,
+) -> Result<()> {
+    let client = http_client()?;
+    let history = chat_history_for_api(session, api_prompt);
+    let mut messages = vec![json!({ "role": "system", "content": system })];
+    for (role, content) in history {
+        messages.push(json!({ "role": role, "content": content }));
     }
 
-    let mut stream = resp.bytes_stream();
-    // SSE is line-delimited with `\n\n` separators. We buffer across chunks
-    // and emit completed events (those ending with a blank line).
-    let mut buf = Vec::<u8>::new();
-    while let Some(next) = stream.next().await {
-        let chunk = next.context("stream read")?;
-        buf.extend_from_slice(&chunk);
+    let body = json!({
+        "model": model,
+        "max_tokens": MAX_TOKENS,
+        "stream": true,
+        "messages": messages,
+    });
+    let body_bytes = serde_json::to_vec(&body).context("serialise request body")?;
 
-        // Look for `\n\n` event boundaries and process each.
-        while let Some(pos) = find_event_boundary(&buf) {
-            let event = buf.drain(..pos).collect::<Vec<u8>>();
-            // Drop the boundary bytes themselves.
-            let skip = if buf.starts_with(b"\r\n\r\n") { 4 } else { 2 };
-            buf.drain(..skip.min(buf.len()));
+    let resp = client
+        .post(url)
+        .header("Authorization", format!("Bearer {api_key}"))
+        .header("content-type", "application/json")
+        .body(body_bytes)
+        .send()
+        .await
+        .context("POST chat/completions")?;
 
-            if let Some(delta) = parse_sse_event(&event) {
-                if !delta.is_empty() {
-                    let mut s = session.lock().unwrap();
-                    s.code.push_str(&delta);
-                    s.bump();
-                }
-            }
-        }
+    consume_sse_stream(session, resp, parse_openai_sse_event).await
+}
+
+async fn drive_gemini_stream(
+    session: &SharedSession,
+    system: &str,
+    api_key: &str,
+    model: &str,
+    api_prompt: &str,
+) -> Result<()> {
+    let client = http_client()?;
+    let history = chat_history_for_api(session, api_prompt);
+    let mut contents = Vec::new();
+    for (role, content) in history {
+        let gemini_role = if role == "assistant" { "model" } else { "user" };
+        contents.push(json!({
+            "role": gemini_role,
+            "parts": [{ "text": content }],
+        }));
     }
 
-    Ok(())
+    let body = json!({
+        "systemInstruction": { "parts": [{ "text": system }] },
+        "contents": contents,
+        "generationConfig": { "maxOutputTokens": MAX_TOKENS },
+    });
+    let body_bytes = serde_json::to_vec(&body).context("serialise request body")?;
+    let url = format!("{GEMINI_BASE}/{model}:streamGenerateContent?alt=sse");
+
+    let resp = client
+        .post(&url)
+        .header("x-goog-api-key", api_key)
+        .header("content-type", "application/json")
+        .body(body_bytes)
+        .send()
+        .await
+        .context("POST gemini streamGenerateContent")?;
+
+    consume_sse_stream(session, resp, parse_gemini_sse_event).await
 }
 
 /// Find the end of the first complete SSE event (`\n\n` or `\r\n\r\n`)
@@ -683,9 +972,51 @@ fn find_event_boundary(buf: &[u8]) -> Option<usize> {
     None
 }
 
+fn parse_anthropic_sse_event(event: &[u8]) -> Option<String> {
+    parse_sse_event_with(event, |kind, v| match kind {
+        "content_block_delta" => {
+            let t = v.get("delta")?.get("text")?.as_str()?;
+            Some(t.to_string())
+        }
+        _ => None,
+    })
+}
+
+fn parse_openai_sse_event(event: &[u8]) -> Option<String> {
+    parse_sse_event_with(event, |kind, v| {
+        let _ = kind;
+        v.get("choices")?
+            .as_array()?
+            .first()?
+            .get("delta")?
+            .get("content")?
+            .as_str()
+            .map(|s| s.to_string())
+    })
+}
+
+fn parse_gemini_sse_event(event: &[u8]) -> Option<String> {
+    parse_sse_event_with(event, |kind, v| {
+        let _ = kind;
+        v.get("candidates")?
+            .as_array()?
+            .first()?
+            .get("content")?
+            .get("parts")?
+            .as_array()?
+            .first()?
+            .get("text")?
+            .as_str()
+            .map(|s| s.to_string())
+    })
+}
+
 /// Parse a single SSE event (already stripped of trailing blank line).
 /// Returns the text delta contribution, if any.
-fn parse_sse_event(event: &[u8]) -> Option<String> {
+fn parse_sse_event_with(
+    event: &[u8],
+    extract: impl Fn(&str, &Value) -> Option<String>,
+) -> Option<String> {
     // Only care about `data: {...}` lines. Concatenate multi-line data values.
     let text = std::str::from_utf8(event).ok()?;
     let mut data = String::new();
@@ -703,20 +1034,17 @@ fn parse_sse_event(event: &[u8]) -> Option<String> {
         return None;
     }
     let v: Value = serde_json::from_str(data).ok()?;
-    let kind = v.get("type")?.as_str()?;
-    match kind {
-        "content_block_delta" => {
-            let t = v.get("delta")?.get("text")?.as_str()?;
-            Some(t.to_string())
-        }
-        "message_delta"
-        | "message_start"
-        | "message_stop"
-        | "content_block_start"
-        | "content_block_stop"
-        | "ping" => None,
-        _ => None,
-    }
+    let kind = v
+        .get("type")
+        .and_then(Value::as_str)
+        .or_else(|| v.get("object").and_then(Value::as_str))
+        .unwrap_or("");
+    extract(kind, &v)
+}
+
+#[cfg(test)]
+fn parse_sse_event(event: &[u8]) -> Option<String> {
+    parse_anthropic_sse_event(event)
 }
 
 /// Extract the Rust source from a response that may (but need not) include
@@ -932,6 +1260,17 @@ fn persist_locked_session(s: &Session) {
         .artifact_path
         .as_ref()
         .map(|p| p.to_string_lossy().to_string());
+    let messages: Vec<Value> = s
+        .messages
+        .iter()
+        .map(|m| {
+            let role = match m.role {
+                ForgeMessageRole::User => "user",
+                ForgeMessageRole::Assistant => "assistant",
+            };
+            json!({ "role": role, "content": m.content })
+        })
+        .collect();
     let meta = json!({
         "id": s.id,
         "slug": s.slug,
@@ -941,6 +1280,9 @@ fn persist_locked_session(s: &Session) {
         "updated_at_ms": s.updated_at_ms,
         "retries_used": s.retries_used,
         "auto_fix": s.auto_fix,
+        "provider": s.provider.id(),
+        "model": s.model,
+        "messages": messages,
     });
     let _ = std::fs::write(
         metadata_path(&s.project_dir),
@@ -973,6 +1315,30 @@ fn load_session_from_dir(project_dir: &Path) -> Option<SharedSession> {
     } else {
         str_to_phase(v.get("phase").and_then(Value::as_str).unwrap_or(""))
     };
+    let provider = v
+        .get("provider")
+        .and_then(Value::as_str)
+        .and_then(ForgeProvider::from_id)
+        .unwrap_or(ForgeProvider::Anthropic);
+    let model =
+        provider.normalize_model(v.get("model").and_then(Value::as_str).unwrap_or_default());
+    let messages = v
+        .get("messages")
+        .and_then(Value::as_array)
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|item| {
+                    let role = item.get("role")?.as_str()?;
+                    let content = item.get("content")?.as_str()?.to_string();
+                    let role = match role {
+                        "assistant" => ForgeMessageRole::Assistant,
+                        _ => ForgeMessageRole::User,
+                    };
+                    Some(ForgeChatMessage { role, content })
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
     Some(Arc::new(Mutex::new(Session {
         id,
         slug,
@@ -990,6 +1356,9 @@ fn load_session_from_dir(project_dir: &Path) -> Option<SharedSession> {
             .get("updated_at_ms")
             .and_then(Value::as_u64)
             .unwrap_or_else(now_ms),
+        messages,
+        provider,
+        model,
     })))
 }
 

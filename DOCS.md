@@ -241,7 +241,22 @@ c.text("Hello!", Point2D::new(20.0, 30.0), 24.0, Color::WHITE);
 c.line(Point2D::ZERO, Point2D::new(100.0, 100.0), 2.0, Color::YELLOW);
 c.image(Rect::new(0.0, 0.0, 400.0, 300.0), &image_bytes);
 
-let (w, h) = c.dimensions();
+// Typography extension (v0.6.0+)
+c.text_ex(
+    "Shaped & Aligned Text",
+    Point2D::new(20.0, 120.0),
+    16.0,
+    Color::WHITE,
+    "Helvetica",
+    700,                 // CSS weight Bold (700)
+    FONT_STYLE_NORMAL,   // FONT_STYLE_NORMAL / ITALIC / OBLIQUE
+    TEXT_ALIGN_CENTER,   // TEXT_ALIGN_LEFT / CENTER / RIGHT
+);
+let metrics = c.measure_text(16.0, "Helvetica", 700, FONT_STYLE_NORMAL, "Measure me");
+
+// Scrollbar/virtual page sizing (v0.7.0+)
+c.set_content_size(1200, 2000);  // Enable vertical scrolling up to 2000px
+let (sx, sy) = c.scroll_position(); // Sniff scroll coordinates to offset drawing
 ```
 
 ### Low-Level Canvas API
@@ -251,10 +266,15 @@ let (w, h) = c.dimensions();
 | `canvas_clear` | `fn(r, g, b, a: u8)` | Clear canvas with solid RGBA color |
 | `canvas_rect` | `fn(x, y, w, h: f32, r, g, b, a: u8)` | Draw filled rectangle |
 | `canvas_circle` | `fn(cx, cy, radius: f32, r, g, b, a: u8)` | Draw filled circle |
-| `canvas_text` | `fn(x, y, size: f32, r, g, b, a: u8, text: &str)` | Draw text |
+| `canvas_text` | `fn(x, y, size: f32, r, g, b, a: u8, text: &str)` | Draw basic UI text |
+| `canvas_text_ex` | `fn(x, y, size: f32, r, g, b, a: u8, family: &str, weight: u32, style: u32, align: u32, text: &str)` | Draw styled, shaped text |
+| `canvas_measure_text` | `fn(size: f32, family: &str, weight: u32, style: u32, text: &str) -> TextMetrics` |Sniff dimensions of a shaped text line |
 | `canvas_line` | `fn(x1, y1, x2, y2: f32, r, g, b, a: u8, thickness: f32)` | Draw a line |
 | `canvas_image` | `fn(x, y, w, h: f32, data: &[u8])` | Draw encoded image (PNG/JPEG/GIF/WebP) |
-| `canvas_dimensions` | `fn() -> (u32, u32)` | Get canvas `(width, height)` in pixels |
+| `canvas_dimensions` | `fn() -> (u32, u32)` | Get physical canvas `(width, height)` in pixels |
+| `set_content_size` | `fn(w, h: u32)` | Set virtual scroll region dimensions |
+| `scroll_position` | `fn() -> (f32, f32)` | Get current absolute `(x, y)` scroll position |
+| `set_scroll_position` | `fn(x, y: f32)` | Programmatically set scroll position |
 
 ```rust
 canvas_clear(30, 30, 46, 255);
@@ -262,6 +282,10 @@ canvas_rect(10.0, 10.0, 100.0, 50.0, 255, 0, 0, 255);
 canvas_circle(200.0, 200.0, 30.0, 0, 255, 0, 255);
 canvas_text(10.0, 80.0, 16.0, 255, 255, 255, 255, "Hello!");
 canvas_line(0.0, 0.0, 100.0, 100.0, 255, 255, 0, 255, 2.0);
+
+// Use scroll position in render loop to draw offset items:
+let (sx, sy) = scroll_position();
+canvas_rect(100.0, 500.0 - sy, 200.0, 100.0, 120, 140, 200, 255);
 
 let (w, h) = canvas_dimensions();
 ```
@@ -341,6 +365,28 @@ let resp = fetch_get("https://api.example.com/data").unwrap();
 log(&format!("Status: {}, Body: {}", resp.status, resp.text()));
 ```
 
+### Download & PDF Printing
+
+The Download and PDF Print APIs allow saving raw byte buffers, downloading remote URLs asynchronously, and exporting vector PDF prints of the canvas direct to the host's standard Downloads folder.
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `download_data` | `fn(data: &[u8], filename: &str) -> i32` | Save raw bytes as a file (returns 0 on success) |
+| `download_url` | `fn(url: &str) -> i32` | Download a remote URL in the background |
+| `canvas_print_pdf` | `fn(filename: &str) -> i32` | Export the current frame's vector paint instructions as a PDF file |
+
+```rust
+// Save a local game state or config
+let json = "{\"score\": 42}";
+download_data(json.as_bytes(), "savegame.json");
+
+// Trigger an async remote file download
+download_url("https://example.com/assets/highres_map.png");
+
+// Print current canvas frame as a vector PDF
+canvas_print_pdf("oxide-screenshot.pdf");
+```
+
 ### Protobuf (Native Data Format)
 
 The `oxide_sdk::proto` module provides a zero-dependency encoder/decoder compatible with the Protocol Buffers wire format.
@@ -383,6 +429,68 @@ while let Some(field) = decoder.next() {
 | `kv_store_get` | `fn(key: &str) -> Option<Vec<u8>>` | Read bytes |
 | `kv_store_get_str` | `fn(key: &str) -> Option<String>` | Read string |
 | `kv_store_delete` | `fn(key: &str) -> bool` | Delete key |
+
+### Native File Picker & I/O
+
+Oxide provides a secure, handle-based file and folder picker. Paths never cross the WASM sandbox boundary. Instead, the host manages an internal mapping of handles to file paths and returns opaque `u32` handles to the guest. The guest then performs I/O using these handles.
+
+#### Types
+
+```rust
+pub struct FileMetadata {
+    pub name: String,
+    pub size: u64,
+    pub mime: String,
+    pub modified_ms: u64,
+    pub is_dir: bool,
+}
+
+pub struct FolderEntry {
+    pub name: String,
+    pub size: u64,
+    pub is_dir: bool,
+    pub handle: u32,
+}
+```
+
+#### Functions
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `file_pick` | `fn(title: &str, filters: &str, multiple: bool) -> Vec<u32>` | Open the native file picker. `filters` is a comma-separated list of extensions (e.g. `"png,jpg"`). Returns a list of opaque file handles. |
+| `folder_pick` | `fn(title: &str) -> Option<u32>` | Open the native folder picker. Returns a folder handle. |
+| `folder_entries` | `fn(handle: u32) -> Vec<FolderEntry>` | List children of a folder handle. Opaque handles are returned for children to allow traversal. |
+| `file_metadata` | `fn(handle: u32) -> Option<FileMetadata>` | Query file metadata (name, size, mime, modified_ms, is_dir). |
+| `file_read` | `fn(handle: u32) -> Option<Vec<u8>>` | Read the full file contents (capped at 64 MiB). |
+| `file_read_range` | `fn(handle: u32, offset: u64, len: u32) -> Option<Vec<u8>>` | Read a specific slice of a file, enabling efficient streaming/seeking. |
+
+#### Example
+
+```rust
+use oxide_sdk::{file_pick, file_metadata, file_read, folder_pick, folder_entries};
+
+fn test_file_picker() {
+    // Pick an image
+    let files = file_pick("Select an Image", "png,jpg,jpeg", false);
+    if let Some(&handle) = files.first() {
+        if let Some(meta) = file_metadata(handle) {
+            log(&format!("Picked file: {}, size: {} bytes", meta.name, meta.size));
+        }
+        if let Some(data) = file_read(handle) {
+            log(&format!("Read {} bytes successfully", data.len()));
+        }
+    }
+
+    // Pick a directory and list its contents
+    if let Some(folder_handle) = folder_pick("Select a Workspace Folder") {
+        let entries = folder_entries(folder_handle);
+        for entry in entries {
+            let kind = if entry.is_dir { "Directory" } else { "File" };
+            log(&format!("Entry: {} ({}), Size: {}", entry.name, kind, entry.size));
+        }
+    }
+}
+```
 
 ### Audio Playback
 
@@ -618,6 +726,77 @@ pub extern "C" fn on_timer(id: u32) {
     if id == 7 {
         // draw a frame, then schedule the next one
         request_animation_frame(7);
+    }
+}
+```
+
+### Event System
+
+Oxide features a unified event system for registering listeners for both built-in host events and custom guest events. Events fire via a guest-exported `on_event(callback_id: u32)` function, which the host calls once per pending event each frame (before timers and `on_frame`). Inside that callback, use `event_type()`, `event_data()`, or `event_data_into()` to query the event type and payload bytes.
+
+#### Built-In Events
+
+| Event Type | Payload Description |
+|------------|---------------------|
+| `"resize"` | 8 bytes: `width: u32, height: u32` (little-endian) |
+| `"focus"` / `"blur"` | Empty |
+| `"visibility_change"` | UTF-8 string `"visible"` or `"hidden"` |
+| `"online"` / `"offline"` | Empty |
+| `"touch_start"` | 8 bytes: `x: f32, y: f32` (little-endian) |
+| `"touch_move"` | 8 bytes: `x: f32, y: f32` (little-endian) |
+| `"touch_end"` | 8 bytes: `x: f32, y: f32` (little-endian) |
+| `"gamepad_connected"` | UTF-8 string containing the device name |
+| `"gamepad_button"` | 12 bytes: `id: u32, code: u32, pressed: u32` (little-endian) |
+| `"gamepad_axis"` | 12 bytes: `id: u32, code: u32, value: f32` (little-endian) |
+| `"drop_files"` | UTF-8 JSON array of dropped file paths, e.g. `["/tmp/a.png"]` |
+
+#### Functions
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `on_event` | `fn(event_type: &str, callback_id: u32) -> u32` | Register a listener for an event type. Returns a listener ID. |
+| `off_event` | `fn(listener_id: u32) -> bool` | Cancel a previously-registered listener by ID. |
+| `emit_event` | `fn(event_type: &str, data: &[u8])` | Emit a custom event with a payload, dispatched to listeners next frame. |
+| `event_type` | `fn() -> String` | Retrieve the name of the event currently being delivered (valid only in `on_event`). |
+| `event_data` | `fn(out: &mut [u8]) -> usize` | Copy the current event payload bytes into a buffer (returns bytes written). |
+| `event_data_into` | `fn() -> Vec<u8>` | Allocate a `Vec<u8>` with the full payload bytes of the current event. |
+
+#### Example
+
+```rust
+use oxide_sdk::{on_event, emit_event, event_type, event_data_into};
+
+#[no_mangle]
+pub extern "C" fn start_app() {
+    // Register for built-in resize events
+    on_event("resize", 100);
+
+    // Register for custom chat events
+    on_event("chat_message", 200);
+
+    // Trigger a custom event immediately
+    emit_event("chat_message", b"Hello, Oxide!");
+}
+
+#[no_mangle]
+pub extern "C" fn on_event(callback_id: u32) {
+    let name = event_type();
+    let payload = event_data_into();
+
+    match callback_id {
+        100 => {
+            if name == "resize" && payload.len() == 8 {
+                let w = u32::from_le_bytes(payload[0..4].try_into().unwrap());
+                let h = u32::from_le_bytes(payload[4..8].try_into().unwrap());
+                log(&format!("Window resized to {}x{}", w, h));
+            }
+        }
+        200 => {
+            if let Ok(msg) = String::from_utf8(payload) {
+                log(&format!("Chat received: {}", msg));
+            }
+        }
+        _ => {}
     }
 }
 ```

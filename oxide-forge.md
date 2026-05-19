@@ -1,11 +1,8 @@
-# Oxide Forge — Claude 4.7 Hackathon Plan
-
-> **Built with Opus 4.7: A Claude Code hackathon**
-> 500 $ Claude credits · 3–5 day target · solo build
+# Oxide Forge 
 
 Oxide today is a mature binary-first WASM browser (Rust + wasmtime + GPUI,
 capability-based sandbox, canvas/GPU/WebRTC/FFmpeg, immediate-mode rendering
-via `on_frame()`). This hackathon does not rebuild that core.
+via `on_frame()`).
 
 **Oxide Forge** is an AI-native layer running *inside* Oxide where Claude
 Opus 4.7 is the first-class co-creator: you describe an app in natural
@@ -229,7 +226,6 @@ Each example dir contains a `PROMPT.md` with the exact prompt used.
 - [ ] Record a 2–4 minute demo video (OBS or Screen Studio).
 - [ ] Short blog post / X thread draft (separate file, not published
       from here).
-- [ ] Tag a `v0-forge-hackathon` git tag once done.
 
 ### Phase 9 — Stretch goals (only if time)
 
@@ -309,11 +305,3 @@ Additional, per-phase:
 
 ---
 
-## 7 · Credits & attribution
-
-- Oxide core runtime: built over ~1 year with Claude Sonnet 3.5/4 under
-  the `CLAUDE.md` surgical-coding protocol.
-- Oxide Forge layer: built during the "Built with Opus 4.7" hackathon,
-  with Claude Opus 4.7 as the first-class co-creator.
-- Anthropic for the $500 credit grant.
-- Cerebral Valley for hosting the hackathon.
