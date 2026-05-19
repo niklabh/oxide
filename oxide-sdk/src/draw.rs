@@ -345,6 +345,48 @@ impl Canvas {
     pub fn height(&self) -> u32 {
         self.dimensions().1
     }
+
+    /// Draw text with explicit family, weight, style, and horizontal alignment.
+    ///
+    /// Pass an empty `family` to use the system UI font.
+    pub fn text_ex(
+        &self,
+        text: &str,
+        pos: Point2D,
+        size: f32,
+        color: Color,
+        family: &str,
+        weight: u32,
+        style: u32,
+        align: u32,
+    ) {
+        crate::canvas_text_ex(
+            pos.x,
+            pos.y,
+            size,
+            color.r,
+            color.g,
+            color.b,
+            color.a,
+            family,
+            weight,
+            style,
+            align,
+            text,
+        );
+    }
+
+    /// Measure a line of text shaped with the given font parameters.
+    pub fn measure_text(
+        &self,
+        size: f32,
+        family: &str,
+        weight: u32,
+        style: u32,
+        text: &str,
+    ) -> crate::TextMetrics {
+        crate::canvas_measure_text(size, family, weight, style, text)
+    }
 }
 
 impl Default for Canvas {

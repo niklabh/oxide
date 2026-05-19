@@ -34,7 +34,10 @@ use crate::capabilities::{
 };
 use crate::download::{format_bytes, DownloadManager, DownloadState};
 use crate::engine::ModuleLoader;
-use crate::forge::{ForgeCreationSummary, ForgePhase, ForgeSnapshot, ForgeState};
+use crate::forge::{
+    ForgeChatMessage, ForgeCreationSummary, ForgeMessageRole, ForgePhase, ForgeSnapshot, ForgeState,
+};
+use crate::forge_config::{mask_api_key, ForgeProvider, ForgeUserConfig};
 use crate::history::HistoryStore;
 use crate::navigation::HistoryEntry;
 use crate::runtime::{LiveModule, PageStatus};
@@ -1086,11 +1089,20 @@ pub struct OxideBrowserView {
     /// Focus for the page (canvas + guest widgets); required for keyboard to reach `on_key_down` on the root.
     canvas_focus: FocusHandle,
     url_focus: FocusHandle,
-    /// Keyboard focus for the `oxide://forge` prompt input.
+    /// Keyboard focus for the `oxide://forge` chat composer.
     forge_focus: FocusHandle,
-    /// Keyboard focus for the `oxide://forge` Anthropic API key input.
-    forge_api_key_focus: FocusHandle,
-    forge_api_key_input: String,
+    /// Keyboard focus for API key field in Forge settings.
+    forge_settings_key_focus: FocusHandle,
+    /// Keyboard focus for model field in Forge settings.
+    forge_settings_model_focus: FocusHandle,
+    /// Persisted multi-provider Forge configuration.
+    forge_config: ForgeUserConfig,
+    /// Provider tab selected in the settings panel.
+    forge_settings_provider: ForgeProvider,
+    /// Draft API key while editing settings (cleared after save).
+    forge_settings_key_draft: String,
+    /// Draft model id while editing settings.
+    forge_settings_model_draft: String,
     /// Receiver for [`FilePickDone`]; dialog runs on a background thread so the main thread never holds `App` during `NSOpenPanel`.
     file_pick_rx: Option<mpsc::Receiver<FilePickDone>>,
     download_manager: DownloadManager,
@@ -1125,8 +1137,12 @@ impl OxideBrowserView {
             canvas_focus: cx.focus_handle(),
             url_focus: cx.focus_handle(),
             forge_focus: cx.focus_handle(),
-            forge_api_key_focus: cx.focus_handle(),
-            forge_api_key_input: String::new(),
+            forge_settings_key_focus: cx.focus_handle(),
+            forge_settings_model_focus: cx.focus_handle(),
+            forge_config: ForgeUserConfig::load(),
+            forge_settings_provider: ForgeProvider::Anthropic,
+            forge_settings_key_draft: String::new(),
+            forge_settings_model_draft: String::new(),
             file_pick_rx: None,
             download_manager: DownloadManager::new(),
             show_downloads: false,
@@ -1138,30 +1154,59 @@ impl OxideBrowserView {
     }
 
     /// Ensure the Forge subsystem is initialised; returns `true` if available.
-    fn ensure_forge(&self) -> bool {
+    fn ensure_forge(&mut self) -> bool {
         let mut g = self.forge.lock().unwrap();
         if g.is_none() {
-            *g = ForgeState::new();
+            *g = ForgeState::from_config(&self.forge_config);
+        }
+        if let Some(forge) = g.as_mut() {
+            forge.apply_config(&self.forge_config);
         }
         g.is_some()
     }
 
-    fn forge_set_api_key(&mut self) {
-        let key = self.forge_api_key_input.trim().to_string();
-        if key.is_empty() {
-            return;
+    fn forge_sync_settings_drafts(&mut self) {
+        let p = self.forge_settings_provider;
+        let settings = self.forge_config.provider(p);
+        self.forge_settings_model_draft = settings.model_or_default(p);
+        self.forge_settings_key_draft.clear();
+    }
+
+    fn forge_toggle_settings(&mut self) {
+        self.forge_config.settings_open = !self.forge_config.settings_open;
+        if self.forge_config.settings_open {
+            self.forge_settings_provider = self.forge_config.active_provider;
+            self.forge_sync_settings_drafts();
         }
+    }
+
+    fn forge_select_provider(&mut self, provider: ForgeProvider) {
+        self.forge_config.active_provider = provider;
+        self.forge_settings_provider = provider;
+        self.forge_sync_settings_drafts();
         let mut g = self.forge.lock().unwrap();
-        match g.as_mut() {
-            Some(forge) => {
-                forge.set_api_key(key);
-            }
-            None => {
-                *g = ForgeState::with_api_key(key);
-            }
+        if let Some(forge) = g.as_mut() {
+            forge.apply_config(&self.forge_config);
         }
-        if g.is_some() {
-            self.forge_api_key_input.clear();
+        let _ = self.forge_config.save();
+    }
+
+    fn forge_save_provider_settings(&mut self) {
+        let provider = self.forge_settings_provider;
+        if !self.forge_settings_key_draft.trim().is_empty() {
+            self.forge_config
+                .set_api_key(provider, self.forge_settings_key_draft.clone());
+        }
+        self.forge_config
+            .set_model(provider, self.forge_settings_model_draft.clone());
+        let _ = self.forge_config.save();
+        self.forge_settings_key_draft.clear();
+
+        let mut g = self.forge.lock().unwrap();
+        if g.is_none() {
+            *g = ForgeState::from_config(&self.forge_config);
+        } else if let Some(forge) = g.as_mut() {
+            forge.apply_config(&self.forge_config);
         }
     }
 
@@ -1573,20 +1618,32 @@ impl Render for OxideBrowserView {
                         cx.notify();
                         return;
                     }
-                    if this.forge_api_key_focus.is_focused(window) {
+                    if this.forge_settings_key_focus.is_focused(window)
+                        || this.forge_settings_model_focus.is_focused(window)
+                    {
+                        let editing_key = this.forge_settings_key_focus.is_focused(window);
+                        let draft = if editing_key {
+                            &mut this.forge_settings_key_draft
+                        } else {
+                            &mut this.forge_settings_model_draft
+                        };
                         match event.keystroke.key.as_str() {
                             "enter" => {
-                                this.forge_set_api_key();
+                                this.forge_save_provider_settings();
                                 cx.notify();
                                 return;
                             }
                             "escape" => {
-                                this.forge_api_key_input.clear();
+                                if editing_key {
+                                    this.forge_settings_key_draft.clear();
+                                } else {
+                                    this.forge_sync_settings_drafts();
+                                }
                                 cx.notify();
                                 return;
                             }
                             "backspace" => {
-                                this.forge_api_key_input.pop();
+                                draft.pop();
                                 cx.notify();
                                 return;
                             }
@@ -1595,14 +1652,14 @@ impl Render for OxideBrowserView {
                         if event.keystroke.modifiers.secondary() && event.keystroke.key == "v" {
                             if let Ok(mut cb) = arboard::Clipboard::new() {
                                 if let Ok(pasted) = cb.get_text() {
-                                    this.forge_api_key_input.push_str(pasted.trim());
+                                    draft.push_str(pasted.trim());
                                     cx.notify();
                                 }
                             }
                             return;
                         }
                         if let Some(s) = text_insert_from_keystroke(&event.keystroke) {
-                            this.forge_api_key_input.push_str(&s);
+                            draft.push_str(&s);
                             cx.notify();
                         }
                         return;
@@ -2807,31 +2864,44 @@ impl Render for OxideBrowserView {
                         .unwrap_or_else(|| "(not configured)".to_string());
                     let prompt_draft = self.tabs[active].forge_prompt.clone();
                     let prompt_focused = self.forge_focus.is_focused(window);
-                    let api_key_focused = self.forge_api_key_focus.is_focused(window);
-                    let api_key_draft = self.forge_api_key_input.clone();
-                    let api_key_display = if api_key_draft.is_empty() {
-                        "Anthropic API key".to_string()
+                    let settings_open = self.forge_config.settings_open;
+                    let active_provider = self.forge_config.active_provider;
+                    let active_model = self.forge_config.active_model();
+                    let settings_provider = self.forge_settings_provider;
+                    let settings_key_focused = self.forge_settings_key_focus.is_focused(window);
+                    let settings_model_focused = self.forge_settings_model_focus.is_focused(window);
+                    let settings_key_draft = self.forge_settings_key_draft.clone();
+                    let settings_model_draft = self.forge_settings_model_draft.clone();
+                    let saved_key = self.forge_config.provider(settings_provider).api_key;
+                    let settings_key_hint = if settings_key_draft.is_empty() {
+                        if saved_key.is_empty() {
+                            format!("Paste {} API key", settings_provider.label())
+                        } else {
+                            mask_api_key(&saved_key)
+                        }
                     } else {
-                        "•".repeat(api_key_draft.chars().count().min(32))
+                        "•".repeat(settings_key_draft.chars().count().min(28))
                     };
-                    let api_key_color = if api_key_draft.is_empty() {
-                        gpui::rgb(0x5a5a6a)
-                    } else {
-                        gpui::rgb(0xe0e0ff)
-                    };
-                    let api_key_submit_enabled = !api_key_draft.trim().is_empty();
+                    let settings_save_enabled = !settings_key_draft.trim().is_empty()
+                        || !settings_model_draft.trim().is_empty()
+                        || !saved_key.is_empty();
 
                     let (status_word, status_color, status_hint) = if !forge_ready {
                         (
-                            "API key required",
+                            "Configure AI".to_string(),
                             gpui::rgb(0xf08050),
-                            "Enter an Anthropic API key to enable Forge.",
+                            "Open Settings and add an API key for your preferred provider."
+                                .to_string(),
                         )
                     } else {
                         (
-                            "ready",
+                            "ready".to_string(),
                             gpui::rgb(0x80d090),
-                            "Describe an app. Claude will write a guest WASM module in the Oxide sandbox.",
+                            format!(
+                                "Using {} · {}. Chat to generate sandboxed guest WASM apps. Output: {output_dir}",
+                                active_provider.label(),
+                                active_model
+                            ),
                         )
                     };
 
@@ -3006,12 +3076,27 @@ impl Render for OxideBrowserView {
                                 })),
                         );
 
-                    let mut detail_panel = div()
-                        .id("oxide_forge_detail")
+                    let mut chat_panel = div()
+                        .id("oxide_forge_chat")
                         .flex_1()
                         .min_h_0()
                         .flex()
-                        .flex_col();
+                        .flex_col()
+                        .rounded_md()
+                        .bg(gpui::rgb(0x181820))
+                        .border_1()
+                        .border_color(gpui::rgb(0x2a2a34));
+
+                    let mut code_panel = div()
+                        .id("oxide_forge_code_panel")
+                        .w(px(340.0))
+                        .min_h_0()
+                        .flex()
+                        .flex_col()
+                        .rounded_md()
+                        .bg(gpui::rgb(0x15151c))
+                        .border_1()
+                        .border_color(gpui::rgb(0x2a2a34));
 
                     if let Some(snap) = snapshot.clone() {
                         let phase_text = if snap.retries_used > 0 {
@@ -3035,14 +3120,17 @@ impl Render for OxideBrowserView {
                             .map(|p| p.display().to_string())
                             .unwrap_or_else(|| "No wasm artifact yet".to_string());
 
-                        detail_panel = detail_panel
+                        chat_panel = chat_panel
                             .child(
                                 div()
+                                    .px_3()
+                                    .py_2()
+                                    .border_b_1()
+                                    .border_color(gpui::rgb(0x2a2a34))
                                     .flex()
                                     .flex_row()
                                     .items_center()
                                     .justify_between()
-                                    .gap_2()
                                     .child(
                                         div()
                                             .child(
@@ -3058,9 +3146,10 @@ impl Render for OxideBrowserView {
                                                     .text_xs()
                                                     .text_color(gpui::rgb(0x7a7a90))
                                                     .child(format!(
-                                                        "{}  •  {}",
+                                                        "{} · {} · {}",
                                                         snap.slug,
-                                                        snap.project_dir.display()
+                                                        snap.provider.label(),
+                                                        snap.model
                                                     )),
                                             ),
                                     )
@@ -3077,24 +3166,39 @@ impl Render for OxideBrowserView {
                             )
                             .child(
                                 div()
-                                    .mt_2()
+                                    .id("oxide_forge_messages")
+                                    .flex_1()
+                                    .min_h_0()
+                                    .overflow_scroll()
+                                    .p_3()
+                                    .flex()
+                                    .flex_col()
+                                    .gap_2()
+                                    .children(snap.messages.iter().enumerate().map(
+                                        |(i, msg)| forge_chat_bubble(i, msg, snap.phase),
+                                    )),
+                            );
+
+                        code_panel = code_panel
+                            .child(
+                                div()
+                                    .px_3()
+                                    .py_2()
+                                    .border_b_1()
+                                    .border_color(gpui::rgb(0x2a2a34))
                                     .text_xs()
-                                    .text_color(gpui::rgb(0x8a8aa0))
-                                    .child(artifact),
+                                    .font_weight(gpui::FontWeight::BOLD)
+                                    .text_color(gpui::rgb(0xc0c0d8))
+                                    .child("Generated code"),
                             )
                             .child(
                                 div()
                                     .id("oxide_forge_code")
-                                    .mt_2()
                                     .flex_1()
                                     .min_h_0()
                                     .overflow_scroll()
                                     .px_3()
                                     .py_2()
-                                    .rounded_md()
-                                    .bg(gpui::rgb(0x15151c))
-                                    .border_1()
-                                    .border_color(gpui::rgb(0x2a2a34))
                                     .text_xs()
                                     .text_color(gpui::rgb(0xc0c0d8))
                                     .font(font("Menlo"))
@@ -3107,36 +3211,34 @@ impl Render for OxideBrowserView {
                             .child(
                                 div()
                                     .id("oxide_forge_log")
-                                    .mt_2()
-                                    .max_h(px(160.0))
+                                    .max_h(px(120.0))
                                     .overflow_scroll()
                                     .px_3()
                                     .py_2()
-                                    .rounded_md()
-                                    .bg(gpui::rgb(0x1a1520))
-                                    .border_1()
-                                    .border_color(gpui::rgb(0x3a2a3a))
+                                    .border_t_1()
+                                    .border_color(gpui::rgb(0x2a2a34))
                                     .text_xs()
                                     .text_color(gpui::rgb(0xf0c0a0))
                                     .font(font("Menlo"))
                                     .child(if let Some(e) = err {
                                         format!("error: {e}\n\n{build_log}")
                                     } else if build_log.is_empty() {
-                                        "(no build output)".to_string()
+                                        artifact
                                     } else {
                                         build_log
                                     }),
                             )
                             .child(
                                 div()
-                                    .mt_2()
+                                    .p_2()
                                     .flex()
                                     .flex_row()
                                     .gap_2()
                                     .child(
                                         div()
                                             .id("oxide_forge_build_btn")
-                                            .px_3()
+                                            .flex_1()
+                                            .px_2()
                                             .py_2()
                                             .rounded_md()
                                             .bg(if can_build {
@@ -3144,7 +3246,7 @@ impl Render for OxideBrowserView {
                                             } else {
                                                 gpui::rgb(0x3a3a44)
                                             })
-                                            .text_sm()
+                                            .text_xs()
                                             .text_color(gpui::rgb(0xffffff))
                                             .cursor_pointer()
                                             .child("Build")
@@ -3158,7 +3260,8 @@ impl Render for OxideBrowserView {
                                     .child(
                                         div()
                                             .id("oxide_forge_run_btn")
-                                            .px_3()
+                                            .flex_1()
+                                            .px_2()
                                             .py_2()
                                             .rounded_md()
                                             .bg(if can_run {
@@ -3166,10 +3269,10 @@ impl Render for OxideBrowserView {
                                             } else {
                                                 gpui::rgb(0x3a3a44)
                                             })
-                                            .text_sm()
+                                            .text_xs()
                                             .text_color(gpui::rgb(0xffffff))
                                             .cursor_pointer()
-                                            .child("Run in new tab")
+                                            .child("Run")
                                             .on_click(cx.listener(
                                                 |this, _: &ClickEvent, _, cx| {
                                                     this.forge_run_in_new_tab();
@@ -3180,7 +3283,7 @@ impl Render for OxideBrowserView {
                                     .child(
                                         div()
                                             .id("oxide_forge_delete_btn")
-                                            .px_3()
+                                            .px_2()
                                             .py_2()
                                             .rounded_md()
                                             .bg(if can_delete {
@@ -3188,10 +3291,10 @@ impl Render for OxideBrowserView {
                                             } else {
                                                 gpui::rgb(0x3a3a44)
                                             })
-                                            .text_sm()
+                                            .text_xs()
                                             .text_color(gpui::rgb(0xffffff))
                                             .cursor_pointer()
-                                            .child("Delete")
+                                            .child("Del")
                                             .on_click(cx.listener(
                                                 |this, _: &ClickEvent, _, cx| {
                                                     this.forge_delete_current_creation();
@@ -3201,17 +3304,51 @@ impl Render for OxideBrowserView {
                                     ),
                             );
                     } else {
-                        detail_panel = detail_panel.child(
+                        chat_panel = chat_panel.child(
+                            div()
+                                .flex_1()
+                                .flex()
+                                .flex_col()
+                                .items_center()
+                                .justify_center()
+                                .p_4()
+                                .child(
+                                    div()
+                                        .text_sm()
+                                        .text_color(gpui::rgb(0x9a9ab0))
+                                        .child("Welcome to Oxide Forge"),
+                                )
+                                .child(
+                                    div()
+                                        .mt_2()
+                                        .text_xs()
+                                        .text_color(gpui::rgb(0x6a6a80))
+                                        .child(
+                                            "Describe an app below — like Cursor chat, Forge writes Rust, builds WASM, and runs it in a tab.",
+                                        ),
+                                ),
+                        );
+                        code_panel = code_panel.child(
                             div()
                                 .flex_1()
                                 .flex()
                                 .items_center()
                                 .justify_center()
-                                .text_sm()
-                                .text_color(gpui::rgb(0x7a7a90))
-                                .child("Choose a creation or describe a new app."),
+                                .text_xs()
+                                .text_color(gpui::rgb(0x6a6a80))
+                                .child("Code appears here after generation."),
                         );
                     }
+
+                    let workspace_panel = div()
+                        .flex_1()
+                        .min_h_0()
+                        .flex()
+                        .flex_row()
+                        .gap_3()
+                        .child(list_panel)
+                        .child(chat_panel)
+                        .child(code_panel);
 
                     content_col = content_col.child(
                         div()
@@ -3244,8 +3381,74 @@ impl Render for OxideBrowserView {
                                                     .mt_1()
                                                     .text_xs()
                                                     .text_color(gpui::rgb(0x8a8aa0))
-                                                    .child(format!("{status_hint} Output: {output_dir}")),
+                                                    .child(status_hint.clone()),
                                             ),
+                                    )
+                                    .child(
+                                        div()
+                                            .flex()
+                                            .flex_row()
+                                            .gap_1()
+                                            .children(ForgeProvider::ALL.iter().enumerate().map(
+                                                |(i, provider)| {
+                                                    let selected = *provider == active_provider;
+                                                    let configured =
+                                                        self.forge_config.provider(*provider)
+                                                            .has_key();
+                                                    let dot = if configured { "● " } else { "" };
+                                                    div()
+                                                        .id(("oxide_forge_provider", i))
+                                                        .px_2()
+                                                        .py_1()
+                                                        .rounded_sm()
+                                                        .bg(if selected {
+                                                            gpui::rgb(0x4a3a7a)
+                                                        } else {
+                                                            gpui::rgb(0x2a2a36)
+                                                        })
+                                                        .text_xs()
+                                                        .text_color(if selected {
+                                                            gpui::rgb(0xffffff)
+                                                        } else {
+                                                            gpui::rgb(0xb0b0c0)
+                                                        })
+                                                        .cursor_pointer()
+                                                        .child(format!(
+                                                            "{dot}{}",
+                                                            provider.label()
+                                                        ))
+                                                        .on_click(cx.listener(
+                                                            move |this, _: &ClickEvent, _, cx| {
+                                                                this.forge_select_provider(
+                                                                    *provider,
+                                                                );
+                                                                cx.notify();
+                                                            },
+                                                        ))
+                                                },
+                                            )),
+                                    )
+                                    .child(
+                                        div()
+                                            .id("oxide_forge_settings_btn")
+                                            .px_2()
+                                            .py_1()
+                                            .rounded_sm()
+                                            .bg(if settings_open {
+                                                gpui::rgb(0x3a4a5a)
+                                            } else {
+                                                gpui::rgb(0x2a2a36)
+                                            })
+                                            .text_xs()
+                                            .text_color(gpui::rgb(0xd0d0dc))
+                                            .cursor_pointer()
+                                            .child("Settings")
+                                            .on_click(cx.listener(
+                                                |this, _: &ClickEvent, _, cx| {
+                                                    this.forge_toggle_settings();
+                                                    cx.notify();
+                                                },
+                                            )),
                                     )
                                     .child(
                                         div()
@@ -3257,7 +3460,7 @@ impl Render for OxideBrowserView {
                                             .text_xs()
                                             .text_color(gpui::rgb(0xd0d0dc))
                                             .cursor_pointer()
-                                            .child("Choose folder")
+                                            .child("Folder")
                                             .on_click(cx.listener(
                                                 |this, _: &ClickEvent, _, cx| {
                                                     this.forge_pick_output_dir();
@@ -3277,80 +3480,210 @@ impl Render for OxideBrowserView {
                                     ),
                             )
                             .child(div().mt_3().h(px(1.0)).bg(gpui::rgb(0x2a2a32)))
+                            .when(settings_open, |panel| {
+                                panel.child(
+                                    div()
+                                        .id("oxide_forge_settings")
+                                        .mt_3()
+                                        .p_3()
+                                        .rounded_md()
+                                        .bg(gpui::rgb(0x1a1a22))
+                                        .border_1()
+                                        .border_color(gpui::rgb(0x33333f))
+                                        .child(
+                                            div()
+                                                .text_sm()
+                                                .font_weight(gpui::FontWeight::BOLD)
+                                                .text_color(gpui::rgb(0xe0e0f0))
+                                                .child("AI provider settings"),
+                                        )
+                                        .child(
+                                            div()
+                                                .mt_2()
+                                                .flex()
+                                                .flex_row()
+                                                .gap_1()
+                                                .children(
+                                                    ForgeProvider::ALL.iter().enumerate().map(
+                                                        |(i, provider)| {
+                                                            let selected =
+                                                                *provider == settings_provider;
+                                                            let configured = self
+                                                                .forge_config
+                                                                .provider(*provider)
+                                                                .has_key();
+                                                            div()
+                                                                .id(("oxide_forge_settings_tab", i))
+                                                                .px_2()
+                                                                .py_1()
+                                                                .rounded_sm()
+                                                                .bg(if selected {
+                                                                    gpui::rgb(0x3a3a50)
+                                                                } else {
+                                                                    gpui::rgb(0x252530)
+                                                                })
+                                                                .text_xs()
+                                                                .text_color(if configured {
+                                                                    gpui::rgb(0x90d0a0)
+                                                                } else {
+                                                                    gpui::rgb(0x9090a8)
+                                                                })
+                                                                .cursor_pointer()
+                                                                .child(provider.label())
+                                                                .on_click(cx.listener(
+                                                                    move |this,
+                                                                          _: &ClickEvent,
+                                                                          _,
+                                                                          cx| {
+                                                                        this.forge_settings_provider =
+                                                                            *provider;
+                                                                        this.forge_sync_settings_drafts();
+                                                                        cx.notify();
+                                                                    },
+                                                                ))
+                                                        },
+                                                    ),
+                                                ),
+                                        )
+                                        .child(
+                                            div()
+                                                .mt_2()
+                                                .text_xs()
+                                                .text_color(gpui::rgb(0x7a7a90))
+                                                .child(format!(
+                                                    "Keys are stored locally at {}",
+                                                    ForgeUserConfig::config_path().display()
+                                                )),
+                                        )
+                                        .child(
+                                            div()
+                                                .mt_2()
+                                                .text_xs()
+                                                .text_color(gpui::rgb(0x8a8aa0))
+                                                .child("Model"),
+                                        )
+                                        .child(
+                                            div()
+                                                .id("oxide_forge_settings_model")
+                                                .mt_1()
+                                                .track_focus(&self.forge_settings_model_focus)
+                                                .focusable()
+                                                .px_3()
+                                                .py_2()
+                                                .rounded_md()
+                                                .bg(gpui::rgb(0x121218))
+                                                .border_1()
+                                                .border_color(if settings_model_focused {
+                                                    gpui::rgb(0x7a5ae0)
+                                                } else {
+                                                    gpui::rgb(0x33333f)
+                                                })
+                                                .text_sm()
+                                                .text_color(gpui::rgb(0xe0e0ff))
+                                                .child(if settings_model_focused && caret_blink_on
+                                                {
+                                                    format!("{settings_model_draft}\u{2588}")
+                                                } else {
+                                                    settings_model_draft.clone()
+                                                })
+                                                .on_click(cx.listener(
+                                                    |this, _: &ClickEvent, window, cx| {
+                                                        window.focus(
+                                                            &this.forge_settings_model_focus,
+                                                        );
+                                                        cx.notify();
+                                                    },
+                                                )),
+                                        )
+                                        .child(
+                                            div()
+                                                .mt_2()
+                                                .text_xs()
+                                                .text_color(gpui::rgb(0x8a8aa0))
+                                                .child("API key"),
+                                        )
+                                        .child(
+                                            div()
+                                                .mt_1()
+                                                .flex()
+                                                .flex_row()
+                                                .gap_2()
+                                                .child(
+                                                    div()
+                                                        .id("oxide_forge_settings_key")
+                                                        .track_focus(&self.forge_settings_key_focus)
+                                                        .focusable()
+                                                        .flex_1()
+                                                        .px_3()
+                                                        .py_2()
+                                                        .rounded_md()
+                                                        .bg(gpui::rgb(0x121218))
+                                                        .border_1()
+                                                        .border_color(if settings_key_focused {
+                                                            gpui::rgb(0x4ea39a)
+                                                        } else {
+                                                            gpui::rgb(0x33333f)
+                                                        })
+                                                        .text_sm()
+                                                        .text_color(gpui::rgb(0xe0e0ff))
+                                                        .child(
+                                                            if settings_key_focused && caret_blink_on
+                                                            {
+                                                                format!("{settings_key_hint}\u{2588}")
+                                                            } else {
+                                                                settings_key_hint.clone()
+                                                            },
+                                                        )
+                                                        .on_click(cx.listener(
+                                                            |this, _: &ClickEvent, window, cx| {
+                                                                window.focus(
+                                                                    &this.forge_settings_key_focus,
+                                                                );
+                                                                cx.notify();
+                                                            },
+                                                        )),
+                                                )
+                                                .child(
+                                                    div()
+                                                        .id("oxide_forge_settings_save")
+                                                        .px_3()
+                                                        .py_2()
+                                                        .rounded_md()
+                                                        .bg(if settings_save_enabled {
+                                                            gpui::rgb(0x2f6f68)
+                                                        } else {
+                                                            gpui::rgb(0x3a3a44)
+                                                        })
+                                                        .text_sm()
+                                                        .text_color(gpui::rgb(0xffffff))
+                                                        .cursor_pointer()
+                                                        .child("Save")
+                                                        .on_click(cx.listener(
+                                                            |this, _: &ClickEvent, _, cx| {
+                                                                this.forge_save_provider_settings();
+                                                                cx.notify();
+                                                            },
+                                                        )),
+                                                ),
+                                        ),
+                                )
+                            })
                             .child(
                                 div()
-                                    .id("oxide_forge_api_key_row")
                                     .mt_3()
+                                    .flex_1()
+                                    .min_h_0()
                                     .flex()
-                                    .flex_row()
-                                    .gap_2()
-                                    .items_center()
+                                    .flex_col()
+                                    .child(workspace_panel)
                                     .child(
                                         div()
-                                            .id("oxide_forge_api_key_input")
-                                            .track_focus(&self.forge_api_key_focus)
-                                            .focusable()
-                                            .flex_1()
-                                            .px_3()
-                                            .py_2()
-                                            .rounded_md()
-                                            .bg(gpui::rgb(0x1b1b24))
-                                            .border_1()
-                                            .border_color(if api_key_focused {
-                                                gpui::rgb(0x4ea39a)
-                                            } else {
-                                                gpui::rgb(0x33333f)
-                                            })
-                                            .text_sm()
-                                            .text_color(api_key_color)
-                                            .child(if api_key_focused && caret_blink_on {
-                                                format!("{api_key_display}\u{2588}")
-                                            } else {
-                                                api_key_display
-                                            })
-                                            .on_click(cx.listener(
-                                                |this, _: &ClickEvent, window, cx| {
-                                                    window.focus(&this.forge_api_key_focus);
-                                                    cx.notify();
-                                                },
-                                            )),
-                                    )
-                                    .child(
-                                        div()
-                                            .id("oxide_forge_api_key_submit")
-                                            .px_3()
-                                            .py_2()
-                                            .rounded_md()
-                                            .bg(if api_key_submit_enabled {
-                                                gpui::rgb(0x2f6f68)
-                                            } else {
-                                                gpui::rgb(0x3a3a44)
-                                            })
-                                            .text_sm()
-                                            .text_color(gpui::rgb(0xffffff))
-                                            .cursor_pointer()
-                                            .child(if forge_ready {
-                                                "Update key"
-                                            } else {
-                                                "Set key"
-                                            })
-                                            .on_click(cx.listener(
-                                                |this, _: &ClickEvent, _, cx| {
-                                                    this.forge_set_api_key();
-                                                    cx.notify();
-                                                },
-                                            )),
-                                    ),
-                            )
-                            .child(
-                                div()
-                                    .id("oxide_forge_prompt_row")
-                                    .mt_3()
-                                    .flex()
-                                    .flex_row()
-                                    .gap_2()
-                                    .items_center()
-                                    .child(
+                                            .id("oxide_forge_prompt_row")
+                                            .flex()
+                                            .flex_row()
+                                            .gap_2()
+                                            .items_center()
+                                            .child(
                                         div()
                                             .id("oxide_forge_prompt_input")
                                             .track_focus(&self.forge_focus)
@@ -3405,20 +3738,10 @@ impl Render for OxideBrowserView {
                                     .text_xs()
                                     .text_color(gpui::rgb(0x6a6a80))
                                     .child(
-                                        "Enter submits. Shift+Enter adds a line. Select an app on the left to keep iterating.",
+                                        "Enter to send · Shift+Enter for newline · Pick a provider above · Settings for API keys",
                                     ),
-                            )
-                            .child(
-                                div()
-                                    .mt_3()
-                                    .flex_1()
-                                    .min_h_0()
-                                    .flex()
-                                    .flex_row()
-                                    .gap_3()
-                                    .child(list_panel)
-                                    .child(detail_panel),
                             ),
+                    ),
                     );
                 }
             }
@@ -4392,6 +4715,70 @@ impl Render for OxideBrowserView {
 
         root
     }
+}
+
+/// Render one chat bubble in the Forge conversation panel.
+fn forge_chat_bubble(
+    index: usize,
+    msg: &ForgeChatMessage,
+    phase: ForgePhase,
+) -> impl IntoElement {
+    let is_user = msg.role == ForgeMessageRole::User;
+    let preview = if msg.content.len() > 4000 {
+        format!("{}…", &msg.content[..4000])
+    } else {
+        msg.content.clone()
+    };
+    let streaming_tail = if !is_user
+        && phase == ForgePhase::Streaming
+        && msg.content.is_empty()
+    {
+        "▍"
+    } else {
+        ""
+    };
+    let (bg, fg, label) = if is_user {
+        (
+            gpui::rgb(0x3a2f5a),
+            gpui::rgb(0xf0ecff),
+            "You",
+        )
+    } else {
+        (
+            gpui::rgb(0x242430),
+            gpui::rgb(0xd8d8e8),
+            "Forge",
+        )
+    };
+    div()
+        .id(("oxide_forge_msg", index))
+        .w_full()
+        .flex()
+        .flex_col()
+        .items_start()
+        .child(
+            div()
+                .text_xs()
+                .text_color(gpui::rgb(0x7a7a90))
+                .child(label),
+        )
+        .child(
+            div()
+                .mt_1()
+                .max_w(px(520.0))
+                .px_3()
+                .py_2()
+                .rounded_md()
+                .bg(bg)
+                .text_sm()
+                .text_color(fg)
+                .font(if is_user {
+                    font("Inter")
+                } else {
+                    font("Menlo")
+                })
+                .child(format!("{preview}{streaming_tail}")),
+        )
 }
 
 /// Human-readable label for a [`ForgePhase`].

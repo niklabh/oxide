@@ -130,12 +130,15 @@ Guest modules start with **zero capabilities**. Every interaction with the outsi
 
 | Category | Host Functions |
 |----------|---------------|
-| **Canvas** | `clear`, `rect`, `circle`, `text`, `line`, `image`, `dimensions`, plus the `oxide_sdk::draw` high-level API |
+| **Canvas** | `clear`, `rect`, `circle`, `text`, `text_ex` (advanced typography), `measure_text`, `line`, `image`, `dimensions`, `set_content_size` (virtual scroll area), `scroll_position`, `set_scroll_position`, plus the `oxide_sdk::draw` high-level API |
 | **GPU** | `gpu_create_buffer/texture/shader`, `gpu_create_pipeline`, `gpu_create_compute_pipeline`, `gpu_write_buffer`, `gpu_draw`, `gpu_dispatch_compute` (WGSL) |
 | **UI widgets** | `button`, `checkbox`, `slider`, `text_input` (immediate-mode) |
 | **Console** | `log`, `warn`, `error` |
 | **Input** | `mouse_position`, `mouse_button_down/clicked`, `key_down/pressed`, `scroll_delta`, `modifiers` |
 | **Storage** | `storage_set/get/remove` (session), `kv_store_set/get/delete` (persistent, sled-backed) |
+| **File Picker & I/O** | `file_pick` (multi-select filter), `folder_pick`, `folder_entries` (directory listing), `file_metadata`, `file_read` (full stream), `file_read_range` (partial read) |
+| **Event System** | `on_event` (dynamic listener), `off_event`, `emit_event` (custom/system dispatch) |
+| **Download & PDF** | `download_data` (local save), `download_url` (background progress), `canvas_print_pdf` (vector print) |
 | **HTTP** | `fetch` (full HTTP), `fetch_get/post/put/delete`, `fetch_post_proto` |
 | **Streaming HTTP** | `fetch_begin`, `fetch_state`, `fetch_status`, `fetch_recv`, `fetch_error`, `fetch_abort` |
 | **WebSocket** | `ws_connect`, `ws_send_text/binary`, `ws_recv`, `ws_ready_state`, `ws_close`, `ws_remove` |

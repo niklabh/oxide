@@ -13,6 +13,8 @@ const BLUE: (u8, u8, u8) = (80, 160, 240);
 const ORANGE: (u8, u8, u8) = (240, 170, 60);
 const PURPLE: (u8, u8, u8) = (160, 90, 220);
 const PINK: (u8, u8, u8) = (240, 140, 200);
+const CYAN: (u8, u8, u8) = (80, 220, 220);
+const YELLOW: (u8, u8, u8) = (240, 220, 80);
 const DIVIDER: (u8, u8, u8) = (50, 45, 70);
 
 struct Card {
@@ -64,6 +66,22 @@ const CARDS: &[Card] = &[
         url: "https://oxide.foundation/events_demo.wasm",
         color: PINK,
         icon_char: "E",
+    },
+    Card {
+        title: "Typography Demo",
+        subtitle: "typography_demo.wasm",
+        description: "Custom font loading, metrics measurement, advanced layout and wrapping.",
+        url: "https://oxide.foundation/typography_demo.wasm",
+        color: CYAN,
+        icon_char: "T",
+    },
+    Card {
+        title: "File Picker Demo",
+        subtitle: "file_picker_demo.wasm",
+        description: "Native file/folder selection, handle-based traversal, and local file reading.",
+        url: "https://oxide.foundation/file_picker_demo.wasm",
+        color: YELLOW,
+        icon_char: "F",
     },
 ];
 
