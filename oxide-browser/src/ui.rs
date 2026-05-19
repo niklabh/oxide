@@ -220,10 +220,8 @@ impl TabState {
             && !url.starts_with("https://"))
             || url.contains(' ');
         if is_search {
-            url = format!(
-                "https://www.google.com/search?q={}",
-                crate::url::percent_encode(&url)
-            );
+            self.forge_prompt = url;
+            url = "oxide://forge".to_string();
             self.url_input = url.clone();
             self.url_clamp_cursor();
         }
@@ -251,10 +249,8 @@ impl TabState {
             && !url.starts_with("https://"))
             || url.contains(' ');
         if is_search {
-            url = format!(
-                "https://www.google.com/search?q={}",
-                crate::url::percent_encode(&url)
-            );
+            self.forge_prompt = url;
+            url = "oxide://forge".to_string();
         }
         self.url_input = url.clone();
         let len = self.url_input.len();
