@@ -333,15 +333,15 @@ Security is **additive**: nothing is granted by default. File access uses a nati
 ### Flow
 
 ```
- ┌───────────────────┐    ┌────────────────┐   ┌──────────────────┐
- │  prompt / revise  │───▶│  Claude stream │──▶│  write lib.rs    │
- │  (oxide://forge)  │    │  (Messages API)│   │  to chosen dir   │
- └───────────────────┘    └────────────────┘   └────────┬─────────┘
-                                                        │
- ┌───────────────────┐    ┌────────────────┐   ┌────────▼─────────┐
- │  "Run" → new tab  │◀───│  load .wasm    │◀──│  cargo build     │
- │  sandboxed        │    │  into BrowserHost │  wasm32-unknown  │
- └───────────────────┘    └────────────────┘   └──────────────────┘
+ ┌───────────────────┐    ┌────────────────┐   ┌────────────────────┐
+ │  prompt / revise  │───▶│  Claude stream │──▶│  write lib.rs      │
+ │  (oxide://forge)  │    │  (Messages API)│   │  to chosen dir     │
+ └───────────────────┘    └────────────────┘   └──────────┬─────────┘
+                                                          │
+ ┌───────────────────┐    ┌──────────────────┐   ┌────────▼─────────┐
+ │  "Run" → new tab  │◀───│  load .wasm      │◀──│  cargo build     │
+ │  sandboxed        │    │  into BrowserHost│   |  wasm32-unknown  │
+ └───────────────────┘    └──────────────────┘   └──────────────────┘
 ```
 
 Forge lists every creation; select one and prompt again to **revise** — it sends the current `src/lib.rs` to Claude, rebuilds, and copies `<slug>.wasm` into the project folder. On compile failure, Forge feeds compiler output back to Claude up to **3 times** before surfacing the error.
