@@ -30,8 +30,38 @@ use smallvec::smallvec;
 
 use crate::bookmarks::BookmarkStore;
 use crate::capabilities::{
-    ConsoleLevel, DrawCommand, GradientStop, HostState, WidgetCommand, WidgetValue,
+    ConsoleLevel, DrawCommand, GradientStop, HostState, WidgetCommand, WidgetValue, WidgetVariant,
 };
+
+/// shadcn-inspired neutral dark palette used across the desktop shell and guest widgets.
+///
+/// Mirrors the default zinc-based dark theme: subtle borders, low-contrast surfaces,
+/// high-contrast foreground text. Kept as raw RGB so the values match GPUI helpers exactly.
+#[allow(dead_code)]
+mod theme {
+    use gpui::Rgba;
+
+    pub const BG: u32 = 0x0a0a0b; // background — page chrome
+    pub const SURFACE: u32 = 0x18181b; // raised panel
+    pub const SURFACE_HOVER: u32 = 0x27272a; // hover state on surfaces
+    pub const MUTED: u32 = 0x27272a; // muted control fill (input, switch off)
+    pub const BORDER: u32 = 0x27272a; // 1px outlines
+    pub const BORDER_STRONG: u32 = 0x3f3f46; // emphasised outlines
+    pub const RING: u32 = 0xd4d4d8; // focus ring
+    pub const PRIMARY: u32 = 0xfafafa; // primary fill (button default)
+    pub const PRIMARY_FG: u32 = 0x18181b; // text on primary fill
+    pub const FG: u32 = 0xfafafa; // body text
+    pub const FG_MUTED: u32 = 0xa1a1aa; // secondary text
+    pub const FG_DIM: u32 = 0x71717a; // disabled / placeholder text
+    pub const ACCENT: u32 = 0x60a5fa; // info / link
+    pub const DESTRUCTIVE: u32 = 0x7f1d1d; // destructive button
+    pub const SUCCESS: u32 = 0x16a34a; // success badge
+
+    /// Translucent selection highlight (matches a thin ring on dark backgrounds).
+    pub fn selection() -> Rgba {
+        gpui::rgba(0x60a5fa55)
+    }
+}
 use crate::download::{format_bytes, DownloadManager, DownloadState};
 use crate::engine::ModuleLoader;
 use crate::forge::{
@@ -109,6 +139,34 @@ fn format_friendly_timestamp(timestamp_ms: u64) -> String {
     }
 }
 
+/// Caret + selection + scroll offsets for an editable widget, keyed off the widget id.
+///
+/// Persisted on [`TabState`] across frames so guests don't have to thread cursor state
+/// through their own UI loop — the host owns the editing model.
+#[derive(Clone, Debug, Default)]
+struct WidgetEditState {
+    /// Caret byte offset within the widget text.
+    cursor: usize,
+    /// Selection anchor; equal to `cursor` when there is no selection.
+    sel_start: usize,
+    /// True while the user is drag-selecting with the mouse.
+    selecting: bool,
+    /// Vertical scroll offset for the textarea, in pixels.
+    scroll_y: f32,
+}
+
+impl WidgetEditState {
+    fn move_to(&mut self, offset: usize, max: usize) {
+        let o = offset.min(max);
+        self.cursor = o;
+        self.sel_start = o;
+    }
+
+    fn select_to(&mut self, offset: usize, max: usize) {
+        self.cursor = offset.min(max);
+    }
+}
+
 struct TabState {
     id: u64,
     url_input: String,
@@ -129,6 +187,10 @@ struct TabState {
     keys_held: HashSet<u32>,
     /// Guest `TextInput` widget id with keyboard focus, if any.
     text_input_focus: Option<u32>,
+    /// Cursor/selection state per editable widget id (text input + textarea).
+    widget_edits: HashMap<u32, WidgetEditState>,
+    /// Bounds of editable widget text areas in window coords, for mouse hit-testing.
+    widget_bounds_cache: HashMap<u32, Arc<Mutex<Bounds<Pixels>>>>,
     /// Cursor byte offset in `url_input`.
     url_cursor: usize,
     /// Selection anchor byte offset; when != `url_cursor`, the range between them is selected.
@@ -186,6 +248,8 @@ impl TabState {
             last_frame: Instant::now(),
             keys_held: HashSet::new(),
             text_input_focus: None,
+            widget_edits: HashMap::new(),
+            widget_bounds_cache: HashMap::new(),
             url_cursor: 12,
             url_sel_start: 12,
             url_selecting: false,
@@ -1554,7 +1618,7 @@ impl Render for OxideBrowserView {
             .size_full()
             .flex()
             .flex_col()
-            .bg(gpui::rgb(0x1a1a20))
+            .bg(gpui::rgb(theme::BG))
             .on_key_down(cx.listener(
                 |this: &mut OxideBrowserView, event: &KeyDownEvent, window, cx| {
                     {
@@ -1709,48 +1773,7 @@ impl Render for OxideBrowserView {
                         return;
                     }
                     if let Some(id) = this.tabs[this.active_tab].text_input_focus {
-                        let mut states = this.tabs[this.active_tab]
-                            .host_state
-                            .widget_states
-                            .lock()
-                            .unwrap();
-                        let mut text = match states.get(&id) {
-                            Some(WidgetValue::Text(t)) => t.clone(),
-                            _ => String::new(),
-                        };
-                        if event.keystroke.modifiers.secondary() {
-                            match event.keystroke.key.as_str() {
-                                "c" => {
-                                    if let Ok(mut cb) = arboard::Clipboard::new() {
-                                        let _ = cb.set_text(&text);
-                                    }
-                                }
-                                "v" => {
-                                    if let Ok(mut cb) = arboard::Clipboard::new() {
-                                        if let Ok(pasted) = cb.get_text() {
-                                            text.push_str(&pasted);
-                                            states.insert(id, WidgetValue::Text(text));
-                                        }
-                                    }
-                                }
-                                "x" => {
-                                    if let Ok(mut cb) = arboard::Clipboard::new() {
-                                        let _ = cb.set_text(&text);
-                                    }
-                                    states.insert(id, WidgetValue::Text(String::new()));
-                                }
-                                "a" => {}
-                                _ => {}
-                            }
-                            cx.notify();
-                            return;
-                        }
-                        if event.keystroke.key == "backspace" {
-                            text.pop();
-                        } else if let Some(s) = text_insert_from_keystroke(&event.keystroke) {
-                            text.push_str(&s);
-                        }
-                        states.insert(id, WidgetValue::Text(text));
+                        handle_widget_key(this, id, event);
                         cx.notify();
                         return;
                     }
@@ -1945,14 +1968,14 @@ impl Render for OxideBrowserView {
                         .flex_row()
                         .items_center()
                         .h(px(32.0))
-                        .px_2()
+                        .px_3()
                         .rounded_md()
-                        .bg(gpui::rgb(0x121218))
+                        .bg(gpui::rgb(theme::SURFACE))
                         .border_1()
                         .border_color(if url_focused {
-                            gpui::rgb(0x6a6aff)
+                            gpui::rgb(theme::RING)
                         } else {
-                            gpui::rgb(0x121218)
+                            gpui::rgb(theme::BORDER)
                         })
                         .track_focus(&self.url_focus)
                         .overflow_hidden()
@@ -2199,7 +2222,7 @@ impl Render for OxideBrowserView {
                                                 );
                                                 window.paint_quad(gpui::fill(
                                                     sel_bounds,
-                                                    rgba8(0x44, 0x66, 0xcc, 0x70),
+                                                    theme::selection(),
                                                 ));
                                             }
 
@@ -3961,6 +3984,22 @@ impl Render for OxideBrowserView {
                 .lock()
                 .unwrap()
                 .clone();
+            let widget_edits_snapshot = self.tabs[active].widget_edits.clone();
+
+            // Ensure each editable widget has a stable bounds cache so mouse hit-tests
+            // can locate the text canvas after layout.
+            for cmd in &widget_commands {
+                match cmd {
+                    WidgetCommand::TextInput { id, .. } | WidgetCommand::Textarea { id, .. } => {
+                        self.tabs[active]
+                            .widget_bounds_cache
+                            .entry(*id)
+                            .or_insert_with(|| Arc::new(Mutex::new(Bounds::default())));
+                    }
+                    _ => {}
+                }
+            }
+            let widget_bounds_cache_snapshot = self.tabs[active].widget_bounds_cache.clone();
 
             let canvas_with_widgets =
                 widget_commands
@@ -3973,33 +4012,8 @@ impl Render for OxideBrowserView {
                             w,
                             h,
                             label,
-                        } => el.child(
-                            div()
-                                .id(("oxide_btn", id as usize))
-                                .absolute()
-                                .left(px(x))
-                                .top(px(y))
-                                .w(px(w))
-                                .h(px(h))
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .rounded_md()
-                                .bg(gpui::rgb(0x3a3a48))
-                                .cursor_pointer()
-                                .text_sm()
-                                .text_color(gpui::rgb(0xe8e8f0))
-                                .child(label)
-                                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                                    this.tabs[this.active_tab]
-                                        .host_state
-                                        .widget_clicked
-                                        .lock()
-                                        .unwrap()
-                                        .insert(id);
-                                    cx.notify();
-                                })),
-                        ),
+                            variant,
+                        } => el.child(render_button(cx, id, x, y, w, h, label, variant)),
                         WidgetCommand::Checkbox { id, x, y, label } => {
                             let checked = widget_states_snapshot
                                 .get(&id)
@@ -4008,48 +4022,17 @@ impl Render for OxideBrowserView {
                                     _ => None,
                                 })
                                 .unwrap_or(false);
-                            el.child(
-                                div()
-                                    .id(("oxide_cb", id as usize))
-                                    .absolute()
-                                    .left(px(x))
-                                    .top(px(y))
-                                    .w(px(220.0))
-                                    .h(px(30.0))
-                                    .flex()
-                                    .flex_row()
-                                    .items_center()
-                                    .gap_2()
-                                    .cursor_pointer()
-                                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                                        let mut states = this.tabs[this.active_tab]
-                                            .host_state
-                                            .widget_states
-                                            .lock()
-                                            .unwrap();
-                                        let cur = states
-                                            .get(&id)
-                                            .and_then(|v| match v {
-                                                WidgetValue::Bool(b) => Some(*b),
-                                                _ => None,
-                                            })
-                                            .unwrap_or(false);
-                                        states.insert(id, WidgetValue::Bool(!cur));
-                                        cx.notify();
-                                    }))
-                                    .child(
-                                        div()
-                                            .text_sm()
-                                            .text_color(gpui::rgb(0xa0a0aa))
-                                            .child(if checked { "☑" } else { "☐" }),
-                                    )
-                                    .child(
-                                        div()
-                                            .text_sm()
-                                            .text_color(gpui::rgb(0xd0d0dc))
-                                            .child(label),
-                                    ),
-                            )
+                            el.child(render_checkbox(cx, id, x, y, &label, checked))
+                        }
+                        WidgetCommand::Switch { id, x, y, label } => {
+                            let checked = widget_states_snapshot
+                                .get(&id)
+                                .and_then(|v| match v {
+                                    WidgetValue::Bool(b) => Some(*b),
+                                    _ => None,
+                                })
+                                .unwrap_or(false);
+                            el.child(render_switch(cx, id, x, y, &label, checked))
                         }
                         WidgetCommand::Slider {
                             id,
@@ -4066,75 +4049,15 @@ impl Render for OxideBrowserView {
                                     _ => None,
                                 })
                                 .unwrap_or(min);
-                            let frac = if max > min {
-                                ((cur - min) / (max - min)).clamp(0.0, 1.0)
-                            } else {
-                                0.0
-                            };
-                            let handle_size: f32 = 14.0;
-                            let handle_left =
-                                (frac * w - handle_size / 2.0).clamp(0.0, w - handle_size);
-                            el.child(
-                                div()
-                                    .id(("oxide_sl", id as usize))
-                                    .absolute()
-                                    .left(px(x))
-                                    .top(px(y))
-                                    .w(px(w))
-                                    .h(px(28.0))
-                                    .flex()
-                                    .items_center()
-                                    .justify_end()
-                                    .pr_2()
-                                    .rounded_md()
-                                    .bg(gpui::rgb(0x2a2a32))
-                                    .on_click(cx.listener(
-                                        move |this, event: &ClickEvent, _, cx| {
-                                            if let Some(pos) = event.mouse_position() {
-                                                let tab = &mut this.tabs[this.active_tab];
-                                                let (ox, _) =
-                                                    *tab.host_state.canvas_offset.lock().unwrap();
-                                                let lx = f32::from(pos.x) - ox;
-                                                let frac = ((lx - x) / w).clamp(0.0, 1.0);
-                                                let v = min + frac * (max - min);
-                                                tab.host_state
-                                                    .widget_states
-                                                    .lock()
-                                                    .unwrap()
-                                                    .insert(id, WidgetValue::Float(v));
-                                                cx.notify();
-                                            }
-                                        },
-                                    ))
-                                    .child(
-                                        div()
-                                            .absolute()
-                                            .left(px(0.0))
-                                            .top(px(12.0))
-                                            .w(px(frac * w))
-                                            .h(px(4.0))
-                                            .rounded_sm()
-                                            .bg(gpui::rgb(0x5a5a8a)),
-                                    )
-                                    .child(
-                                        div()
-                                            .absolute()
-                                            .left(px(handle_left))
-                                            .top(px((28.0 - handle_size) / 2.0))
-                                            .w(px(handle_size))
-                                            .h(px(handle_size))
-                                            .rounded_full()
-                                            .bg(gpui::rgb(0xe4e4ec)),
-                                    )
-                                    .child(
-                                        div()
-                                            .text_xs()
-                                            .text_color(gpui::rgb(0xb0b0c0))
-                                            .child(format!("{cur:.1}")),
-                                    ),
-                            )
+                            el.child(render_slider(cx, id, x, y, w, min, max, cur))
                         }
-                        WidgetCommand::TextInput { id, x, y, w } => {
+                        WidgetCommand::TextInput {
+                            id,
+                            x,
+                            y,
+                            w,
+                            placeholder,
+                        } => {
                             let value = widget_states_snapshot
                                 .get(&id)
                                 .and_then(|v| match v {
@@ -4142,60 +4065,90 @@ impl Render for OxideBrowserView {
                                     _ => None,
                                 })
                                 .unwrap_or_default();
-                            let show_caret = text_input_focus_id == Some(id) && caret_blink_on;
-                            el.child(
-                                div()
-                                    .id(("oxide_ti", id as usize))
-                                    .absolute()
-                                    .left(px(x))
-                                    .top(px(y))
-                                    .w(px(w))
-                                    .h(px(28.0))
-                                    .px_2()
-                                    .rounded_md()
-                                    .bg(gpui::rgb(0x121218))
-                                    .border_1()
-                                    .border_color(if text_input_focus_id == Some(id) {
-                                        gpui::rgb(0x6a6a8a)
-                                    } else {
-                                        gpui::rgb(0x3a3a48)
-                                    })
-                                    .cursor_pointer()
-                                    .flex()
-                                    .flex_row()
-                                    .items_center()
-                                    .justify_start()
-                                    .gap_1()
-                                    .min_w_0()
-                                    .child(
-                                        div()
-                                            .flex_initial()
-                                            .min_w_0()
-                                            .overflow_hidden()
-                                            .text_sm()
-                                            .text_color(gpui::rgb(0xe4e4ec))
-                                            .child(SharedString::from(value)),
-                                    )
-                                    .when(show_caret, |d| {
-                                        d.child(
-                                            div()
-                                                .flex_shrink_0()
-                                                .w(px(2.0))
-                                                .h(px(16.0))
-                                                .mt(px(1.0))
-                                                .rounded_sm()
-                                                .bg(gpui::rgb(0xe8e8f0)),
-                                        )
-                                    })
-                                    .on_click(cx.listener(
-                                        move |this, _: &ClickEvent, window, cx| {
-                                            this.tabs[this.active_tab].text_input_focus = Some(id);
-                                            this.canvas_focus.focus(window);
-                                            cx.notify();
-                                        },
-                                    )),
-                            )
+                            let edit = widget_edits_snapshot.get(&id).cloned().unwrap_or_default();
+                            let bounds_ref = widget_bounds_cache_snapshot
+                                .get(&id)
+                                .cloned()
+                                .unwrap_or_else(|| Arc::new(Mutex::new(Bounds::default())));
+                            el.child(render_text_input(
+                                cx,
+                                id,
+                                x,
+                                y,
+                                w,
+                                placeholder,
+                                value,
+                                edit,
+                                text_input_focus_id == Some(id),
+                                caret_blink_on,
+                                bounds_ref,
+                            ))
                         }
+                        WidgetCommand::Textarea {
+                            id,
+                            x,
+                            y,
+                            w,
+                            h,
+                            placeholder,
+                        } => {
+                            let value = widget_states_snapshot
+                                .get(&id)
+                                .and_then(|v| match v {
+                                    WidgetValue::Text(t) => Some(t.clone()),
+                                    _ => None,
+                                })
+                                .unwrap_or_default();
+                            let edit = widget_edits_snapshot.get(&id).cloned().unwrap_or_default();
+                            let bounds_ref = widget_bounds_cache_snapshot
+                                .get(&id)
+                                .cloned()
+                                .unwrap_or_else(|| Arc::new(Mutex::new(Bounds::default())));
+                            el.child(render_textarea(
+                                cx,
+                                id,
+                                x,
+                                y,
+                                w,
+                                h,
+                                placeholder,
+                                value,
+                                edit,
+                                text_input_focus_id == Some(id),
+                                caret_blink_on,
+                                bounds_ref,
+                            ))
+                        }
+                        WidgetCommand::Card {
+                            x,
+                            y,
+                            w,
+                            h,
+                            title,
+                            description,
+                        } => el.child(render_card(x, y, w, h, &title, &description)),
+                        WidgetCommand::Badge {
+                            x,
+                            y,
+                            label,
+                            variant,
+                        } => el.child(render_badge(x, y, &label, variant)),
+                        WidgetCommand::Separator {
+                            x,
+                            y,
+                            length,
+                            vertical,
+                        } => el.child(render_separator(x, y, length, vertical)),
+                        WidgetCommand::Progress { x, y, w, value } => {
+                            el.child(render_progress(x, y, w, value))
+                        }
+                        WidgetCommand::Label {
+                            x,
+                            y,
+                            text,
+                            muted,
+                            size,
+                        } => el.child(render_label(x, y, &text, muted, size)),
                     });
 
             let viewport_h = {
@@ -4788,22 +4741,1309 @@ fn phase_color_for(p: ForgePhase) -> Rgba {
     }
 }
 
+/// Byte offset of the start of the previous UTF-8 char from `cursor`.
+fn prev_char_boundary(text: &str, cursor: usize) -> usize {
+    if cursor == 0 {
+        return 0;
+    }
+    let mut i = cursor - 1;
+    while i > 0 && !text.is_char_boundary(i) {
+        i -= 1;
+    }
+    i
+}
+
+/// Byte offset of the start of the next UTF-8 char from `cursor`.
+fn next_char_boundary(text: &str, cursor: usize) -> usize {
+    if cursor >= text.len() {
+        return text.len();
+    }
+    let mut i = cursor + 1;
+    while i < text.len() && !text.is_char_boundary(i) {
+        i += 1;
+    }
+    i
+}
+
+/// Byte offset of the start of the current line.
+fn line_start(text: &str, cursor: usize) -> usize {
+    text[..cursor].rfind('\n').map(|i| i + 1).unwrap_or(0)
+}
+
+/// Byte offset of the end (just before '\n' or text end) of the current line.
+fn line_end(text: &str, cursor: usize) -> usize {
+    let from = cursor.min(text.len());
+    text[from..]
+        .find('\n')
+        .map(|i| from + i)
+        .unwrap_or(text.len())
+}
+
+/// True if any `WidgetCommand::Textarea` in the current frame has the given id.
+fn is_textarea(commands: &[WidgetCommand], id: u32) -> bool {
+    commands
+        .iter()
+        .any(|c| matches!(c, WidgetCommand::Textarea { id: cid, .. } if *cid == id))
+}
+
+/// Apply a keystroke to the focused widget's text + edit state.
+///
+/// Mirrors the URL bar editing surface: arrow keys, home/end, selection with shift,
+/// backspace/delete, copy/paste/cut/select-all, and (for textareas) up/down + enter.
+fn handle_widget_key(view: &mut OxideBrowserView, id: u32, event: &KeyDownEvent) {
+    let tab = &mut view.tabs[view.active_tab];
+    let multi_line = {
+        let cmds = tab.host_state.widget_commands.lock().unwrap();
+        is_textarea(&cmds, id)
+    };
+
+    let mut text = tab
+        .host_state
+        .widget_states
+        .lock()
+        .unwrap()
+        .get(&id)
+        .and_then(|v| match v {
+            WidgetValue::Text(t) => Some(t.clone()),
+            _ => None,
+        })
+        .unwrap_or_default();
+    let mut edit = tab.widget_edits.get(&id).cloned().unwrap_or_default();
+
+    let shift = event.keystroke.modifiers.shift;
+    let secondary = event.keystroke.modifiers.secondary();
+
+    let mut changed_text = false;
+    let mut changed_edit = false;
+
+    let has_selection = |edit: &WidgetEditState| edit.cursor != edit.sel_start;
+    let sel_range = |edit: &WidgetEditState| {
+        let lo = edit.cursor.min(edit.sel_start);
+        let hi = edit.cursor.max(edit.sel_start);
+        lo..hi
+    };
+    let delete_selection = |text: &mut String, edit: &mut WidgetEditState| {
+        if !has_selection(edit) {
+            return false;
+        }
+        let r = sel_range(edit);
+        text.replace_range(r.clone(), "");
+        edit.cursor = r.start;
+        edit.sel_start = r.start;
+        true
+    };
+    let insert_at = |text: &mut String, edit: &mut WidgetEditState, ins: &str| {
+        let _ = delete_selection(text, edit);
+        text.insert_str(edit.cursor, ins);
+        edit.cursor += ins.len();
+        edit.sel_start = edit.cursor;
+    };
+
+    if secondary {
+        match event.keystroke.key.as_str() {
+            "a" => {
+                edit.sel_start = 0;
+                edit.cursor = text.len();
+                changed_edit = true;
+            }
+            "c" if has_selection(&edit) => {
+                if let Ok(mut cb) = arboard::Clipboard::new() {
+                    let _ = cb.set_text(&text[sel_range(&edit)]);
+                }
+            }
+            "x" if has_selection(&edit) => {
+                if let Ok(mut cb) = arboard::Clipboard::new() {
+                    let _ = cb.set_text(&text[sel_range(&edit)]);
+                }
+                let _ = delete_selection(&mut text, &mut edit);
+                changed_text = true;
+                changed_edit = true;
+            }
+            "v" => {
+                if let Ok(Ok(pasted)) = arboard::Clipboard::new().map(|mut cb| cb.get_text()) {
+                    let to_insert = if multi_line {
+                        pasted
+                    } else {
+                        pasted.replace('\n', " ")
+                    };
+                    insert_at(&mut text, &mut edit, &to_insert);
+                    changed_text = true;
+                    changed_edit = true;
+                }
+            }
+            _ => {}
+        }
+    } else {
+        match event.keystroke.key.as_str() {
+            "left" => {
+                if shift {
+                    let p = prev_char_boundary(&text, edit.cursor);
+                    edit.select_to(p, text.len());
+                } else if has_selection(&edit) {
+                    let lo = sel_range(&edit).start;
+                    edit.move_to(lo, text.len());
+                } else {
+                    let p = prev_char_boundary(&text, edit.cursor);
+                    edit.move_to(p, text.len());
+                }
+                changed_edit = true;
+            }
+            "right" => {
+                if shift {
+                    let n = next_char_boundary(&text, edit.cursor);
+                    edit.select_to(n, text.len());
+                } else if has_selection(&edit) {
+                    let hi = sel_range(&edit).end;
+                    edit.move_to(hi, text.len());
+                } else {
+                    let n = next_char_boundary(&text, edit.cursor);
+                    edit.move_to(n, text.len());
+                }
+                changed_edit = true;
+            }
+            "up" if multi_line => {
+                let ls = line_start(&text, edit.cursor);
+                let col = edit.cursor - ls;
+                if ls == 0 {
+                    if shift {
+                        edit.select_to(0, text.len());
+                    } else {
+                        edit.move_to(0, text.len());
+                    }
+                } else {
+                    let prev_end = ls - 1;
+                    let prev_start = line_start(&text, prev_end);
+                    let new_pos = prev_start + col.min(prev_end - prev_start);
+                    if shift {
+                        edit.select_to(new_pos, text.len());
+                    } else {
+                        edit.move_to(new_pos, text.len());
+                    }
+                }
+                changed_edit = true;
+            }
+            "down" if multi_line => {
+                let ls = line_start(&text, edit.cursor);
+                let le = line_end(&text, edit.cursor);
+                let col = edit.cursor - ls;
+                if le >= text.len() {
+                    let l = text.len();
+                    if shift {
+                        edit.select_to(l, text.len());
+                    } else {
+                        edit.move_to(l, text.len());
+                    }
+                } else {
+                    let next_start = le + 1;
+                    let next_end = line_end(&text, next_start);
+                    let new_pos = next_start + col.min(next_end - next_start);
+                    if shift {
+                        edit.select_to(new_pos, text.len());
+                    } else {
+                        edit.move_to(new_pos, text.len());
+                    }
+                }
+                changed_edit = true;
+            }
+            "home" => {
+                let target = if multi_line {
+                    line_start(&text, edit.cursor)
+                } else {
+                    0
+                };
+                if shift {
+                    edit.select_to(target, text.len());
+                } else {
+                    edit.move_to(target, text.len());
+                }
+                changed_edit = true;
+            }
+            "end" => {
+                let target = if multi_line {
+                    line_end(&text, edit.cursor)
+                } else {
+                    text.len()
+                };
+                if shift {
+                    edit.select_to(target, text.len());
+                } else {
+                    edit.move_to(target, text.len());
+                }
+                changed_edit = true;
+            }
+            "backspace" => {
+                if has_selection(&edit) {
+                    let _ = delete_selection(&mut text, &mut edit);
+                    changed_text = true;
+                    changed_edit = true;
+                } else if edit.cursor > 0 {
+                    let p = prev_char_boundary(&text, edit.cursor);
+                    text.replace_range(p..edit.cursor, "");
+                    edit.cursor = p;
+                    edit.sel_start = p;
+                    changed_text = true;
+                    changed_edit = true;
+                }
+            }
+            "delete" => {
+                if has_selection(&edit) {
+                    let _ = delete_selection(&mut text, &mut edit);
+                    changed_text = true;
+                    changed_edit = true;
+                } else if edit.cursor < text.len() {
+                    let n = next_char_boundary(&text, edit.cursor);
+                    text.replace_range(edit.cursor..n, "");
+                    changed_text = true;
+                }
+            }
+            "enter" if multi_line => {
+                insert_at(&mut text, &mut edit, "\n");
+                changed_text = true;
+                changed_edit = true;
+            }
+            _ => {
+                if let Some(s) = text_insert_from_keystroke(&event.keystroke) {
+                    insert_at(&mut text, &mut edit, &s);
+                    changed_text = true;
+                    changed_edit = true;
+                }
+            }
+        }
+    }
+
+    if changed_text {
+        tab.host_state
+            .widget_states
+            .lock()
+            .unwrap()
+            .insert(id, WidgetValue::Text(text));
+    }
+    if changed_edit {
+        tab.widget_edits.insert(id, edit);
+    }
+}
+
+/// Colour scheme for one variant (bg, fg, border).
+fn variant_colors(variant: WidgetVariant) -> (u32, u32, u32) {
+    match variant {
+        WidgetVariant::Default => (theme::PRIMARY, theme::PRIMARY_FG, theme::PRIMARY),
+        WidgetVariant::Secondary => (theme::SURFACE_HOVER, theme::FG, theme::SURFACE_HOVER),
+        WidgetVariant::Outline => (theme::BG, theme::FG, theme::BORDER_STRONG),
+        WidgetVariant::Ghost => (theme::BG, theme::FG, theme::BG),
+        WidgetVariant::Destructive => (theme::DESTRUCTIVE, theme::FG, theme::DESTRUCTIVE),
+    }
+}
+
+/// Hover-state background tint for a variant.
+fn variant_hover_bg(variant: WidgetVariant) -> u32 {
+    match variant {
+        WidgetVariant::Default => 0xe4e4e7,
+        WidgetVariant::Secondary => theme::BORDER_STRONG,
+        WidgetVariant::Outline | WidgetVariant::Ghost => theme::SURFACE_HOVER,
+        WidgetVariant::Destructive => 0x991b1b,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_button(
+    cx: &mut gpui::Context<OxideBrowserView>,
+    id: u32,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    label: String,
+    variant: WidgetVariant,
+) -> impl IntoElement {
+    let (bg, fg, border) = variant_colors(variant);
+    let hover_bg = variant_hover_bg(variant);
+    div()
+        .id(("oxide_btn", id as usize))
+        .absolute()
+        .left(px(x))
+        .top(px(y))
+        .w(px(w))
+        .h(px(h))
+        .flex()
+        .items_center()
+        .justify_center()
+        .rounded_md()
+        .bg(gpui::rgb(bg))
+        .border_1()
+        .border_color(gpui::rgb(border))
+        .hover(|s| s.bg(gpui::rgb(hover_bg)))
+        .cursor_pointer()
+        .text_sm()
+        .font_weight(gpui::FontWeight::MEDIUM)
+        .text_color(gpui::rgb(fg))
+        .child(label)
+        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            this.tabs[this.active_tab]
+                .host_state
+                .widget_clicked
+                .lock()
+                .unwrap()
+                .insert(id);
+            cx.notify();
+        }))
+}
+
+fn render_checkbox(
+    cx: &mut gpui::Context<OxideBrowserView>,
+    id: u32,
+    x: f32,
+    y: f32,
+    label: &str,
+    checked: bool,
+) -> impl IntoElement {
+    let label = label.to_string();
+    div()
+        .id(("oxide_cb", id as usize))
+        .absolute()
+        .left(px(x))
+        .top(px(y))
+        .h(px(26.0))
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_2()
+        .cursor_pointer()
+        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            let mut states = this.tabs[this.active_tab]
+                .host_state
+                .widget_states
+                .lock()
+                .unwrap();
+            let cur = states
+                .get(&id)
+                .and_then(|v| match v {
+                    WidgetValue::Bool(b) => Some(*b),
+                    _ => None,
+                })
+                .unwrap_or(false);
+            states.insert(id, WidgetValue::Bool(!cur));
+            cx.notify();
+        }))
+        .child(
+            div()
+                .w(px(16.0))
+                .h(px(16.0))
+                .rounded_sm()
+                .border_1()
+                .border_color(gpui::rgb(if checked {
+                    theme::PRIMARY
+                } else {
+                    theme::BORDER_STRONG
+                }))
+                .bg(gpui::rgb(if checked { theme::PRIMARY } else { theme::BG }))
+                .flex()
+                .items_center()
+                .justify_center()
+                .text_color(gpui::rgb(theme::PRIMARY_FG))
+                .text_xs()
+                .child(if checked { "✓" } else { "" }),
+        )
+        .child(
+            div()
+                .text_sm()
+                .text_color(gpui::rgb(theme::FG))
+                .child(label),
+        )
+}
+
+fn render_switch(
+    cx: &mut gpui::Context<OxideBrowserView>,
+    id: u32,
+    x: f32,
+    y: f32,
+    label: &str,
+    checked: bool,
+) -> impl IntoElement {
+    let label = label.to_string();
+    let track_w = 32.0;
+    let track_h = 18.0;
+    let knob = 14.0;
+    let knob_x = if checked { track_w - knob - 2.0 } else { 2.0 };
+    div()
+        .id(("oxide_sw", id as usize))
+        .absolute()
+        .left(px(x))
+        .top(px(y))
+        .h(px(24.0))
+        .flex()
+        .flex_row()
+        .items_center()
+        .gap_2()
+        .cursor_pointer()
+        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            let mut states = this.tabs[this.active_tab]
+                .host_state
+                .widget_states
+                .lock()
+                .unwrap();
+            let cur = states
+                .get(&id)
+                .and_then(|v| match v {
+                    WidgetValue::Bool(b) => Some(*b),
+                    _ => None,
+                })
+                .unwrap_or(false);
+            states.insert(id, WidgetValue::Bool(!cur));
+            cx.notify();
+        }))
+        .child(
+            div()
+                .relative()
+                .w(px(track_w))
+                .h(px(track_h))
+                .rounded_full()
+                .bg(gpui::rgb(if checked {
+                    theme::PRIMARY
+                } else {
+                    theme::MUTED
+                }))
+                .child(
+                    div()
+                        .absolute()
+                        .top(px((track_h - knob) / 2.0))
+                        .left(px(knob_x))
+                        .w(px(knob))
+                        .h(px(knob))
+                        .rounded_full()
+                        .bg(gpui::rgb(if checked {
+                            theme::PRIMARY_FG
+                        } else {
+                            theme::FG
+                        })),
+                ),
+        )
+        .child(
+            div()
+                .text_sm()
+                .text_color(gpui::rgb(theme::FG))
+                .child(label),
+        )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_slider(
+    cx: &mut gpui::Context<OxideBrowserView>,
+    id: u32,
+    x: f32,
+    y: f32,
+    w: f32,
+    min: f32,
+    max: f32,
+    cur: f32,
+) -> impl IntoElement {
+    let frac = if max > min {
+        ((cur - min) / (max - min)).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    let handle_size: f32 = 16.0;
+    let handle_left = (frac * w - handle_size / 2.0).clamp(0.0, w - handle_size);
+    div()
+        .id(("oxide_sl", id as usize))
+        .absolute()
+        .left(px(x))
+        .top(px(y))
+        .w(px(w))
+        .h(px(28.0))
+        .flex()
+        .items_center()
+        .on_click(cx.listener(move |this, event: &ClickEvent, _, cx| {
+            if let Some(pos) = event.mouse_position() {
+                let tab = &mut this.tabs[this.active_tab];
+                let (ox, _) = *tab.host_state.canvas_offset.lock().unwrap();
+                let lx = f32::from(pos.x) - ox;
+                let frac = ((lx - x) / w).clamp(0.0, 1.0);
+                let v = min + frac * (max - min);
+                tab.host_state
+                    .widget_states
+                    .lock()
+                    .unwrap()
+                    .insert(id, WidgetValue::Float(v));
+                cx.notify();
+            }
+        }))
+        .child(
+            div()
+                .absolute()
+                .left(px(0.0))
+                .top(px(12.0))
+                .w(px(w))
+                .h(px(4.0))
+                .rounded_full()
+                .bg(gpui::rgb(theme::MUTED)),
+        )
+        .child(
+            div()
+                .absolute()
+                .left(px(0.0))
+                .top(px(12.0))
+                .w(px(frac * w))
+                .h(px(4.0))
+                .rounded_full()
+                .bg(gpui::rgb(theme::PRIMARY)),
+        )
+        .child(
+            div()
+                .absolute()
+                .left(px(handle_left))
+                .top(px((28.0 - handle_size) / 2.0))
+                .w(px(handle_size))
+                .h(px(handle_size))
+                .rounded_full()
+                .bg(gpui::rgb(theme::PRIMARY))
+                .border_2()
+                .border_color(gpui::rgb(theme::BG)),
+        )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_text_input(
+    cx: &mut gpui::Context<OxideBrowserView>,
+    id: u32,
+    x: f32,
+    y: f32,
+    w: f32,
+    placeholder: String,
+    value: String,
+    edit: WidgetEditState,
+    focused: bool,
+    caret_blink_on: bool,
+    bounds_ref: Arc<Mutex<Bounds<Pixels>>>,
+) -> impl IntoElement {
+    let value_for_canvas = SharedString::from(value.clone());
+    let placeholder_for_canvas = SharedString::from(placeholder.clone());
+    let bounds_for_measure = bounds_ref.clone();
+    let cursor = edit.cursor;
+    let sel_start = edit.sel_start;
+
+    div()
+        .id(("oxide_ti", id as usize))
+        .absolute()
+        .left(px(x))
+        .top(px(y))
+        .w(px(w))
+        .h(px(36.0))
+        .px_3()
+        .py(px(8.0))
+        .rounded_md()
+        .bg(gpui::rgb(theme::BG))
+        .border_1()
+        .border_color(gpui::rgb(if focused { theme::RING } else { theme::BORDER }))
+        .cursor_text()
+        .flex()
+        .flex_row()
+        .items_center()
+        .overflow_hidden()
+        .on_mouse_down(
+            MouseButton::Left,
+            cx.listener(move |this, event: &MouseDownEvent, window, cx| {
+                let tab = &mut this.tabs[this.active_tab];
+                tab.text_input_focus = Some(id);
+                this.canvas_focus.focus(window);
+                let bounds = *bounds_ref.lock().unwrap();
+                let text = SharedString::from(
+                    tab.host_state
+                        .widget_states
+                        .lock()
+                        .unwrap()
+                        .get(&id)
+                        .and_then(|v| match v {
+                            WidgetValue::Text(t) => Some(t.clone()),
+                            _ => None,
+                        })
+                        .unwrap_or_default(),
+                );
+                let max = text.len();
+                if text.is_empty() {
+                    let edit = tab.widget_edits.entry(id).or_default();
+                    edit.move_to(0, 0);
+                    edit.selecting = true;
+                } else {
+                    let rel_x = f32::from(event.position.x) - f32::from(bounds.origin.x);
+                    let run = TextRun {
+                        len: text.len(),
+                        font: font(".SystemUIFont"),
+                        color: rgba8(0xfa, 0xfa, 0xfa, 0xff),
+                        background_color: None,
+                        underline: None,
+                        strikethrough: None,
+                    };
+                    let line =
+                        window
+                            .text_system()
+                            .shape_line(text.clone(), px(14.0), &[run], None);
+                    let idx = line.closest_index_for_x(px(rel_x));
+                    let edit = tab.widget_edits.entry(id).or_default();
+                    if event.modifiers.shift {
+                        edit.select_to(idx, max);
+                    } else {
+                        edit.move_to(idx, max);
+                    }
+                    edit.selecting = true;
+                }
+                cx.notify();
+            }),
+        )
+        .on_mouse_up(
+            MouseButton::Left,
+            cx.listener(move |this, _: &MouseUpEvent, _, _cx| {
+                if let Some(edit) = this.tabs[this.active_tab].widget_edits.get_mut(&id) {
+                    edit.selecting = false;
+                }
+            }),
+        )
+        .on_mouse_move(
+            cx.listener(move |this, event: &gpui::MouseMoveEvent, window, cx| {
+                let tab = &mut this.tabs[this.active_tab];
+                let selecting = tab
+                    .widget_edits
+                    .get(&id)
+                    .map(|e| e.selecting)
+                    .unwrap_or(false);
+                if !selecting {
+                    return;
+                }
+                let text = SharedString::from(
+                    tab.host_state
+                        .widget_states
+                        .lock()
+                        .unwrap()
+                        .get(&id)
+                        .and_then(|v| match v {
+                            WidgetValue::Text(t) => Some(t.clone()),
+                            _ => None,
+                        })
+                        .unwrap_or_default(),
+                );
+                if text.is_empty() {
+                    return;
+                }
+                let max = text.len();
+                let bounds = tab
+                    .widget_bounds_cache
+                    .get(&id)
+                    .map(|b| *b.lock().unwrap())
+                    .unwrap_or_default();
+                let rel_x = f32::from(event.position.x) - f32::from(bounds.origin.x);
+                let run = TextRun {
+                    len: text.len(),
+                    font: font(".SystemUIFont"),
+                    color: rgba8(0xfa, 0xfa, 0xfa, 0xff),
+                    background_color: None,
+                    underline: None,
+                    strikethrough: None,
+                };
+                let line = window
+                    .text_system()
+                    .shape_line(text.clone(), px(14.0), &[run], None);
+                let idx = line.closest_index_for_x(px(rel_x));
+                if let Some(edit) = tab.widget_edits.get_mut(&id) {
+                    edit.select_to(idx, max);
+                }
+                cx.notify();
+            }),
+        )
+        .child(
+            canvas(
+                move |bounds, window, _cx| {
+                    *bounds_for_measure.lock().unwrap() = bounds;
+                    if value_for_canvas.is_empty() {
+                        if placeholder_for_canvas.is_empty() {
+                            return (None, None);
+                        }
+                        let placeholder_run = TextRun {
+                            len: placeholder_for_canvas.len(),
+                            font: font(".SystemUIFont"),
+                            color: rgba8(0x71, 0x71, 0x7a, 0xff),
+                            background_color: None,
+                            underline: None,
+                            strikethrough: None,
+                        };
+                        let placeholder_line = window.text_system().shape_line(
+                            placeholder_for_canvas.clone(),
+                            px(14.0),
+                            &[placeholder_run],
+                            None,
+                        );
+                        return (None, Some(placeholder_line));
+                    }
+                    let run = TextRun {
+                        len: value_for_canvas.len(),
+                        font: font(".SystemUIFont"),
+                        color: rgba8(0xfa, 0xfa, 0xfa, 0xff),
+                        background_color: None,
+                        underline: None,
+                        strikethrough: None,
+                    };
+                    let line = window.text_system().shape_line(
+                        value_for_canvas.clone(),
+                        px(14.0),
+                        &[run],
+                        None,
+                    );
+                    (Some(line), None)
+                },
+                {
+                    move |bounds,
+                          state: (Option<gpui::ShapedLine>, Option<gpui::ShapedLine>),
+                          window,
+                          cx| {
+                        let (line_opt, placeholder_opt) = state;
+                        let has_sel = cursor != sel_start;
+                        let sel_lo = cursor.min(sel_start);
+                        let sel_hi = cursor.max(sel_start);
+
+                        if let Some(ref line) = line_opt {
+                            if has_sel {
+                                let sx = line.x_for_index(sel_lo);
+                                let ex = line.x_for_index(sel_hi);
+                                window.paint_quad(gpui::fill(
+                                    Bounds::from_corners(
+                                        point(bounds.origin.x + sx, bounds.origin.y),
+                                        point(
+                                            bounds.origin.x + ex,
+                                            bounds.origin.y + bounds.size.height,
+                                        ),
+                                    ),
+                                    theme::selection(),
+                                ));
+                            }
+                            let _ = line.paint(bounds.origin, bounds.size.height, window, cx);
+                            if focused && !has_sel && caret_blink_on {
+                                let cx_pos = line.x_for_index(cursor);
+                                window.paint_quad(gpui::fill(
+                                    Bounds::from_corners(
+                                        point(bounds.origin.x + cx_pos, bounds.origin.y),
+                                        point(
+                                            bounds.origin.x + cx_pos + px(1.5),
+                                            bounds.origin.y + bounds.size.height,
+                                        ),
+                                    ),
+                                    rgba8(0xfa, 0xfa, 0xfa, 0xff),
+                                ));
+                            }
+                        } else if let Some(ref placeholder) = placeholder_opt {
+                            let _ =
+                                placeholder.paint(bounds.origin, bounds.size.height, window, cx);
+                            if focused && caret_blink_on {
+                                window.paint_quad(gpui::fill(
+                                    Bounds::from_corners(
+                                        bounds.origin,
+                                        point(
+                                            bounds.origin.x + px(1.5),
+                                            bounds.origin.y + bounds.size.height,
+                                        ),
+                                    ),
+                                    rgba8(0xfa, 0xfa, 0xfa, 0xff),
+                                ));
+                            }
+                        } else if focused && caret_blink_on {
+                            window.paint_quad(gpui::fill(
+                                Bounds::from_corners(
+                                    bounds.origin,
+                                    point(
+                                        bounds.origin.x + px(1.5),
+                                        bounds.origin.y + bounds.size.height,
+                                    ),
+                                ),
+                                rgba8(0xfa, 0xfa, 0xfa, 0xff),
+                            ));
+                        }
+                    }
+                },
+            )
+            .flex_1()
+            .h(px(18.0)),
+        )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_textarea(
+    cx: &mut gpui::Context<OxideBrowserView>,
+    id: u32,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    placeholder: String,
+    value: String,
+    edit: WidgetEditState,
+    focused: bool,
+    caret_blink_on: bool,
+    bounds_ref: Arc<Mutex<Bounds<Pixels>>>,
+) -> impl IntoElement {
+    let value_for_canvas = value.clone();
+    let placeholder_for_canvas = SharedString::from(placeholder);
+    let bounds_for_measure = bounds_ref.clone();
+    let cursor = edit.cursor;
+    let sel_start = edit.sel_start;
+    let scroll_y = edit.scroll_y;
+
+    div()
+        .id(("oxide_ta", id as usize))
+        .absolute()
+        .left(px(x))
+        .top(px(y))
+        .w(px(w))
+        .h(px(h))
+        .px_3()
+        .py_2()
+        .rounded_md()
+        .bg(gpui::rgb(theme::BG))
+        .border_1()
+        .border_color(gpui::rgb(if focused { theme::RING } else { theme::BORDER }))
+        .cursor_text()
+        .overflow_hidden()
+        .on_mouse_down(
+            MouseButton::Left,
+            cx.listener(move |this, event: &MouseDownEvent, window, cx| {
+                let tab = &mut this.tabs[this.active_tab];
+                tab.text_input_focus = Some(id);
+                this.canvas_focus.focus(window);
+                let text = tab
+                    .host_state
+                    .widget_states
+                    .lock()
+                    .unwrap()
+                    .get(&id)
+                    .and_then(|v| match v {
+                        WidgetValue::Text(t) => Some(t.clone()),
+                        _ => None,
+                    })
+                    .unwrap_or_default();
+                let bounds = tab
+                    .widget_bounds_cache
+                    .get(&id)
+                    .map(|b| *b.lock().unwrap())
+                    .unwrap_or_default();
+                let scroll_y = tab.widget_edits.get(&id).map(|e| e.scroll_y).unwrap_or(0.0);
+                let idx = textarea_hit_index(
+                    &text,
+                    f32::from(event.position.x) - f32::from(bounds.origin.x),
+                    f32::from(event.position.y) - f32::from(bounds.origin.y) + scroll_y,
+                    window,
+                );
+                let max = text.len();
+                let edit = tab.widget_edits.entry(id).or_default();
+                if event.modifiers.shift {
+                    edit.select_to(idx, max);
+                } else {
+                    edit.move_to(idx, max);
+                }
+                edit.selecting = true;
+                cx.notify();
+            }),
+        )
+        .on_mouse_up(
+            MouseButton::Left,
+            cx.listener(move |this, _: &MouseUpEvent, _, _cx| {
+                if let Some(edit) = this.tabs[this.active_tab].widget_edits.get_mut(&id) {
+                    edit.selecting = false;
+                }
+            }),
+        )
+        .on_mouse_move(
+            cx.listener(move |this, event: &gpui::MouseMoveEvent, window, cx| {
+                let tab = &mut this.tabs[this.active_tab];
+                let selecting = tab
+                    .widget_edits
+                    .get(&id)
+                    .map(|e| e.selecting)
+                    .unwrap_or(false);
+                if !selecting {
+                    return;
+                }
+                let text = tab
+                    .host_state
+                    .widget_states
+                    .lock()
+                    .unwrap()
+                    .get(&id)
+                    .and_then(|v| match v {
+                        WidgetValue::Text(t) => Some(t.clone()),
+                        _ => None,
+                    })
+                    .unwrap_or_default();
+                let bounds = tab
+                    .widget_bounds_cache
+                    .get(&id)
+                    .map(|b| *b.lock().unwrap())
+                    .unwrap_or_default();
+                let scroll_y = tab.widget_edits.get(&id).map(|e| e.scroll_y).unwrap_or(0.0);
+                let idx = textarea_hit_index(
+                    &text,
+                    f32::from(event.position.x) - f32::from(bounds.origin.x),
+                    f32::from(event.position.y) - f32::from(bounds.origin.y) + scroll_y,
+                    window,
+                );
+                let max = text.len();
+                if let Some(edit) = tab.widget_edits.get_mut(&id) {
+                    edit.select_to(idx, max);
+                }
+                cx.notify();
+            }),
+        )
+        .on_scroll_wheel(cx.listener(move |this, event: &ScrollWheelEvent, _, cx| {
+            let tab = &mut this.tabs[this.active_tab];
+            let text = tab
+                .host_state
+                .widget_states
+                .lock()
+                .unwrap()
+                .get(&id)
+                .and_then(|v| match v {
+                    WidgetValue::Text(t) => Some(t.clone()),
+                    _ => None,
+                })
+                .unwrap_or_default();
+            let line_count = text.split('\n').count() as f32;
+            let line_h: f32 = 20.0;
+            let content_h = (line_count * line_h).max(line_h);
+            let max_scroll = (content_h - (h - 16.0)).max(0.0);
+            let dy = match event.delta {
+                ScrollDelta::Pixels(p) => f32::from(p.y),
+                ScrollDelta::Lines(l) => l.y * 20.0,
+            };
+            let edit = tab.widget_edits.entry(id).or_default();
+            edit.scroll_y = (edit.scroll_y - dy).clamp(0.0, max_scroll);
+            cx.notify();
+        }))
+        .child(
+            canvas(
+                move |bounds, _window, _cx| {
+                    *bounds_for_measure.lock().unwrap() = bounds;
+                },
+                {
+                    move |bounds, _state: (), window, cx| {
+                        let line_h: f32 = 20.0;
+                        let inner_origin = bounds.origin + point(px(0.0), px(-scroll_y));
+                        let lines: Vec<&str> = if value_for_canvas.is_empty() {
+                            Vec::new()
+                        } else {
+                            value_for_canvas.split('\n').collect()
+                        };
+
+                        if lines.is_empty() && !placeholder_for_canvas.is_empty() {
+                            let run = TextRun {
+                                len: placeholder_for_canvas.len(),
+                                font: font(".SystemUIFont"),
+                                color: rgba8(0x71, 0x71, 0x7a, 0xff),
+                                background_color: None,
+                                underline: None,
+                                strikethrough: None,
+                            };
+                            let line = window.text_system().shape_line(
+                                placeholder_for_canvas.clone(),
+                                px(14.0),
+                                &[run],
+                                None,
+                            );
+                            let _ = line.paint(inner_origin, px(line_h), window, cx);
+                        }
+
+                        let has_sel = cursor != sel_start;
+                        let sel_lo = cursor.min(sel_start);
+                        let sel_hi = cursor.max(sel_start);
+
+                        let mut byte_off = 0usize;
+                        for (i, line_str) in lines.iter().enumerate() {
+                            let line_start = byte_off;
+                            let line_end = byte_off + line_str.len();
+                            let y_top = inner_origin.y + px(i as f32 * line_h);
+
+                            let shaped = if line_str.is_empty() {
+                                None
+                            } else {
+                                let run = TextRun {
+                                    len: line_str.len(),
+                                    font: font(".SystemUIFont"),
+                                    color: rgba8(0xfa, 0xfa, 0xfa, 0xff),
+                                    background_color: None,
+                                    underline: None,
+                                    strikethrough: None,
+                                };
+                                Some(window.text_system().shape_line(
+                                    SharedString::from(line_str.to_string()),
+                                    px(14.0),
+                                    &[run],
+                                    None,
+                                ))
+                            };
+
+                            if has_sel && sel_lo <= line_end && sel_hi >= line_start {
+                                let lo_in_line =
+                                    sel_lo.saturating_sub(line_start).min(line_str.len());
+                                let hi_in_line =
+                                    sel_hi.saturating_sub(line_start).min(line_str.len());
+                                let sx = shaped
+                                    .as_ref()
+                                    .map(|l| l.x_for_index(lo_in_line))
+                                    .unwrap_or(px(0.0));
+                                let ex = if sel_hi > line_end {
+                                    shaped
+                                        .as_ref()
+                                        .map(|l| l.x_for_index(line_str.len()))
+                                        .unwrap_or(px(0.0))
+                                        + px(6.0)
+                                } else {
+                                    shaped
+                                        .as_ref()
+                                        .map(|l| l.x_for_index(hi_in_line))
+                                        .unwrap_or(px(0.0))
+                                };
+                                window.paint_quad(gpui::fill(
+                                    Bounds::from_corners(
+                                        point(inner_origin.x + sx, y_top),
+                                        point(inner_origin.x + ex, y_top + px(line_h)),
+                                    ),
+                                    theme::selection(),
+                                ));
+                            }
+
+                            if let Some(line) = shaped {
+                                let _ = line.paint(
+                                    point(inner_origin.x, y_top),
+                                    px(line_h),
+                                    window,
+                                    cx,
+                                );
+                            }
+
+                            if focused
+                                && !has_sel
+                                && caret_blink_on
+                                && cursor >= line_start
+                                && cursor <= line_end
+                            {
+                                let cur_in_line = cursor - line_start;
+                                let cx_pos = match (cur_in_line, line_str.is_empty()) {
+                                    (0, true) => px(0.0),
+                                    _ => {
+                                        if let Some(ref line) = lines.get(i) {
+                                            let run = TextRun {
+                                                len: line.len(),
+                                                font: font(".SystemUIFont"),
+                                                color: rgba8(0xfa, 0xfa, 0xfa, 0xff),
+                                                background_color: None,
+                                                underline: None,
+                                                strikethrough: None,
+                                            };
+                                            let shape = window.text_system().shape_line(
+                                                SharedString::from(line.to_string()),
+                                                px(14.0),
+                                                &[run],
+                                                None,
+                                            );
+                                            shape.x_for_index(cur_in_line)
+                                        } else {
+                                            px(0.0)
+                                        }
+                                    }
+                                };
+                                window.paint_quad(gpui::fill(
+                                    Bounds::from_corners(
+                                        point(inner_origin.x + cx_pos, y_top),
+                                        point(
+                                            inner_origin.x + cx_pos + px(1.5),
+                                            y_top + px(line_h),
+                                        ),
+                                    ),
+                                    rgba8(0xfa, 0xfa, 0xfa, 0xff),
+                                ));
+                            }
+
+                            byte_off = line_end + 1; // account for '\n'
+                        }
+
+                        if focused && caret_blink_on && lines.is_empty() {
+                            window.paint_quad(gpui::fill(
+                                Bounds::from_corners(
+                                    inner_origin,
+                                    point(inner_origin.x + px(1.5), inner_origin.y + px(line_h)),
+                                ),
+                                rgba8(0xfa, 0xfa, 0xfa, 0xff),
+                            ));
+                        }
+                    }
+                },
+            )
+            .size_full(),
+        )
+}
+
+/// Map an (x, y) point inside a textarea to a byte index in `text`.
+fn textarea_hit_index(text: &str, x: f32, y: f32, window: &Window) -> usize {
+    let line_h: f32 = 20.0;
+    let line_idx = (y / line_h).floor().max(0.0) as usize;
+    let mut byte_off = 0usize;
+    for (i, line_str) in text.split('\n').enumerate() {
+        if i == line_idx {
+            if line_str.is_empty() {
+                return byte_off;
+            }
+            let run = TextRun {
+                len: line_str.len(),
+                font: font(".SystemUIFont"),
+                color: rgba8(0xfa, 0xfa, 0xfa, 0xff),
+                background_color: None,
+                underline: None,
+                strikethrough: None,
+            };
+            let shape = window.text_system().shape_line(
+                SharedString::from(line_str.to_string()),
+                px(14.0),
+                &[run],
+                None,
+            );
+            return byte_off + shape.closest_index_for_x(px(x));
+        }
+        byte_off += line_str.len() + 1;
+    }
+    // Click past last line: end of text.
+    text.len()
+}
+
+fn render_card(x: f32, y: f32, w: f32, h: f32, title: &str, description: &str) -> impl IntoElement {
+    let mut card = div()
+        .absolute()
+        .left(px(x))
+        .top(px(y))
+        .w(px(w))
+        .h(px(h))
+        .rounded_lg()
+        .bg(gpui::rgb(theme::SURFACE))
+        .border_1()
+        .border_color(gpui::rgb(theme::BORDER))
+        .p_4()
+        .flex()
+        .flex_col()
+        .gap_1();
+    if !title.is_empty() {
+        card = card.child(
+            div()
+                .text_color(gpui::rgb(theme::FG))
+                .font_weight(gpui::FontWeight::SEMIBOLD)
+                .text_size(px(16.0))
+                .child(title.to_string()),
+        );
+    }
+    if !description.is_empty() {
+        card = card.child(
+            div()
+                .text_sm()
+                .text_color(gpui::rgb(theme::FG_MUTED))
+                .child(description.to_string()),
+        );
+    }
+    card
+}
+
+fn render_badge(x: f32, y: f32, label: &str, variant: WidgetVariant) -> impl IntoElement {
+    let (bg, fg, border) = match variant {
+        WidgetVariant::Default => (theme::PRIMARY, theme::PRIMARY_FG, theme::PRIMARY),
+        WidgetVariant::Secondary => (theme::SURFACE_HOVER, theme::FG, theme::SURFACE_HOVER),
+        WidgetVariant::Outline => (theme::BG, theme::FG, theme::BORDER_STRONG),
+        WidgetVariant::Ghost => (theme::BG, theme::FG_MUTED, theme::BG),
+        WidgetVariant::Destructive => (theme::DESTRUCTIVE, theme::FG, theme::DESTRUCTIVE),
+    };
+    div()
+        .absolute()
+        .left(px(x))
+        .top(px(y))
+        .h(px(22.0))
+        .px_2()
+        .rounded_full()
+        .bg(gpui::rgb(bg))
+        .border_1()
+        .border_color(gpui::rgb(border))
+        .flex()
+        .items_center()
+        .justify_center()
+        .text_xs()
+        .font_weight(gpui::FontWeight::MEDIUM)
+        .text_color(gpui::rgb(fg))
+        .child(label.to_string())
+}
+
+fn render_separator(x: f32, y: f32, length: f32, vertical: bool) -> impl IntoElement {
+    let (w, h) = if vertical {
+        (1.0, length)
+    } else {
+        (length, 1.0)
+    };
+    div()
+        .absolute()
+        .left(px(x))
+        .top(px(y))
+        .w(px(w))
+        .h(px(h))
+        .bg(gpui::rgb(theme::BORDER))
+}
+
+fn render_progress(x: f32, y: f32, w: f32, value: f32) -> impl IntoElement {
+    let fill = value.clamp(0.0, 1.0) * w;
+    div()
+        .absolute()
+        .left(px(x))
+        .top(px(y))
+        .w(px(w))
+        .h(px(8.0))
+        .rounded_full()
+        .bg(gpui::rgb(theme::MUTED))
+        .child(
+            div()
+                .h(px(8.0))
+                .w(px(fill))
+                .rounded_full()
+                .bg(gpui::rgb(theme::PRIMARY)),
+        )
+}
+
+fn render_label(x: f32, y: f32, text: &str, muted: bool, size: f32) -> impl IntoElement {
+    div()
+        .absolute()
+        .left(px(x))
+        .top(px(y))
+        .text_size(px(size))
+        .text_color(gpui::rgb(if muted { theme::FG_MUTED } else { theme::FG }))
+        .font_weight(if muted {
+            gpui::FontWeight::NORMAL
+        } else {
+            gpui::FontWeight::MEDIUM
+        })
+        .child(text.to_string())
+}
+
 /// Guest widget bounds in canvas-local coordinates (must match overlay hit-test skip logic).
-fn widget_bounds(cmd: &WidgetCommand) -> (f32, f32, f32, f32) {
+/// Returns `None` for purely decorative widgets that should not block click-through.
+fn widget_bounds(cmd: &WidgetCommand) -> Option<(f32, f32, f32, f32)> {
     match cmd {
-        WidgetCommand::Button { x, y, w, h, .. } => (*x, *y, *w, *h),
-        WidgetCommand::Checkbox { x, y, .. } => (*x, *y, 220.0, 30.0),
-        WidgetCommand::Slider { x, y, w, .. } => (*x, *y, *w, 28.0),
-        WidgetCommand::TextInput { x, y, w, .. } => (*x, *y, *w, 28.0),
+        WidgetCommand::Button { x, y, w, h, .. } => Some((*x, *y, *w, *h)),
+        WidgetCommand::Checkbox { x, y, .. } => Some((*x, *y, 220.0, 26.0)),
+        WidgetCommand::Slider { x, y, w, .. } => Some((*x, *y, *w, 28.0)),
+        WidgetCommand::TextInput { x, y, w, .. } => Some((*x, *y, *w, 36.0)),
+        WidgetCommand::Textarea { x, y, w, h, .. } => Some((*x, *y, *w, *h)),
+        WidgetCommand::Card { x, y, w, h, .. } => Some((*x, *y, *w, *h)),
+        WidgetCommand::Switch { x, y, .. } => Some((*x, *y, 220.0, 24.0)),
+        WidgetCommand::Badge { .. }
+        | WidgetCommand::Separator { .. }
+        | WidgetCommand::Progress { .. }
+        | WidgetCommand::Label { .. } => None,
     }
 }
 
 /// True if `(lx, ly)` lies inside any guest widget rect (canvas space).
 fn canvas_point_hits_widget(lx: f32, ly: f32, cmds: &[WidgetCommand]) -> bool {
     for cmd in cmds {
-        let (x, y, w, h) = widget_bounds(cmd);
-        if lx >= x && ly >= y && lx <= x + w && ly <= y + h {
-            return true;
+        if let Some((x, y, w, h)) = widget_bounds(cmd) {
+            if lx >= x && ly >= y && lx <= x + w && ly <= y + h {
+                return true;
+            }
         }
     }
     false

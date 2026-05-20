@@ -7229,6 +7229,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "shadcn-demo"
+version = "0.1.0"
+dependencies = [
+ "oxide-sdk",
+]
+
+[[package]]
 name = "sharded-slab"
 version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"

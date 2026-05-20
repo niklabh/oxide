@@ -21,5 +21,6 @@ members = [
     "examples/file-picker-demo",
     "examples/gradient-demo",
     "examples/typography-demo",
+    "examples/shadcn-demo",
 ]
 resolver = "2"
