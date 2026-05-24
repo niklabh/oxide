@@ -6,6 +6,9 @@ document.addEventListener('DOMContentLoaded', () => {
     initMobileMenu();
     initVideoPlay();
     initForgePipeline();
+    initScrollProgress();
+    initParallax();
+    initTilt();
 });
 
 /* ─── Particle Background ─── */
@@ -457,6 +460,106 @@ function initForgePipeline() {
                 start();
             }
         }, 200);
+    });
+}
+
+/* ─── Scroll Progress Bar ─── */
+function initScrollProgress() {
+    const bar = document.createElement('div');
+    bar.className = 'scroll-progress';
+    document.body.appendChild(bar);
+
+    let ticking = false;
+    function update() {
+        const doc = document.documentElement;
+        const max = (doc.scrollHeight - doc.clientHeight) || 1;
+        const pct = Math.min(100, Math.max(0, (window.scrollY / max) * 100));
+        bar.style.width = pct + '%';
+        ticking = false;
+    }
+
+    window.addEventListener('scroll', () => {
+        if (!ticking) {
+            requestAnimationFrame(update);
+            ticking = true;
+        }
+    }, { passive: true });
+
+    update();
+}
+
+/* ─── Parallax (translateY on scroll) ─── */
+function initParallax() {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+
+    const targets = [
+        { el: document.querySelector('.hero-glow'),       speed: 0.35 },
+        { el: document.querySelector('.token-glow'),      speed: 0.25 },
+        { el: document.querySelector('#particles-canvas'), speed: 0.08 },
+    ].filter(t => t.el);
+
+    if (!targets.length) return;
+
+    let ticking = false;
+    function update() {
+        const y = window.scrollY;
+        targets.forEach(t => {
+            t.el.style.transform = (t.el === document.querySelector('.hero-glow') ||
+                                    t.el === document.querySelector('.token-glow'))
+                ? `translateX(-50%) translateY(${y * t.speed}px)`
+                : `translate3d(0, ${y * t.speed}px, 0)`;
+        });
+        ticking = false;
+    }
+
+    window.addEventListener('scroll', () => {
+        if (!ticking) {
+            requestAnimationFrame(update);
+            ticking = true;
+        }
+    }, { passive: true });
+
+    update();
+}
+
+/* ─── 3D Tilt on the demo browser preview ─── */
+function initTilt() {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    if (window.matchMedia('(hover: none)').matches) return;
+
+    const card = document.querySelector('.browser-preview');
+    if (!card) return;
+
+    card.style.transition = 'transform 0.18s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.4s ease';
+    card.style.willChange = 'transform';
+
+    const MAX = 6;
+    let raf = 0;
+    let targetX = 0, targetY = 0, curX = 0, curY = 0;
+
+    function loop() {
+        curX += (targetX - curX) * 0.12;
+        curY += (targetY - curY) * 0.12;
+        card.style.transform = `perspective(1200px) rotateX(${curY}deg) rotateY(${curX}deg)`;
+        if (Math.abs(targetX - curX) > 0.01 || Math.abs(targetY - curY) > 0.01) {
+            raf = requestAnimationFrame(loop);
+        } else {
+            raf = 0;
+        }
+    }
+
+    card.addEventListener('mousemove', (e) => {
+        const r = card.getBoundingClientRect();
+        const px = (e.clientX - r.left) / r.width - 0.5;
+        const py = (e.clientY - r.top)  / r.height - 0.5;
+        targetX =  px * MAX * 2;
+        targetY = -py * MAX * 2;
+        if (!raf) raf = requestAnimationFrame(loop);
+    });
+
+    card.addEventListener('mouseleave', () => {
+        targetX = 0; targetY = 0;
+        if (!raf) raf = requestAnimationFrame(loop);
     });
 }
 
