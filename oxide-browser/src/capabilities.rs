@@ -526,6 +526,35 @@ pub struct InputState {
     pub scroll_y: f32,
 }
 
+/// Visual emphasis for buttons and badges; matches shadcn/ui variants.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum WidgetVariant {
+    /// High-emphasis (light fill on dark theme).
+    #[default]
+    Default,
+    /// Neutral fill on a muted surface.
+    Secondary,
+    /// Transparent fill with a visible border.
+    Outline,
+    /// Transparent fill, only shows on hover.
+    Ghost,
+    /// Red emphasis for destructive actions / errors.
+    Destructive,
+}
+
+impl WidgetVariant {
+    /// Decode the integer flag from SDK calls (`0=Default … 4=Destructive`).
+    pub fn from_u32(v: u32) -> Self {
+        match v {
+            1 => Self::Secondary,
+            2 => Self::Outline,
+            3 => Self::Ghost,
+            4 => Self::Destructive,
+            _ => Self::Default,
+        }
+    }
+}
+
 /// UI control the guest requested for the current frame; the host GPUI layer renders these after canvas content.
 ///
 /// Commands are queued during `on_frame`; stable `id` values tie widgets to [`WidgetValue`] state and click tracking.
@@ -539,6 +568,7 @@ pub enum WidgetCommand {
         w: f32,
         h: f32,
         label: String,
+        variant: WidgetVariant,
     },
     /// Toggle with label; checked state lives in [`WidgetValue::Bool`] for this `id`.
     Checkbox {
@@ -557,13 +587,68 @@ pub enum WidgetCommand {
         max: f32,
     },
     /// Single-line text field; current text stored in [`WidgetValue::Text`].
-    TextInput { id: u32, x: f32, y: f32, w: f32 },
+    TextInput {
+        id: u32,
+        x: f32,
+        y: f32,
+        w: f32,
+        placeholder: String,
+    },
+    /// Multi-line text field with vertical scrolling.
+    Textarea {
+        id: u32,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        placeholder: String,
+    },
+    /// Container with subtle border and rounded corners.
+    Card {
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        title: String,
+        description: String,
+    },
+    /// Small status pill.
+    Badge {
+        x: f32,
+        y: f32,
+        label: String,
+        variant: WidgetVariant,
+    },
+    /// Pill-shaped on/off toggle; bool state in [`WidgetValue::Bool`].
+    Switch {
+        id: u32,
+        x: f32,
+        y: f32,
+        label: String,
+    },
+    /// 1px divider (horizontal or vertical).
+    Separator {
+        x: f32,
+        y: f32,
+        length: f32,
+        vertical: bool,
+    },
+    /// Horizontal progress bar; value 0.0..=1.0.
+    Progress { x: f32, y: f32, w: f32, value: f32 },
+    /// Static text label rendered with proper font shaping.
+    Label {
+        x: f32,
+        y: f32,
+        text: String,
+        muted: bool,
+        size: f32,
+    },
 }
 
 /// Persistent control state for interactive widgets, keyed by widget `id` across frames.
 #[derive(Clone, Debug)]
 pub enum WidgetValue {
-    /// Checkbox on/off.
+    /// Checkbox / switch on/off.
     Bool(bool),
     /// Slider current value.
     Float(f32),
@@ -3775,7 +3860,8 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
          w: f32,
          h: f32,
          label_ptr: u32,
-         label_len: u32|
+         label_len: u32,
+         variant: u32|
          -> u32 {
             let mem = caller.data().memory.expect("memory not set");
             let label = read_guest_string(&mem, &caller, label_ptr, label_len).unwrap_or_default();
@@ -3791,6 +3877,7 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
                     w,
                     h,
                     label,
+                    variant: crate::capabilities::WidgetVariant::from_u32(variant),
                 });
             if caller.data().widget_clicked.lock().unwrap().contains(&id) {
                 1
@@ -3884,10 +3971,14 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
          w: f32,
          init_ptr: u32,
          init_len: u32,
+         placeholder_ptr: u32,
+         placeholder_len: u32,
          out_ptr: u32,
          out_cap: u32|
          -> u32 {
             let mem = caller.data().memory.expect("memory not set");
+            let placeholder = read_guest_string(&mem, &caller, placeholder_ptr, placeholder_len)
+                .unwrap_or_default();
             let text = {
                 let mut states = caller.data().widget_states.lock().unwrap();
                 let entry = states.entry(id).or_insert_with(|| {
@@ -3905,11 +3996,225 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
                 .widget_commands
                 .lock()
                 .unwrap()
-                .push(WidgetCommand::TextInput { id, x, y, w });
+                .push(WidgetCommand::TextInput {
+                    id,
+                    x,
+                    y,
+                    w,
+                    placeholder,
+                });
             let bytes = text.as_bytes();
             let write_len = bytes.len().min(out_cap as usize);
             write_guest_bytes(&mem, &mut caller, out_ptr, &bytes[..write_len]).ok();
             write_len as u32
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_ui_textarea",
+        |mut caller: Caller<'_, HostState>,
+         id: u32,
+         x: f32,
+         y: f32,
+         w: f32,
+         h: f32,
+         init_ptr: u32,
+         init_len: u32,
+         placeholder_ptr: u32,
+         placeholder_len: u32,
+         out_ptr: u32,
+         out_cap: u32|
+         -> u32 {
+            let mem = caller.data().memory.expect("memory not set");
+            let placeholder = read_guest_string(&mem, &caller, placeholder_ptr, placeholder_len)
+                .unwrap_or_default();
+            let text = {
+                let mut states = caller.data().widget_states.lock().unwrap();
+                let entry = states.entry(id).or_insert_with(|| {
+                    let init =
+                        read_guest_string(&mem, &caller, init_ptr, init_len).unwrap_or_default();
+                    WidgetValue::Text(init)
+                });
+                match entry {
+                    WidgetValue::Text(t) => t.clone(),
+                    _ => String::new(),
+                }
+            };
+            caller
+                .data()
+                .widget_commands
+                .lock()
+                .unwrap()
+                .push(WidgetCommand::Textarea {
+                    id,
+                    x,
+                    y,
+                    w,
+                    h,
+                    placeholder,
+                });
+            let bytes = text.as_bytes();
+            let write_len = bytes.len().min(out_cap as usize);
+            write_guest_bytes(&mem, &mut caller, out_ptr, &bytes[..write_len]).ok();
+            write_len as u32
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_ui_switch",
+        |caller: Caller<'_, HostState>,
+         id: u32,
+         x: f32,
+         y: f32,
+         label_ptr: u32,
+         label_len: u32,
+         initial: u32|
+         -> u32 {
+            let mem = caller.data().memory.expect("memory not set");
+            let label = read_guest_string(&mem, &caller, label_ptr, label_len).unwrap_or_default();
+            let mut states = caller.data().widget_states.lock().unwrap();
+            let entry = states
+                .entry(id)
+                .or_insert_with(|| WidgetValue::Bool(initial != 0));
+            let checked = match entry {
+                WidgetValue::Bool(b) => *b,
+                _ => initial != 0,
+            };
+            drop(states);
+            caller
+                .data()
+                .widget_commands
+                .lock()
+                .unwrap()
+                .push(WidgetCommand::Switch { id, x, y, label });
+            if checked {
+                1
+            } else {
+                0
+            }
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_ui_card",
+        |caller: Caller<'_, HostState>,
+         x: f32,
+         y: f32,
+         w: f32,
+         h: f32,
+         title_ptr: u32,
+         title_len: u32,
+         desc_ptr: u32,
+         desc_len: u32| {
+            let mem = caller.data().memory.expect("memory not set");
+            let title = read_guest_string(&mem, &caller, title_ptr, title_len).unwrap_or_default();
+            let description =
+                read_guest_string(&mem, &caller, desc_ptr, desc_len).unwrap_or_default();
+            caller
+                .data()
+                .widget_commands
+                .lock()
+                .unwrap()
+                .push(WidgetCommand::Card {
+                    x,
+                    y,
+                    w,
+                    h,
+                    title,
+                    description,
+                });
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_ui_badge",
+        |caller: Caller<'_, HostState>,
+         x: f32,
+         y: f32,
+         label_ptr: u32,
+         label_len: u32,
+         variant: u32| {
+            let mem = caller.data().memory.expect("memory not set");
+            let label = read_guest_string(&mem, &caller, label_ptr, label_len).unwrap_or_default();
+            caller
+                .data()
+                .widget_commands
+                .lock()
+                .unwrap()
+                .push(WidgetCommand::Badge {
+                    x,
+                    y,
+                    label,
+                    variant: crate::capabilities::WidgetVariant::from_u32(variant),
+                });
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_ui_separator",
+        |caller: Caller<'_, HostState>, x: f32, y: f32, length: f32, vertical: u32| {
+            caller
+                .data()
+                .widget_commands
+                .lock()
+                .unwrap()
+                .push(WidgetCommand::Separator {
+                    x,
+                    y,
+                    length,
+                    vertical: vertical != 0,
+                });
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_ui_progress",
+        |caller: Caller<'_, HostState>, x: f32, y: f32, w: f32, value: f32| {
+            caller
+                .data()
+                .widget_commands
+                .lock()
+                .unwrap()
+                .push(WidgetCommand::Progress {
+                    x,
+                    y,
+                    w,
+                    value: value.clamp(0.0, 1.0),
+                });
+        },
+    )?;
+
+    linker.func_wrap(
+        "oxide",
+        "api_ui_label",
+        |caller: Caller<'_, HostState>,
+         x: f32,
+         y: f32,
+         text_ptr: u32,
+         text_len: u32,
+         muted: u32,
+         size: f32| {
+            let mem = caller.data().memory.expect("memory not set");
+            let text = read_guest_string(&mem, &caller, text_ptr, text_len).unwrap_or_default();
+            let size = if size <= 0.0 { 14.0 } else { size };
+            caller
+                .data()
+                .widget_commands
+                .lock()
+                .unwrap()
+                .push(WidgetCommand::Label {
+                    x,
+                    y,
+                    text,
+                    muted: muted != 0,
+                    size,
+                });
         },
     )?;
 

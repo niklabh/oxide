@@ -1902,3 +1902,470 @@ a.about-card--link {
         justify-content: center;
     }
 }
+
+/* ═══════════════════════════════════════════════════════════════
+   ENHANCED ANIMATION LAYER
+   Adds: floating, bouncing, animated gradients, scroll parallax
+   targets, shimmer, glow, scale/rotate hover, scroll progress.
+   ═══════════════════════════════════════════════════════════════ */
+
+/* ─── Keyframes ─── */
+@keyframes float-y {
+    0%, 100% { transform: translate3d(0, 0, 0); }
+    50%      { transform: translate3d(0, -10px, 0); }
+}
+
+@keyframes float-xy {
+    0%, 100% { transform: translate3d(0, 0, 0) rotate(0deg); }
+    33%      { transform: translate3d(6px, -8px, 0) rotate(2deg); }
+    66%      { transform: translate3d(-4px, -4px, 0) rotate(-2deg); }
+}
+
+@keyframes bounce-soft {
+    0%, 100% { transform: translateY(0); }
+    50%      { transform: translateY(-4px); }
+}
+
+@keyframes spin-slow {
+    from { transform: rotate(0deg); }
+    to   { transform: rotate(360deg); }
+}
+
+@keyframes gradient-pan {
+    0%   { background-position:   0% 50%; }
+    50%  { background-position: 100% 50%; }
+    100% { background-position:   0% 50%; }
+}
+
+@keyframes aurora-drift {
+    0%   { transform: translate3d(-10%, -10%, 0) rotate(0deg);  }
+    50%  { transform: translate3d( 10%,  10%, 0) rotate(180deg); }
+    100% { transform: translate3d(-10%, -10%, 0) rotate(360deg); }
+}
+
+@keyframes glow-breathe {
+    0%, 100% { opacity: 0.55; transform: translateX(-50%) scale(1); }
+    50%      { opacity: 0.85; transform: translateX(-50%) scale(1.08); }
+}
+
+@keyframes shimmer-sweep {
+    0%   { transform: translateX(-120%) skewX(-20deg); }
+    100% { transform: translateX(220%)  skewX(-20deg); }
+}
+
+@keyframes text-glow {
+    0%, 100% { text-shadow: 0 0 0 transparent; }
+    50%      { text-shadow: 0 0 24px rgba(162, 155, 254, 0.45),
+                            0 0 48px rgba(0, 210, 255, 0.25); }
+}
+
+@keyframes badge-pulse-ring {
+    0%   { box-shadow: 0 0 0 0 rgba(0, 245, 160, 0.6); }
+    70%  { box-shadow: 0 0 0 10px rgba(0, 245, 160, 0); }
+    100% { box-shadow: 0 0 0 0 rgba(0, 245, 160, 0); }
+}
+
+/* ─── Animated aurora behind everything ─── */
+body::before,
+body::after {
+    content: '';
+    position: fixed;
+    inset: -25%;
+    z-index: 0;
+    pointer-events: none;
+    will-change: transform;
+}
+
+body::before {
+    background:
+        radial-gradient(40% 50% at 20% 25%, rgba(108, 92, 231, 0.22), transparent 60%),
+        radial-gradient(35% 45% at 80% 30%, rgba(0, 210, 255, 0.18), transparent 60%),
+        radial-gradient(45% 55% at 50% 85%, rgba(0, 245, 160, 0.14), transparent 60%);
+    filter: blur(40px);
+    animation: aurora-drift 32s linear infinite;
+    opacity: 0.55;
+}
+
+body::after {
+    background: linear-gradient(
+        135deg,
+        rgba(108, 92, 231, 0.04) 0%,
+        rgba(0, 210, 255, 0.04) 25%,
+        rgba(0, 245, 160, 0.04) 50%,
+        rgba(108, 92, 231, 0.04) 75%,
+        rgba(0, 210, 255, 0.04) 100%);
+    background-size: 400% 400%;
+    animation: gradient-pan 24s ease infinite;
+    mix-blend-mode: screen;
+    opacity: 0.9;
+}
+
+/* Keep navbar / sections above the aurora */
+.navbar,
+.hero,
+.demo,
+.forge,
+.about,
+.features,
+.architecture,
+.roadmap,
+.token,
+.community,
+.footer {
+    position: relative;
+    z-index: 1;
+}
+
+/* ─── Floating micro-animations ─── */
+.logo-img {
+    animation: float-y 5s ease-in-out infinite;
+}
+
+.hero-badge {
+    animation: float-y 6s ease-in-out infinite;
+    position: relative;
+    overflow: hidden;
+}
+
+.hero-badge::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 40%;
+    height: 100%;
+    background: linear-gradient(
+        110deg,
+        transparent 20%,
+        rgba(255, 255, 255, 0.18) 50%,
+        transparent 80%);
+    animation: shimmer-sweep 3.5s ease-in-out infinite;
+    animation-delay: 1.2s;
+    pointer-events: none;
+}
+
+.badge-dot {
+    animation: pulse-dot 2s ease-in-out infinite,
+               badge-pulse-ring 2.2s ease-out infinite;
+}
+
+.about-icon,
+.reward-icon,
+.community-icon {
+    transition: transform 0.5s cubic-bezier(0.34, 1.56, 0.64, 1),
+                box-shadow 0.4s ease,
+                background 0.4s ease;
+}
+
+.about-card:hover .about-icon,
+.reward-card:hover .reward-icon {
+    transform: scale(1.12) rotate(-8deg);
+    box-shadow: 0 8px 28px var(--accent-glow);
+}
+
+.community-card:hover .community-icon {
+    transform: scale(1.1) rotate(6deg);
+    box-shadow: 0 8px 28px rgba(162, 155, 254, 0.25);
+}
+
+.community-arrow {
+    display: inline-block;
+}
+
+.community-card:hover .community-arrow {
+    animation: bounce-soft 0.9s ease-in-out infinite;
+}
+
+/* ─── Animated gradient text ─── */
+.gradient-text,
+.stat-value,
+.security-value,
+.tech-name {
+    background-size: 200% 200%;
+    animation: gradient-pan 8s ease infinite;
+}
+
+.tech-name {
+    background: linear-gradient(135deg, var(--accent-secondary), var(--accent-cyan));
+    background-size: 200% 200%;
+    -webkit-background-clip: text;
+            background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.hero h1 .gradient-text {
+    display: inline-block;
+    animation: gradient-pan 8s ease infinite, text-glow 6s ease-in-out infinite;
+}
+
+.section-tag {
+    position: relative;
+    display: inline-block;
+}
+
+.section-tag::after {
+    content: '';
+    position: absolute;
+    left: 0; right: 0; bottom: -6px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--accent-cyan), transparent);
+    transform: scaleX(0.4);
+    transform-origin: center;
+    transition: transform 0.6s ease;
+}
+
+.section-header:hover .section-tag::after {
+    transform: scaleX(1);
+}
+
+/* ─── Hero glow: breathe + soft drift via parallax ─── */
+.hero-glow {
+    animation: glow-breathe 8s ease-in-out infinite;
+    will-change: transform, opacity;
+}
+
+.token-glow {
+    animation: glow-breathe 10s ease-in-out infinite;
+    will-change: transform, opacity;
+}
+
+/* ─── Enhanced button hover: glow + scale + sheen ─── */
+.btn {
+    position: relative;
+    overflow: hidden;
+    will-change: transform, box-shadow;
+}
+
+.btn::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 40%;
+    height: 100%;
+    background: linear-gradient(
+        110deg,
+        transparent 0%,
+        rgba(255, 255, 255, 0.18) 50%,
+        transparent 100%);
+    transform: translateX(-150%) skewX(-20deg);
+    transition: transform 0.7s ease;
+    pointer-events: none;
+}
+
+.btn:hover::after {
+    transform: translateX(220%) skewX(-20deg);
+}
+
+.btn-primary {
+    background: var(--gradient-primary);
+    background-size: 180% 180%;
+    background-position: 0% 50%;
+    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
+                box-shadow 0.3s ease,
+                background-position 0.6s ease;
+}
+
+.btn-primary:hover {
+    transform: translateY(-3px) scale(1.04);
+    background-position: 100% 50%;
+    box-shadow: 0 12px 40px var(--accent-glow),
+                0 0 60px rgba(0, 210, 255, 0.22);
+}
+
+.btn-primary:active {
+    transform: translateY(-1px) scale(1.0);
+}
+
+.btn-outline {
+    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
+                border-color 0.3s ease,
+                box-shadow 0.3s ease,
+                background 0.3s ease;
+}
+
+.btn-outline:hover {
+    transform: translateY(-3px) scale(1.03);
+    box-shadow: 0 10px 30px rgba(108, 92, 231, 0.18),
+                inset 0 0 0 1px rgba(162, 155, 254, 0.4);
+}
+
+.copy-btn {
+    transition: transform 0.25s ease, background 0.2s ease,
+                color 0.2s ease, border-color 0.2s ease,
+                box-shadow 0.25s ease;
+}
+
+.copy-btn:hover {
+    transform: translateY(-1px) scale(1.04);
+    box-shadow: 0 6px 18px rgba(108, 92, 231, 0.18);
+}
+
+/* ─── Card hover: glow border + lift + scale ─── */
+.about-card,
+.tech-card,
+.community-card,
+.reward-card,
+.phase-content {
+    position: relative;
+    will-change: transform, box-shadow;
+    transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1),
+                border-color 0.3s ease,
+                box-shadow 0.4s ease,
+                background 0.3s ease;
+}
+
+.about-card::before,
+.tech-card::before,
+.community-card::before,
+.reward-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(135deg,
+        rgba(108, 92, 231, 0),
+        rgba(0, 210, 255, 0) 30%,
+        rgba(108, 92, 231, 0.55) 50%,
+        rgba(0, 210, 255, 0) 70%,
+        rgba(108, 92, 231, 0));
+    background-size: 200% 200%;
+    -webkit-mask:
+        linear-gradient(#000 0 0) content-box,
+        linear-gradient(#000 0 0);
+            mask:
+        linear-gradient(#000 0 0) content-box,
+        linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+            mask-composite: exclude;
+    opacity: 0;
+    transition: opacity 0.4s ease;
+    pointer-events: none;
+}
+
+.about-card:hover::before,
+.tech-card:hover::before,
+.community-card:hover::before,
+.reward-card:hover::before {
+    opacity: 1;
+    animation: gradient-pan 3s ease infinite;
+}
+
+.about-card:hover {
+    transform: translateY(-6px) scale(1.015);
+    box-shadow: 0 20px 60px rgba(108, 92, 231, 0.18),
+                0 0 1px rgba(162, 155, 254, 0.4);
+}
+
+.tech-card:hover {
+    transform: translateY(-4px) scale(1.02);
+    box-shadow: 0 14px 40px rgba(108, 92, 231, 0.18);
+}
+
+.community-card:hover {
+    transform: translateY(-6px) scale(1.02);
+    box-shadow: 0 20px 50px rgba(162, 155, 254, 0.18);
+}
+
+.reward-card:hover {
+    transform: translateY(-3px) scale(1.02);
+    box-shadow: 0 10px 30px rgba(108, 92, 231, 0.18);
+}
+
+.phase-content:hover {
+    transform: translateX(6px) scale(1.005);
+    box-shadow: 0 14px 40px rgba(108, 92, 231, 0.12);
+}
+
+/* Browser preview: gentle tilt on hover */
+.browser-preview {
+    transition: transform 0.6s cubic-bezier(0.22, 1, 0.36, 1),
+                box-shadow 0.6s ease;
+}
+
+.browser-preview:hover {
+    transform: translateY(-4px) scale(1.005);
+    box-shadow:
+        0 0 0 1px rgba(108, 92, 231, 0.2),
+        0 30px 100px rgba(0, 0, 0, 0.55),
+        0 0 160px rgba(108, 92, 231, 0.14);
+}
+
+/* Nav link underline shimmer */
+.nav-links a {
+    position: relative;
+}
+
+.nav-links a::after {
+    content: '';
+    position: absolute;
+    left: 0; right: 0; bottom: -4px;
+    height: 1px;
+    background: linear-gradient(90deg, var(--accent-secondary), var(--accent-cyan));
+    transform: scaleX(0);
+    transform-origin: left;
+    transition: transform 0.35s ease;
+}
+
+.nav-links a:hover::after {
+    transform: scaleX(1);
+}
+
+/* ─── Scroll-progress bar (created by JS, styled here) ─── */
+.scroll-progress {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 2px;
+    width: 0%;
+    background: linear-gradient(90deg,
+        var(--accent-primary),
+        var(--accent-cyan),
+        var(--accent-green));
+    background-size: 200% 100%;
+    box-shadow: 0 0 12px rgba(0, 210, 255, 0.6);
+    z-index: 1100;
+    pointer-events: none;
+    animation: gradient-pan 6s ease infinite;
+    transition: width 0.08s linear;
+}
+
+/* ─── Fade-up: stronger easing + slight scale ─── */
+[data-animate] {
+    transform: translateY(36px) scale(0.985);
+    transition: opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1),
+                transform 0.7s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+[data-animate].visible {
+    transform: translateY(0) scale(1);
+}
+
+/* ─── Reduced motion: kill the heavy stuff ─── */
+@media (prefers-reduced-motion: reduce) {
+    body::before,
+    body::after,
+    .logo-img,
+    .hero-badge,
+    .hero-badge::after,
+    .badge-dot,
+    .hero-glow,
+    .token-glow,
+    .gradient-text,
+    .stat-value,
+    .security-value,
+    .tech-name,
+    .hero h1 .gradient-text,
+    .scroll-progress,
+    .btn-primary,
+    .about-card::before,
+    .tech-card::before,
+    .community-card::before,
+    .reward-card::before {
+        animation: none !important;
+    }
+
+    .btn::after,
+    .hero-badge::after {
+        display: none;
+    }
+}

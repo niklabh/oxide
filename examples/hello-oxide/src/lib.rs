@@ -98,7 +98,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
     // ── Text input demo ─────────────────────────────────────────────
     canvas_text(20.0, 355.0, 16.0, 180, 140, 255, 255, "Text Input");
 
-    let name = ui_text_input(30, 20.0, 380.0, 300.0, "");
+    let name = ui_text_input(30, 20.0, 380.0, 300.0, "Type your name…");
     if !name.is_empty() {
         canvas_text(
             20.0,

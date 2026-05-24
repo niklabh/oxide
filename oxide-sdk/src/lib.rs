@@ -549,6 +549,7 @@ extern "C" {
         h: f32,
         label_ptr: u32,
         label_len: u32,
+        variant: u32,
     ) -> u32;
 
     #[link_name = "api_ui_checkbox"]
@@ -561,6 +562,10 @@ extern "C" {
         initial: u32,
     ) -> u32;
 
+    #[link_name = "api_ui_switch"]
+    fn _api_ui_switch(id: u32, x: f32, y: f32, label_ptr: u32, label_len: u32, initial: u32)
+        -> u32;
+
     #[link_name = "api_ui_slider"]
     fn _api_ui_slider(id: u32, x: f32, y: f32, w: f32, min: f32, max: f32, initial: f32) -> f32;
 
@@ -572,9 +577,50 @@ extern "C" {
         w: f32,
         init_ptr: u32,
         init_len: u32,
+        placeholder_ptr: u32,
+        placeholder_len: u32,
         out_ptr: u32,
         out_cap: u32,
     ) -> u32;
+
+    #[link_name = "api_ui_textarea"]
+    fn _api_ui_textarea(
+        id: u32,
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        init_ptr: u32,
+        init_len: u32,
+        placeholder_ptr: u32,
+        placeholder_len: u32,
+        out_ptr: u32,
+        out_cap: u32,
+    ) -> u32;
+
+    #[link_name = "api_ui_card"]
+    fn _api_ui_card(
+        x: f32,
+        y: f32,
+        w: f32,
+        h: f32,
+        title_ptr: u32,
+        title_len: u32,
+        desc_ptr: u32,
+        desc_len: u32,
+    );
+
+    #[link_name = "api_ui_badge"]
+    fn _api_ui_badge(x: f32, y: f32, label_ptr: u32, label_len: u32, variant: u32);
+
+    #[link_name = "api_ui_separator"]
+    fn _api_ui_separator(x: f32, y: f32, length: f32, vertical: u32);
+
+    #[link_name = "api_ui_progress"]
+    fn _api_ui_progress(x: f32, y: f32, w: f32, value: f32);
+
+    #[link_name = "api_ui_label"]
+    fn _api_ui_label(x: f32, y: f32, text_ptr: u32, text_len: u32, muted: u32, size: f32);
 
     // ── Audio Playback ──────────────────────────────────────────────
 
@@ -3329,13 +3375,70 @@ pub const KEY_PAGE_DOWN: u32 = 49;
 
 // ─── Interactive Widget API ─────────────────────────────────────────────────
 
+/// Visual emphasis for buttons and badges, mirroring shadcn/ui variants.
+///
+/// Default is a high-contrast filled button; secondary is a muted fill; outline
+/// shows only a border; ghost is transparent until hover; destructive flags a
+/// dangerous action.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum UiVariant {
+    /// High-emphasis button (light fill on dark theme).
+    #[default]
+    Default,
+    /// Neutral fill on a muted surface.
+    Secondary,
+    /// Transparent fill with a visible border.
+    Outline,
+    /// Transparent fill, only shows on hover.
+    Ghost,
+    /// Red emphasis for destructive actions / errors.
+    Destructive,
+}
+
+impl UiVariant {
+    fn as_u32(self) -> u32 {
+        match self {
+            Self::Default => 0,
+            Self::Secondary => 1,
+            Self::Outline => 2,
+            Self::Ghost => 3,
+            Self::Destructive => 4,
+        }
+    }
+}
+
 /// Render a button at the given position. Returns `true` if it was clicked
-/// on the previous frame.
+/// on the previous frame. Use [`ui_button_variant`] for non-default styling.
 ///
 /// Must be called from `on_frame()` — widgets are only rendered for
 /// interactive applications that export a frame loop.
 pub fn ui_button(id: u32, x: f32, y: f32, w: f32, h: f32, label: &str) -> bool {
-    unsafe { _api_ui_button(id, x, y, w, h, label.as_ptr() as u32, label.len() as u32) != 0 }
+    ui_button_variant(id, x, y, w, h, label, UiVariant::Default)
+}
+
+/// Render a button with a specific [`UiVariant`]. Returns `true` if it was
+/// clicked on the previous frame.
+pub fn ui_button_variant(
+    id: u32,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    label: &str,
+    variant: UiVariant,
+) -> bool {
+    unsafe {
+        _api_ui_button(
+            id,
+            x,
+            y,
+            w,
+            h,
+            label.as_ptr() as u32,
+            label.len() as u32,
+            variant.as_u32(),
+        ) != 0
+    }
 }
 
 /// Render a checkbox. Returns the current checked state.
@@ -3344,6 +3447,22 @@ pub fn ui_button(id: u32, x: f32, y: f32, w: f32, h: f32, label: &str) -> bool {
 pub fn ui_checkbox(id: u32, x: f32, y: f32, label: &str, initial: bool) -> bool {
     unsafe {
         _api_ui_checkbox(
+            id,
+            x,
+            y,
+            label.as_ptr() as u32,
+            label.len() as u32,
+            if initial { 1 } else { 0 },
+        ) != 0
+    }
+}
+
+/// Render a pill-shaped on/off toggle. Returns the current checked state.
+///
+/// `initial` sets the value the first time this ID is seen.
+pub fn ui_switch(id: u32, x: f32, y: f32, label: &str, initial: bool) -> bool {
+    unsafe {
+        _api_ui_switch(
             id,
             x,
             y,
@@ -3363,8 +3482,26 @@ pub fn ui_slider(id: u32, x: f32, y: f32, w: f32, min: f32, max: f32, initial: f
 
 /// Render a single-line text input. Returns the current text content.
 ///
-/// `initial` sets the text the first time this ID is seen.
-pub fn ui_text_input(id: u32, x: f32, y: f32, w: f32, initial: &str) -> String {
+/// `placeholder` is the muted hint shown when the field is empty. The text
+/// content persists across frames; use [`ui_text_input_with_value`] to seed
+/// an initial value the first time this `id` is seen.
+///
+/// Supports caret movement (←/→/Home/End), selection (Shift+arrows),
+/// copy/cut/paste (Cmd/Ctrl+C/X/V), and select-all (Cmd/Ctrl+A).
+pub fn ui_text_input(id: u32, x: f32, y: f32, w: f32, placeholder: &str) -> String {
+    ui_text_input_with_value(id, x, y, w, placeholder, "")
+}
+
+/// Like [`ui_text_input`], but seeds the field with `initial` the first time
+/// this `id` is seen. Subsequent frames use the user-edited value.
+pub fn ui_text_input_with_value(
+    id: u32,
+    x: f32,
+    y: f32,
+    w: f32,
+    placeholder: &str,
+    initial: &str,
+) -> String {
     let mut buf = [0u8; 4096];
     let len = unsafe {
         _api_ui_text_input(
@@ -3374,11 +3511,112 @@ pub fn ui_text_input(id: u32, x: f32, y: f32, w: f32, initial: &str) -> String {
             w,
             initial.as_ptr() as u32,
             initial.len() as u32,
+            placeholder.as_ptr() as u32,
+            placeholder.len() as u32,
             buf.as_mut_ptr() as u32,
             buf.len() as u32,
         )
     };
     String::from_utf8_lossy(&buf[..len as usize]).to_string()
+}
+
+/// Render a multi-line text input. Returns the current text content.
+///
+/// Supports cursor navigation (←/→/↑/↓/Home/End), selection (Shift+arrows),
+/// copy/cut/paste, select-all, scrolling, and `Enter` to insert a newline.
+/// Use [`ui_textarea_with_value`] to seed an initial value.
+pub fn ui_textarea(id: u32, x: f32, y: f32, w: f32, h: f32, placeholder: &str) -> String {
+    ui_textarea_with_value(id, x, y, w, h, placeholder, "")
+}
+
+/// Like [`ui_textarea`], but seeds the field with `initial` the first time
+/// this `id` is seen.
+pub fn ui_textarea_with_value(
+    id: u32,
+    x: f32,
+    y: f32,
+    w: f32,
+    h: f32,
+    placeholder: &str,
+    initial: &str,
+) -> String {
+    let mut buf = [0u8; 16384];
+    let len = unsafe {
+        _api_ui_textarea(
+            id,
+            x,
+            y,
+            w,
+            h,
+            initial.as_ptr() as u32,
+            initial.len() as u32,
+            placeholder.as_ptr() as u32,
+            placeholder.len() as u32,
+            buf.as_mut_ptr() as u32,
+            buf.len() as u32,
+        )
+    };
+    String::from_utf8_lossy(&buf[..len as usize]).to_string()
+}
+
+/// Render a card container with an optional title and description.
+///
+/// Cards are purely visual containers — they do not capture clicks. Pass an
+/// empty string to omit either text element.
+pub fn ui_card(x: f32, y: f32, w: f32, h: f32, title: &str, description: &str) {
+    unsafe {
+        _api_ui_card(
+            x,
+            y,
+            w,
+            h,
+            title.as_ptr() as u32,
+            title.len() as u32,
+            description.as_ptr() as u32,
+            description.len() as u32,
+        );
+    }
+}
+
+/// Render a small status pill at the given position.
+pub fn ui_badge(x: f32, y: f32, label: &str, variant: UiVariant) {
+    unsafe {
+        _api_ui_badge(
+            x,
+            y,
+            label.as_ptr() as u32,
+            label.len() as u32,
+            variant.as_u32(),
+        );
+    }
+}
+
+/// Render a 1px horizontal divider of the given width.
+pub fn ui_separator(x: f32, y: f32, length: f32) {
+    unsafe { _api_ui_separator(x, y, length, 0) }
+}
+
+/// Render a 1px vertical divider of the given height.
+pub fn ui_separator_vertical(x: f32, y: f32, length: f32) {
+    unsafe { _api_ui_separator(x, y, length, 1) }
+}
+
+/// Render a progress bar; `value` is clamped to `0.0..=1.0`.
+pub fn ui_progress(x: f32, y: f32, w: f32, value: f32) {
+    unsafe { _api_ui_progress(x, y, w, value) }
+}
+
+/// Render a static text label using GPU font shaping.
+///
+/// `muted` switches to a lower-emphasis colour suitable for hints/captions;
+/// `size` is the font size in CSS-like px (use `14.0` for body text).
+pub fn ui_label(x: f32, y: f32, text: &str, size: f32) {
+    unsafe { _api_ui_label(x, y, text.as_ptr() as u32, text.len() as u32, 0, size) }
+}
+
+/// Render a muted (caption) variant of [`ui_label`].
+pub fn ui_label_muted(x: f32, y: f32, text: &str, size: f32) {
+    unsafe { _api_ui_label(x, y, text.as_ptr() as u32, text.len() as u32, 1, size) }
 }
 
 // ─── Download & Print-to-PDF API ─────────────────────────────────────────────
