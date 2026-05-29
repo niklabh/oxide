@@ -933,6 +933,26 @@ extern "C" {
     #[link_name = "api_ws_remove"]
     fn _api_ws_remove(id: u32);
 
+    // ── Background Workers API ──────────────────────────────────────
+
+    #[link_name = "api_spawn_worker"]
+    fn _api_spawn_worker(url_ptr: u32, url_len: u32) -> i32;
+
+    #[link_name = "api_worker_post_message"]
+    fn _api_worker_post_message(handle: u32, ptr: u32, len: u32) -> i32;
+
+    #[link_name = "api_worker_recv"]
+    fn _api_worker_recv(handle: u32, out_ptr: u32, out_cap: u32) -> i64;
+
+    #[link_name = "api_worker_terminate"]
+    fn _api_worker_terminate(handle: u32) -> i32;
+
+    #[link_name = "api_worker_post"]
+    fn _api_worker_post(ptr: u32, len: u32) -> i32;
+
+    #[link_name = "api_worker_message_read"]
+    fn _api_worker_message_read(out_ptr: u32, out_cap: u32) -> u32;
+
     // ── MIDI API ────────────────────────────────────────────────────
 
     #[link_name = "api_midi_input_count"]
@@ -2707,6 +2727,64 @@ pub fn ws_close(id: u32) -> i32 {
 /// leaks.
 pub fn ws_remove(id: u32) {
     unsafe { _api_ws_remove(id) }
+}
+
+// ─── Background Workers API ────────────────────────────────────────────────────
+
+/// Spawn a background worker from a `.wasm` module URL.
+///
+/// The worker runs on its own thread with isolated fuel and linear memory. Its
+/// `start_app()` runs once on spawn; it then receives messages through its
+/// exported `on_message(len: u32)` and replies via [`worker_post`].
+///
+/// `url` may be `http(s)` or `file://`. Use [`url_resolve`] against
+/// [`get_url`] to load a worker module sitting next to the current app.
+///
+/// Returns a handle (`> 0`) on success, or `-1` on error.
+pub fn spawn_worker(url: &str) -> i32 {
+    unsafe { _api_spawn_worker(url.as_ptr() as u32, url.len() as u32) }
+}
+
+/// Send a message to a worker spawned with [`spawn_worker`].
+///
+/// Returns `0` on success, `-1` if the handle is unknown.
+pub fn worker_post_message(handle: u32, data: &[u8]) -> i32 {
+    unsafe { _api_worker_post_message(handle, data.as_ptr() as u32, data.len() as u32) }
+}
+
+/// Poll for one message a worker sent back via [`worker_post`].
+///
+/// Returns the message bytes, or `None` if the worker's outbox is empty.
+pub fn worker_recv(handle: u32) -> Option<Vec<u8>> {
+    let mut buf = vec![0u8; 64 * 1024];
+    let n = unsafe { _api_worker_recv(handle, buf.as_mut_ptr() as u32, buf.len() as u32) };
+    if n < 0 {
+        return None;
+    }
+    buf.truncate(n as usize);
+    Some(buf)
+}
+
+/// Terminate a worker and free its host-side resources.
+///
+/// Returns `1` if the worker was running, `0` if the handle is unknown.
+pub fn worker_terminate(handle: u32) -> i32 {
+    unsafe { _api_worker_terminate(handle) }
+}
+
+/// Send a message from inside a worker back to the parent that spawned it.
+///
+/// Returns `0` on success, `-1` if not running inside a worker.
+pub fn worker_post(data: &[u8]) -> i32 {
+    unsafe { _api_worker_post(data.as_ptr() as u32, data.len() as u32) }
+}
+
+/// Copy the message currently being delivered to `on_message` into `buf`.
+///
+/// Valid only during a worker's `on_message` callback. Returns the number of
+/// bytes written (truncated to `buf.len()`).
+pub fn worker_message_read(buf: &mut [u8]) -> usize {
+    unsafe { _api_worker_message_read(buf.as_mut_ptr() as u32, buf.len() as u32) as usize }
 }
 
 // ─── MIDI API ────────────────────────────────────────────────────────────────
