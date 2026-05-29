@@ -13,7 +13,8 @@
 //! ```
 //!
 //! Both `.wasm` files land in the same directory, so the worker URL is resolved
-//! relative to this module's URL at runtime.
+//! relative to this module's URL at runtime. Open `worker_demo.wasm` in the
+//! browser (toolbar **Open** or a `file://` address).
 
 use oxide_sdk::*;
 
@@ -25,10 +26,12 @@ static mut STATE: State = State::new();
 struct State {
     /// Handle of the spawned worker (0 = none).
     handle: u32,
-    /// 0 = idle, 1 = computing, 2 = done.
+    /// 0 = idle, 1 = computing, 2 = done, 3 = error.
     phase: u8,
     /// Result returned by the worker.
     result: u64,
+    /// Spinner angle, accumulated from frame deltas.
+    angle: f32,
 }
 
 impl State {
@@ -37,6 +40,7 @@ impl State {
             handle: 0,
             phase: 0,
             result: 0,
+            angle: 0.0,
         }
     }
 }
@@ -47,7 +51,7 @@ pub extern "C" fn start_app() {
 }
 
 #[no_mangle]
-pub extern "C" fn on_frame(_dt_ms: u32) {
+pub extern "C" fn on_frame(dt_ms: u32) {
     let s = unsafe { &mut *core::ptr::addr_of_mut!(STATE) };
     let (w, _h) = canvas_dimensions();
 
@@ -84,19 +88,24 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
     );
 
     if ui_button(1, 20.0, 110.0, 240.0, 32.0, "Run in background worker") {
+        s.phase = 1;
+        s.result = 0;
         let base = get_url();
-        if let Some(url) = url_resolve(&base, "worker_demo_bg.wasm") {
-            let handle = spawn_worker(&url);
-            if handle > 0 {
-                s.handle = handle as u32;
-                s.phase = 1;
-                s.result = 0;
-                worker_post_message(s.handle, &LIMIT.to_le_bytes());
-            } else {
-                log("Failed to spawn worker.");
+        match url_resolve(&base, "worker_demo_bg.wasm") {
+            Some(url) => {
+                let handle = spawn_worker(&url);
+                if handle > 0 {
+                    s.handle = handle as u32;
+                    worker_post_message(s.handle, &LIMIT.to_le_bytes());
+                } else {
+                    log("Failed to spawn worker.");
+                    s.phase = 3;
+                }
             }
-        } else {
-            log("Could not resolve worker URL.");
+            None => {
+                log(&format!("Could not resolve worker URL from base '{base}'."));
+                s.phase = 3;
+            }
         }
     }
 
@@ -113,20 +122,36 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         }
     }
 
-    let status = match s.phase {
-        0 => "Idle — click the button to start.".to_string(),
-        1 => "Computing on worker…".to_string(),
-        _ => format!("Done: {} primes below {LIMIT}.", s.result),
+    let (status, r, g, b) = match s.phase {
+        0 => (
+            "Idle — click the button to start.".to_string(),
+            160,
+            220,
+            160,
+        ),
+        1 => ("Computing on worker…".to_string(), 220, 200, 120),
+        2 => (
+            format!("Done: {} primes below {LIMIT}.", s.result),
+            160,
+            220,
+            160,
+        ),
+        _ => (
+            "Failed to start worker (see console).".to_string(),
+            240,
+            120,
+            120,
+        ),
     };
-    canvas_text(20.0, 165.0, 16.0, 160, 220, 160, 255, &status);
+    canvas_text(20.0, 165.0, 16.0, r, g, b, 255, &status);
 
-    // Spinner animated purely from the main frame loop.
-    let t = (time_now_ms() as f32) / 1000.0;
+    // Spinner animated from accumulated frame deltas (independent of the worker).
+    s.angle += dt_ms as f32 * 0.004;
     let cx = w as f32 - 60.0;
     let cy = 126.0;
     canvas_circle(
-        cx + (t * 3.0).cos() * 18.0,
-        cy + (t * 3.0).sin() * 18.0,
+        cx + s.angle.cos() * 18.0,
+        cy + s.angle.sin() * 18.0,
         7.0,
         120,
         180,

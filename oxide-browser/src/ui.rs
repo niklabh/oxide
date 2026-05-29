@@ -1431,6 +1431,7 @@ impl OxideBrowserView {
                 let file_url = format!("file://{}", path.display());
                 let tab = &mut self.tabs[self.active_tab];
                 tab.url_input = file_url.clone();
+                *tab.host_state.current_url.lock().unwrap() = file_url.clone();
                 tab.pending_history_url = Some(file_url);
                 tab.internal_page = None;
                 let _ = tab.run_tx.send(RunRequest::LoadLocal(bytes));
