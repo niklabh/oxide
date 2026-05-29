@@ -22,5 +22,7 @@ members = [
     "examples/gradient-demo",
     "examples/typography-demo",
     "examples/shadcn-demo",
+    "examples/worker-demo",
+    "examples/worker-demo-bg",
 ]
 resolver = "2"

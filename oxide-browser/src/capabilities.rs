@@ -222,6 +222,15 @@ pub struct HostState {
     pub scroll_x: Arc<Mutex<f32>>,
     /// Absolute scroll vertical offset.
     pub scroll_y: Arc<Mutex<f32>>,
+    /// Background workers spawned by this guest, keyed by handle. Lazily
+    /// initialised on the first `api_spawn_worker` call. See [`crate::worker`].
+    pub workers: Arc<Mutex<Option<crate::worker::WorkerState>>>,
+    /// Outbound message queue, present **only** inside a worker's own state.
+    /// `api_worker_post` pushes here; the parent drains it via `api_worker_recv`.
+    pub worker_outbox: Option<Arc<Mutex<std::collections::VecDeque<Vec<u8>>>>>,
+    /// Message currently being delivered to a worker's `on_message` export,
+    /// read by `api_worker_message_read` during the callback.
+    pub worker_current_msg: Arc<Mutex<Option<Vec<u8>>>>,
 }
 
 /// A single console log line: local time, severity, and message text.
@@ -709,6 +718,9 @@ impl Default for HostState {
             content_height: Arc::new(Mutex::new(0)),
             scroll_x: Arc::new(Mutex::new(0.0)),
             scroll_y: Arc::new(Mutex::new(0.0)),
+            workers: Arc::new(Mutex::new(None)),
+            worker_outbox: None,
+            worker_current_msg: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -4413,6 +4425,9 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
 
     // ── Native File / Folder Picker API ───────────────────────────────
     crate::file_picker::register_file_picker_functions(linker)?;
+
+    // ── Background Workers API ────────────────────────────────────────
+    crate::worker::register_worker_functions(linker)?;
 
     // ── Download Manager API ──────────────────────────────────────────
 

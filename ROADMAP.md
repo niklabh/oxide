@@ -194,11 +194,11 @@ The core architecture is live: a Rust-native browser that fetches and executes `
 
 ### Background Workers
 
-- [ ] `spawn_worker(wasm_url)` — launch a background WASM worker with its own fuel and memory
-- [ ] `worker_post_message(worker_id, data)` / `worker_on_message(worker_id, callback)`
+- [x] `spawn_worker(wasm_url)` — launch a background WASM worker with its own fuel and memory
+- [x] `worker_post_message(worker_id, data)` / worker `on_message(len)` export (replies polled via `worker_recv`)
 - [ ] Shared memory regions between main module and workers (opt-in)
 - [ ] Worker pool management and load balancing
-- [ ] `worker_terminate(worker_id)` — graceful and forced termination
+- [x] `worker_terminate(worker_id)` — graceful and forced termination
 
 ### System APIs
 

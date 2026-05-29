@@ -49,6 +49,7 @@
 //! | [`media_capture`] | Camera, microphone, and screen capture with permission prompts |
 //! | [`rtc`] | WebRTC peer connections, data channels, media tracks, and signaling |
 //! | [`websocket`] | WebSocket client connections (text/binary frames, ready-state polling) |
+//! | [`worker`] | Background WASM workers with isolated fuel/memory and message passing |
 //! | [`midi`] | MIDI input/output device enumeration and I/O (CoreMIDI on macOS) |
 //! | [`navigation`] | Browser history stack with back/forward traversal |
 //! | [`bookmarks`] | Persistent bookmark storage backed by sled |
@@ -119,6 +120,7 @@ pub mod url;
 pub mod video;
 pub mod video_format;
 pub mod websocket;
+pub mod worker;
 
 /// GPU-accelerated UI framework used by the desktop shell (see [GPUI](https://www.gpui.rs/)).
 ///

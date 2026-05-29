@@ -10785,6 +10785,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "worker-demo"
+version = "0.1.0"
+dependencies = [
+ "oxide-sdk",
+]
+
+[[package]]
+name = "worker-demo-bg"
+version = "0.1.0"
+dependencies = [
+ "oxide-sdk",
+]
+
+[[package]]
 name = "writeable"
 version = "0.6.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"

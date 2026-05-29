@@ -1,0 +1,11 @@
+[package]
+name = "worker-demo"
+version = "0.1.0"
+edition = "2021"
+description = "Background worker demo for the Oxide browser (main app)"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+oxide-sdk = { path = "../../oxide-sdk" }
