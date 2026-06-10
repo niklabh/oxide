@@ -1,0 +1,4 @@
+name = "Workers"
+description = "Background WASM workers with message passing"
+version = "0.1.0"
+permissions = []

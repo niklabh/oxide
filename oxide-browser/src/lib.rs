@@ -46,6 +46,7 @@
 //! | [`runtime`] | Module fetching, compilation, execution lifecycle |
 //! | [`capabilities`] | All host-imported functions exposed to guest wasm modules |
 //! | [`gpu`] | WebGPU-style GPU resource management (buffers, textures, shaders, pipelines) |
+//! | [`manifest`] | Optional TOML app manifests (name, version, declared permissions) |
 //! | [`media_capture`] | Camera, microphone, and screen capture with permission prompts |
 //! | [`rtc`] | WebRTC peer connections, data channels, media tracks, and signaling |
 //! | [`websocket`] | WebSocket client connections (text/binary frames, ready-state polling) |
@@ -110,6 +111,7 @@ pub mod forge;
 pub mod forge_config;
 pub mod gpu;
 pub mod history;
+pub mod manifest;
 pub mod media_capture;
 pub mod midi;
 pub mod navigation;

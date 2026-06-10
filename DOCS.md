@@ -983,6 +983,40 @@ register_hyperlink(20.0, 100.0, 200.0, 20.0, "https://example.com/app.wasm");
 - **HTTP fetch**: `fetch()` proxies through the host. The guest cannot open raw sockets.
 - **Dynamic loading**: `load_module()` fetches and runs a child `.wasm` with isolated memory and fuel, preventing sandbox escape.
 
+### Permissions
+
+Sensitive APIs — **camera**, **microphone**, **geolocation**, and **screen capture** — are gated behind an in-browser permission prompt (top-left, under the toolbar), similar to Chrome. The flow is non-blocking:
+
+1. The first call per origin (e.g. `camera_open()`) returns `PERMISSION_PENDING` (`-5`) and the prompt appears.
+2. The guest retries on a later frame.
+3. After the user clicks **Allow**, the call succeeds; after **Block**, it returns `-1`. Decisions are remembered per `(origin, capability)` for the lifetime of the tab.
+
+`get_location()` returns an empty string while the prompt is pending or after a block.
+
+---
+
+## App Manifests
+
+An app may ship an optional TOML manifest next to its `.wasm` file, at the same URL with the `.wasm` extension replaced by `.toml` (`https://host/app.wasm` → `https://host/app.toml`). Example:
+
+```toml
+name = "Media Capture"
+description = "Camera preview, microphone level meter, and screenshots"
+version = "0.1.0"
+permissions = ["camera", "microphone", "screen-capture"]
+```
+
+| Field | Required | Meaning |
+|-------|----------|---------|
+| `name` | yes | Shown as the tab title instead of the URL |
+| `description` | no | Short description of the app |
+| `version` | no | Informational version string |
+| `permissions` | no | Sensitive capabilities the app may request: `camera`, `microphone`, `geolocation`, `screen-capture` |
+
+When a manifest is present it acts as a **capability declaration**: sensitive APIs *not* listed in `permissions` are denied without a prompt. Apps without a manifest keep the legacy behavior (any sensitive API may prompt on first use).
+
+Each example crate ships a manifest named after its build artifact (e.g. `examples/media-capture/media_capture.toml`). When loading an example from `target/wasm32-unknown-unknown/release/`, copy the manifest next to the `.wasm` for it to be picked up; hosted deployments should upload both files side by side.
+
 ---
 
 ## Guest Module Contract

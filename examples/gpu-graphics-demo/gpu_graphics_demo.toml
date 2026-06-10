@@ -1,0 +1,4 @@
+name = "GPU Graphics"
+description = "WebGPU-style buffers, shaders, and compute"
+version = "0.1.0"
+permissions = []

@@ -1,0 +1,4 @@
+name = "Streaming Fetch"
+description = "Streaming HTTP fetch"
+version = "0.1.0"
+permissions = []

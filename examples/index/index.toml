@@ -1,0 +1,4 @@
+name = "Oxide Examples"
+description = "Demo hub — links to hosted .wasm samples"
+version = "0.1.0"
+permissions = []

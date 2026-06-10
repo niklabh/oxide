@@ -150,6 +150,9 @@ pub struct HostState {
     /// Per-origin grants for sensitive APIs (camera, microphone, geolocation, screen capture)
     /// plus the prompt currently awaiting a user decision (rendered by the UI shell).
     pub permissions: crate::permissions::SharedPermissions,
+    /// Manifest of the currently loaded app (`None` when the app ships without one).
+    /// Set by the host on navigation; consulted for metadata and permission declarations.
+    pub manifest: crate::manifest::SharedManifest,
     /// Optional embedded [`sled`] database for persistent per-origin key/value bytes (`api_kv_store_*`).
     pub kv_db: Option<Arc<sled::Db>>,
     /// The guest’s exported linear memory, used to read/write pointers passed to host imports.
@@ -686,6 +689,7 @@ impl Default for HostState {
             clipboard: Arc::new(Mutex::new(String::new())),
             clipboard_allowed: Arc::new(Mutex::new(false)),
             permissions: Arc::new(Mutex::new(crate::permissions::PermissionsState::default())),
+            manifest: Arc::new(Mutex::new(None)),
             kv_db: None,
             memory: None,
             module_loader: None,
@@ -1336,6 +1340,12 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
         "oxide",
         "api_get_location",
         |mut caller: Caller<'_, HostState>, out_ptr: u32, out_cap: u32| -> u32 {
+            if !crate::manifest::manifest_allows(
+                &caller.data().manifest,
+                crate::permissions::PermissionKind::Geolocation,
+            ) {
+                return 0; // not declared in the app manifest — denied without a prompt
+            }
             let origin = crate::url::app_origin_of(&caller.data().current_url.lock().unwrap());
             match crate::permissions::check_or_request(
                 &caller.data().permissions,

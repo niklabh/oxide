@@ -1,0 +1,4 @@
+name = "WebSocket Chat"
+description = "WebSocket chat"
+version = "0.1.0"
+permissions = []

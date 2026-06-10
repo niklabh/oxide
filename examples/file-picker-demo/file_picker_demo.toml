@@ -1,0 +1,4 @@
+name = "File Picker"
+description = "Native file/folder picker and I/O"
+version = "0.1.0"
+permissions = []

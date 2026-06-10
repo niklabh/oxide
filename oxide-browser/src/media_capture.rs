@@ -45,8 +45,20 @@ struct MicrophoneInput {
 /// Checks the per-origin grant for `kind`.
 ///
 /// Returns `None` when granted, or the code the host API should return: `-1` when the user
-/// blocked it, [`PERMISSION_PENDING`] while the in-browser prompt is awaiting a decision.
+/// blocked it (or the app's manifest doesn't declare the permission),
+/// [`PERMISSION_PENDING`] while the in-browser prompt is awaiting a decision.
 fn permission_gate(caller: &Caller<'_, HostState>, kind: PermissionKind) -> Option<i32> {
+    if !crate::manifest::manifest_allows(&caller.data().manifest, kind) {
+        console_log(
+            &caller.data().console,
+            ConsoleLevel::Warn,
+            format!(
+                "[PERMISSIONS] '{}' is not declared in the app manifest — denied",
+                kind.name()
+            ),
+        );
+        return Some(-1);
+    }
     let origin = crate::url::app_origin_of(&caller.data().current_url.lock().unwrap());
     match check_or_request(&caller.data().permissions, &origin, kind) {
         PermissionStatus::Granted => None,

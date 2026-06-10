@@ -1,0 +1,4 @@
+name = "Audio Player"
+description = "Decode and play audio"
+version = "0.1.0"
+permissions = []

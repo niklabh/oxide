@@ -1,0 +1,4 @@
+name = "Notes"
+description = "Rust WASM frontend talking to a native backend"
+version = "0.1.0"
+permissions = []

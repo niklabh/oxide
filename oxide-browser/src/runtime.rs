@@ -251,6 +251,20 @@ impl BrowserHost {
             anyhow::bail!("unsupported URL scheme: {}", parsed.scheme());
         };
 
+        // Optional sibling manifest (app.wasm → app.toml): metadata + declared permissions.
+        let manifest = match crate::manifest::fetch_manifest(&parsed).await {
+            Ok(m) => m,
+            Err(e) => {
+                crate::capabilities::console_log(
+                    &self.host_state.console,
+                    crate::capabilities::ConsoleLevel::Warn,
+                    format!("[MANIFEST] {e} — loading app without a manifest"),
+                );
+                None
+            }
+        };
+        *self.host_state.manifest.lock().unwrap() = manifest;
+
         *self.status.lock().unwrap() = PageStatus::Running(url.to_string());
 
         self.run_module(&wasm_bytes)

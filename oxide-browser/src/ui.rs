@@ -73,8 +73,13 @@ use crate::navigation::HistoryEntry;
 use crate::runtime::{LiveModule, PageStatus};
 
 enum RunRequest {
-    FetchAndRun { url: String },
-    LoadLocal(Vec<u8>),
+    FetchAndRun {
+        url: String,
+    },
+    LoadLocal {
+        bytes: Vec<u8>,
+        manifest: Option<crate::manifest::AppManifest>,
+    },
 }
 
 struct RunResult {
@@ -220,7 +225,10 @@ impl TabState {
                 let mut host = crate::runtime::BrowserHost::recreate(hs.clone(), st.clone());
                 let result = match request {
                     RunRequest::FetchAndRun { url } => rt.block_on(host.fetch_and_run(&url)),
-                    RunRequest::LoadLocal(bytes) => host.run_bytes(&bytes),
+                    RunRequest::LoadLocal { bytes, manifest } => {
+                        *host.host_state.manifest.lock().unwrap() = manifest;
+                        host.run_bytes(&bytes)
+                    }
                 };
                 let (error, live_module) = match result {
                     Ok(live) => (None, live),
@@ -271,7 +279,15 @@ impl TabState {
         match status {
             PageStatus::Idle => "New Tab".to_string(),
             PageStatus::Loading(_) => "Loading\u{2026}".to_string(),
-            PageStatus::Running(ref url) => url_to_title(url),
+            PageStatus::Running(ref url) => {
+                // Prefer the app's manifest name over a URL-derived title.
+                if let Some(m) = self.host_state.manifest.lock().unwrap().as_ref() {
+                    if !m.name.trim().is_empty() {
+                        return m.name.clone();
+                    }
+                }
+                url_to_title(url)
+            }
             PageStatus::Error(_) => "Error".to_string(),
         }
     }
@@ -1418,7 +1434,10 @@ impl OxideBrowserView {
         tab.url_cursor = tab.url_input.len();
         tab.url_sel_start = tab.url_input.len();
         tab.internal_page = None;
-        let _ = tab.run_tx.send(RunRequest::LoadLocal(bytes));
+        let _ = tab.run_tx.send(RunRequest::LoadLocal {
+            bytes,
+            manifest: None,
+        });
     }
 
     fn poll_file_pick(&mut self, cx: &mut Context<Self>) {
@@ -1428,13 +1447,24 @@ impl OxideBrowserView {
         };
         match rx.try_recv() {
             Ok(FilePickDone::Chosen { path, bytes }) => {
+                let manifest = match crate::manifest::load_local_manifest(&path) {
+                    Ok(m) => m,
+                    Err(e) => {
+                        crate::capabilities::console_log(
+                            &self.tabs[self.active_tab].host_state.console,
+                            ConsoleLevel::Warn,
+                            format!("[MANIFEST] {e} — loading app without a manifest"),
+                        );
+                        None
+                    }
+                };
                 let file_url = format!("file://{}", path.display());
                 let tab = &mut self.tabs[self.active_tab];
                 tab.url_input = file_url.clone();
                 *tab.host_state.current_url.lock().unwrap() = file_url.clone();
                 tab.pending_history_url = Some(file_url);
                 tab.internal_page = None;
-                let _ = tab.run_tx.send(RunRequest::LoadLocal(bytes));
+                let _ = tab.run_tx.send(RunRequest::LoadLocal { bytes, manifest });
                 cx.notify();
             }
             Ok(FilePickDone::Directory(path)) => {
