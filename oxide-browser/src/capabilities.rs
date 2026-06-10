@@ -134,7 +134,9 @@ pub struct HostState {
     pub console: Arc<Mutex<Vec<ConsoleEntry>>>,
     /// Raster canvas: queued draw commands and decoded images for the current frame.
     pub canvas: Arc<Mutex<CanvasState>>,
-    /// In-memory key/value session storage (string keys and values), similar to `localStorage` in scope.
+    /// In-memory key/value session storage (string keys and values), similar to
+    /// `sessionStorage`: it survives same-origin reloads but is cleared when the tab
+    /// navigates to a different origin (see [`set_module_origin`]).
     pub storage: Arc<Mutex<HashMap<String, String>>>,
     /// Pending one-shot and interval timers; the host drains these and invokes `on_timer` on the guest.
     pub timers: Arc<Mutex<Vec<TimerEntry>>>,
@@ -167,6 +169,12 @@ pub struct HostState {
     pub pending_navigation: Arc<Mutex<Option<String>>>,
     /// The URL of the currently loaded module (set by the host before execution).
     pub current_url: Arc<Mutex<String>>,
+    /// Stable origin of the currently loaded module (see [`crate::url::app_origin_of`]).
+    ///
+    /// Captured once per module load via [`set_module_origin`] and used to scope persistent
+    /// KV storage and permissions. Unlike [`HostState::current_url`], this does not change
+    /// when the guest calls `push_state` / `replace_state`.
+    pub module_origin: Arc<Mutex<String>>,
     /// Input state polled by the guest each frame.
     pub input_state: Arc<Mutex<InputState>>,
     /// Widget commands issued by the guest during `on_frame`.
@@ -697,6 +705,7 @@ impl Default for HostState {
             hyperlinks: Arc::new(Mutex::new(Vec::new())),
             pending_navigation: Arc::new(Mutex::new(None)),
             current_url: Arc::new(Mutex::new(String::new())),
+            module_origin: Arc::new(Mutex::new(String::new())),
             input_state: Arc::new(Mutex::new(InputState::default())),
             widget_commands: Arc::new(Mutex::new(Vec::new())),
             widget_states: Arc::new(Mutex::new(HashMap::new())),
@@ -730,6 +739,20 @@ impl Default for HostState {
             worker_outbox: None,
             worker_current_msg: Arc::new(Mutex::new(None)),
         }
+    }
+}
+
+/// Captures the stable origin for a newly loaded module from its URL.
+///
+/// Called by the runtime once per load, before `start_app`. When the new origin differs from
+/// the previous one, session storage is cleared so apps from different origins never see each
+/// other's `api_storage_*` data (like `sessionStorage` across origins in a shared tab).
+pub fn set_module_origin(state: &HostState, url: &str) {
+    let new_origin = crate::url::app_origin_of(url);
+    let mut origin = state.module_origin.lock().unwrap();
+    if *origin != new_origin {
+        state.storage.lock().unwrap().clear();
+        *origin = new_origin;
     }
 }
 
@@ -1346,7 +1369,7 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
             ) {
                 return 0; // not declared in the app manifest — denied without a prompt
             }
-            let origin = crate::url::app_origin_of(&caller.data().current_url.lock().unwrap());
+            let origin = caller.data().module_origin.lock().unwrap().clone();
             match crate::permissions::check_or_request(
                 &caller.data().permissions,
                 &origin,
@@ -2521,7 +2544,7 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
             let mem = caller.data().memory.expect("memory not set");
             let key = read_guest_string(&mem, &caller, key_ptr, key_len).unwrap_or_default();
             let val = read_guest_bytes(&mem, &caller, val_ptr, val_len).unwrap_or_default();
-            let origin = caller.data().current_url.lock().unwrap().clone();
+            let origin = caller.data().module_origin.lock().unwrap().clone();
             let prefixed_key = format!("{origin}::{key}");
             match &caller.data().kv_db {
                 Some(db) => match db.insert(prefixed_key.as_bytes(), val) {
@@ -2561,7 +2584,7 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
          -> i32 {
             let mem = caller.data().memory.expect("memory not set");
             let key = read_guest_string(&mem, &caller, key_ptr, key_len).unwrap_or_default();
-            let origin = caller.data().current_url.lock().unwrap().clone();
+            let origin = caller.data().module_origin.lock().unwrap().clone();
             let prefixed_key = format!("{origin}::{key}");
             match &caller.data().kv_db {
                 Some(db) => match db.get(prefixed_key.as_bytes()) {
@@ -2592,7 +2615,7 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
         |caller: Caller<'_, HostState>, key_ptr: u32, key_len: u32| -> i32 {
             let mem = caller.data().memory.expect("memory not set");
             let key = read_guest_string(&mem, &caller, key_ptr, key_len).unwrap_or_default();
-            let origin = caller.data().current_url.lock().unwrap().clone();
+            let origin = caller.data().module_origin.lock().unwrap().clone();
             let prefixed_key = format!("{origin}::{key}");
             match &caller.data().kv_db {
                 Some(db) => match db.remove(prefixed_key.as_bytes()) {
@@ -4549,4 +4572,57 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
 
 fn getrandom(buf: &mut [u8]) {
     ::getrandom::getrandom(buf).expect("OS random number generator unavailable");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn module_origin_ignores_path_changes() {
+        let state = HostState::default();
+        set_module_origin(&state, "https://example.com/apps/a.wasm");
+        let first = state.module_origin.lock().unwrap().clone();
+        // Same origin, different path (e.g. after navigating to a sibling module).
+        set_module_origin(&state, "https://example.com/other/b.wasm");
+        assert_eq!(*state.module_origin.lock().unwrap(), first);
+    }
+
+    #[test]
+    fn session_storage_survives_same_origin_reload() {
+        let state = HostState::default();
+        set_module_origin(&state, "https://example.com/app.wasm");
+        state
+            .storage
+            .lock()
+            .unwrap()
+            .insert("k".to_string(), "v".to_string());
+        set_module_origin(&state, "https://example.com/app.wasm");
+        assert_eq!(
+            state.storage.lock().unwrap().get("k").map(String::as_str),
+            Some("v")
+        );
+    }
+
+    #[test]
+    fn session_storage_cleared_on_cross_origin_navigation() {
+        let state = HostState::default();
+        set_module_origin(&state, "https://a.com/app.wasm");
+        state
+            .storage
+            .lock()
+            .unwrap()
+            .insert("k".to_string(), "v".to_string());
+        set_module_origin(&state, "https://b.com/app.wasm");
+        assert!(state.storage.lock().unwrap().is_empty());
+    }
+
+    #[test]
+    fn local_apps_in_different_directories_have_different_origins() {
+        let state = HostState::default();
+        set_module_origin(&state, "file:///tmp/app-one/index.wasm");
+        let one = state.module_origin.lock().unwrap().clone();
+        set_module_origin(&state, "file:///tmp/app-two/index.wasm");
+        assert_ne!(*state.module_origin.lock().unwrap(), one);
+    }
 }

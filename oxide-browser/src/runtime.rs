@@ -284,6 +284,13 @@ impl BrowserHost {
     }
 
     fn run_module(&mut self, wasm_bytes: &[u8]) -> Result<Option<LiveModule>> {
+        // Capture the app origin for storage/permission scoping. Done once per load so guest
+        // `push_state` calls (which mutate `current_url`) can't shift the origin afterwards.
+        {
+            let url = self.host_state.current_url.lock().unwrap().clone();
+            crate::capabilities::set_module_origin(&self.host_state, &url);
+        }
+
         let module = self.wasm_engine.compile_module(wasm_bytes)?;
 
         let mut linker = Linker::new(self.wasm_engine.engine());

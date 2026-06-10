@@ -59,7 +59,7 @@ fn permission_gate(caller: &Caller<'_, HostState>, kind: PermissionKind) -> Opti
         );
         return Some(-1);
     }
-    let origin = crate::url::app_origin_of(&caller.data().current_url.lock().unwrap());
+    let origin = caller.data().module_origin.lock().unwrap().clone();
     match check_or_request(&caller.data().permissions, &origin, kind) {
         PermissionStatus::Granted => None,
         PermissionStatus::Denied => Some(-1),
