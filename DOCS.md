@@ -148,12 +148,12 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
     canvas_clear(30, 30, 46, 255);
     canvas_text(20.0, 30.0, 24.0, 255, 255, 255, 255, "Counter App");
 
-    if ui_button(1, 20.0, 70.0, 120.0, 30.0, "Increment") {
+    ui_button(1, 20.0, 70.0, 120.0, 30.0, "Increment", || {
         unsafe { COUNTER += 1; }
-    }
-    if ui_button(2, 150.0, 70.0, 80.0, 30.0, "Reset") {
+    });
+    ui_button(2, 150.0, 70.0, 80.0, 30.0, "Reset", || {
         unsafe { COUNTER = 0; }
-    }
+    });
 
     let count = unsafe { COUNTER };
     canvas_text(20.0, 120.0, 18.0, 160, 220, 160, 255, &format!("Count: {count}"));

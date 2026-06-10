@@ -70,22 +70,22 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
     let pad_h = 36.0;
     let pad_y = 95.0;
 
-    if ui_button(BTN_TONE_A, 20.0, pad_y, pad_w, pad_h, "A4  440Hz") {
+    ui_button(BTN_TONE_A, 20.0, pad_y, pad_w, pad_h, "A4  440Hz", || {
         play_tone(NOTE_A4, 1.5);
         unsafe { LAST_NOTE = "A4 (440 Hz)" };
-    }
-    if ui_button(BTN_TONE_C, 120.0, pad_y, pad_w, pad_h, "C5  523Hz") {
+    });
+    ui_button(BTN_TONE_C, 120.0, pad_y, pad_w, pad_h, "C5  523Hz", || {
         play_tone(NOTE_C5, 1.5);
         unsafe { LAST_NOTE = "C5 (523 Hz)" };
-    }
-    if ui_button(BTN_TONE_E, 220.0, pad_y, pad_w, pad_h, "E5  659Hz") {
+    });
+    ui_button(BTN_TONE_E, 220.0, pad_y, pad_w, pad_h, "E5  659Hz", || {
         play_tone(NOTE_E5, 1.5);
         unsafe { LAST_NOTE = "E5 (659 Hz)" };
-    }
-    if ui_button(BTN_TONE_G, 320.0, pad_y, pad_w, pad_h, "G5  784Hz") {
+    });
+    ui_button(BTN_TONE_G, 320.0, pad_y, pad_w, pad_h, "G5  784Hz", || {
         play_tone(NOTE_G5, 1.5);
         unsafe { LAST_NOTE = "G5 (784 Hz)" };
-    }
+    });
 
     // ── Custom Tone ─────────────────────────────────────────────────
     canvas_text(
@@ -146,10 +146,18 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
     let looping = ui_checkbox(WIDGET_LOOP, 170.0, 245.0, "Loop", false);
     audio_set_loop(looping);
 
-    if ui_button(BTN_PLAY_CUSTOM, 20.0, 240.0, 130.0, 30.0, "Play Tone") {
-        play_tone(freq, dur);
-        unsafe { LAST_NOTE = "Custom" };
-    }
+    ui_button(
+        BTN_PLAY_CUSTOM,
+        20.0,
+        240.0,
+        130.0,
+        30.0,
+        "Play Tone",
+        || {
+            play_tone(freq, dur);
+            unsafe { LAST_NOTE = "Custom" };
+        },
+    );
 
     // ── URL Player ──────────────────────────────────────────────────
     canvas_text(
@@ -164,12 +172,14 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
     );
 
     let url = ui_text_input(WIDGET_URL, 20.0, 313.0, 350.0, "");
-    if ui_button(BTN_FETCH, 380.0, 313.0, 80.0, 26.0, "Fetch") && !url.is_empty() {
-        let rc = audio_play_url(&url);
-        if rc == 0 {
-            unsafe { LAST_NOTE = "URL stream" };
+    ui_button(BTN_FETCH, 380.0, 313.0, 80.0, 26.0, "Fetch", || {
+        if !url.is_empty() {
+            let rc = audio_play_url(&url);
+            if rc == 0 {
+                unsafe { LAST_NOTE = "URL stream" };
+            }
         }
-    }
+    });
 
     // ── Playback Controls ───────────────────────────────────────────
     canvas_line(20.0, 355.0, w - 20.0, 355.0, 50, 45, 70, 255, 1.0);
@@ -178,15 +188,15 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         20.0, 370.0, 14.0, TEXT_DIM.0, TEXT_DIM.1, TEXT_DIM.2, 255, "CONTROLS",
     );
 
-    if ui_button(BTN_PAUSE, 20.0, 393.0, 80.0, 30.0, "Pause") {
+    ui_button(BTN_PAUSE, 20.0, 393.0, 80.0, 30.0, "Pause", || {
         audio_pause();
-    }
-    if ui_button(BTN_RESUME, 110.0, 393.0, 80.0, 30.0, "Resume") {
+    });
+    ui_button(BTN_RESUME, 110.0, 393.0, 80.0, 30.0, "Resume", || {
         audio_resume();
-    }
-    if ui_button(BTN_STOP, 200.0, 393.0, 80.0, 30.0, "Stop") {
+    });
+    ui_button(BTN_STOP, 200.0, 393.0, 80.0, 30.0, "Stop", || {
         audio_stop();
-    }
+    });
 
     canvas_text(
         20.0,
@@ -225,18 +235,18 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         "SFX CHANNEL (plays over main audio)",
     );
 
-    if ui_button(BTN_SFX_BLIP, 20.0, 503.0, 80.0, 28.0, "Blip") {
+    ui_button(BTN_SFX_BLIP, 20.0, 503.0, 80.0, 28.0, "Blip", || {
         let wav = generate_wav(1200.0, 0.08);
         audio_channel_play(SFX_CHANNEL, &wav);
-    }
-    if ui_button(BTN_SFX_BEEP, 110.0, 503.0, 80.0, 28.0, "Beep") {
+    });
+    ui_button(BTN_SFX_BEEP, 110.0, 503.0, 80.0, 28.0, "Beep", || {
         let wav = generate_wav(880.0, 0.25);
         audio_channel_play(SFX_CHANNEL, &wav);
-    }
-    if ui_button(BTN_SFX_CHIRP, 200.0, 503.0, 80.0, 28.0, "Chirp") {
+    });
+    ui_button(BTN_SFX_CHIRP, 200.0, 503.0, 80.0, 28.0, "Chirp", || {
         let wav = generate_chirp();
         audio_channel_play(SFX_CHANNEL, &wav);
-    }
+    });
 
     canvas_text(
         300.0,

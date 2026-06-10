@@ -21,8 +21,8 @@ fn state() -> &'static mut App { unsafe { STATE.as_mut().unwrap() } }
 #[no_mangle] pub extern "C" fn on_frame(_dt: u32) {
     canvas_clear(18, 18, 26, 255);
     canvas_text(20.0, 20.0, 24.0, 220, 220, 255, 255, "Counter");
-    if ui_button(1, 20.0, 70.0, 80.0, 32.0, "-") { state().count -= 1; }
-    if ui_button(2, 110.0, 70.0, 80.0, 32.0, "+") { state().count += 1; }
+    ui_button(1, 20.0, 70.0, 80.0, 32.0, "-", || { state().count -= 1; });
+    ui_button(2, 110.0, 70.0, 80.0, 32.0, "+", || { state().count += 1; });
     canvas_text(200.0, 78.0, 20.0, 160, 220, 160, 255,
         &format!("{}", state().count));
 }
@@ -89,9 +89,11 @@ fn kick(prompt: &str) {
     let s = state();
 
     s.prompt = ui_text_input(1, 20.0, 20.0, 500.0, &s.prompt);
-    if ui_button(2, 530.0, 20.0, 80.0, 32.0, "Send") && !s.prompt.is_empty() {
-        kick(&s.prompt.clone());
-    }
+    ui_button(2, 530.0, 20.0, 80.0, 32.0, "Send", || {
+        if !s.prompt.is_empty() {
+            kick(&s.prompt.clone());
+        }
+    });
 
     if s.handle != 0 {
         loop {
@@ -163,10 +165,12 @@ fn state() -> &'static mut App { unsafe { STATE.as_mut().unwrap() } }
         if connected { "connected" } else { "…" });
 
     s.input = ui_text_input(1, 20.0, 50.0, 400.0, &s.input);
-    if ui_button(2, 430.0, 50.0, 80.0, 32.0, "Send") && connected {
-        let _ = ws_send_text(s.ws, &s.input);
-        s.input.clear();
-    }
+    ui_button(2, 430.0, 50.0, 80.0, 32.0, "Send", || {
+        if connected {
+            let _ = ws_send_text(s.ws, &s.input);
+            s.input.clear();
+        }
+    });
 
     let mut y = 100.0;
     for line in s.log.iter().rev().take(20) {
@@ -210,9 +214,9 @@ fn state() -> &'static mut App { unsafe { STATE.as_mut().unwrap() } }
         log(&format!("signal: {} bytes", sig.len()));
     }
 
-    if ui_button(1, 20.0, 20.0, 120.0, 32.0, "ping") {
+    ui_button(1, 20.0, 20.0, 120.0, 32.0, "ping", || {
         let _ = rtc_send_text(s.peer, s.channel, "ping");
-    }
+    });
     let mut y = 80.0;
     for line in s.log.iter().rev().take(20) {
         canvas_text(20.0, y, 13.0, 220, 220, 255, 255, line);
@@ -331,9 +335,9 @@ const BEEP: &[u8] = include_bytes!("beep.wav"); // short WAV committed beside li
 
 #[no_mangle] pub extern "C" fn on_frame(_dt: u32) {
     canvas_clear(18, 18, 26, 255);
-    if ui_button(1, 20.0, 20.0, 80.0, 32.0, "Beep") {
+    ui_button(1, 20.0, 20.0, 80.0, 32.0, "Beep", || {
         audio_play(BEEP);
-    }
+    });
 }
 ```
 
@@ -372,13 +376,14 @@ pub fn confirm(show: &mut bool, title: &str) -> Option<bool> {
     let (mx, my) = ((w as f32 - 320.0) * 0.5, (h as f32 - 140.0) * 0.5);
     canvas_rounded_rect(mx, my, 320.0, 140.0, 8.0, 30, 30, 46, 255);
     canvas_text(mx + 20.0, my + 20.0, 16.0, 220, 220, 255, 255, title);
-    if ui_button(900, mx + 20.0,  my + 90.0, 120.0, 32.0, "Cancel") {
-        *show = false; return Some(false);
-    }
-    if ui_button(901, mx + 180.0, my + 90.0, 120.0, 32.0, "Confirm") {
-        *show = false; return Some(true);
-    }
-    None
+    let mut result = None;
+    ui_button(900, mx + 20.0,  my + 90.0, 120.0, 32.0, "Cancel", || {
+        *show = false; result = Some(false);
+    });
+    ui_button(901, mx + 180.0, my + 90.0, 120.0, 32.0, "Confirm", || {
+        *show = false; result = Some(true);
+    });
+    result
 }
 ```
 

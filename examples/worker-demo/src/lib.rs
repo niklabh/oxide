@@ -87,27 +87,35 @@ pub extern "C" fn on_frame(dt_ms: u32) {
         "The spinner keeps moving, proving the UI thread never blocks.",
     );
 
-    if ui_button(1, 20.0, 110.0, 240.0, 32.0, "Run in background worker") {
-        s.phase = 1;
-        s.result = 0;
-        let base = get_url();
-        match url_resolve(&base, "worker_demo_bg.wasm") {
-            Some(url) => {
-                let handle = spawn_worker(&url);
-                if handle > 0 {
-                    s.handle = handle as u32;
-                    worker_post_message(s.handle, &LIMIT.to_le_bytes());
-                } else {
-                    log("Failed to spawn worker.");
+    ui_button(
+        1,
+        20.0,
+        110.0,
+        240.0,
+        32.0,
+        "Run in background worker",
+        || {
+            s.phase = 1;
+            s.result = 0;
+            let base = get_url();
+            match url_resolve(&base, "worker_demo_bg.wasm") {
+                Some(url) => {
+                    let handle = spawn_worker(&url);
+                    if handle > 0 {
+                        s.handle = handle as u32;
+                        worker_post_message(s.handle, &LIMIT.to_le_bytes());
+                    } else {
+                        log("Failed to spawn worker.");
+                        s.phase = 3;
+                    }
+                }
+                None => {
+                    log(&format!("Could not resolve worker URL from base '{base}'."));
                     s.phase = 3;
                 }
             }
-            None => {
-                log(&format!("Could not resolve worker URL from base '{base}'."));
-                s.phase = 3;
-            }
-        }
-    }
+        },
+    );
 
     // Non-blocking poll for the worker's reply.
     if s.phase == 1 {

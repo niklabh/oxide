@@ -64,9 +64,9 @@
 //!     canvas_clear(30, 30, 46, 255);
 //!     let (mx, my) = mouse_position();
 //!     canvas_circle(mx, my, 20.0, 255, 100, 100, 255);
-//!     if ui_button(1, 20.0, 20.0, 100.0, 30.0, "Click me!") {
+//!     ui_button(1, 20.0, 20.0, 100.0, 30.0, "Click me!", || {
 //!         log("Clicked!");
-//!     }
+//!     });
 //! }
 //! ```
 //!
@@ -405,7 +405,7 @@
 //!
 //! | Function | Description |
 //! |----------|-------------|
-//! | [`oxide_sdk::ui_button`] | Clickable button, returns `true` when clicked |
+//! | [`oxide_sdk::ui_button`] | Clickable button, runs a callback when clicked |
 //! | [`oxide_sdk::ui_checkbox`] | Checkbox, returns current checked state |
 //! | [`oxide_sdk::ui_slider`] | Slider, returns current value |
 //! | [`oxide_sdk::ui_text_input`] | Text input field, returns current text |

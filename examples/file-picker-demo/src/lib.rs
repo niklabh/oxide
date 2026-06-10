@@ -207,7 +207,7 @@ fn draw_toolbar(y: f32, w: f32) {
 
     let s = state();
 
-    if ui_button(1, 20.0, y + 14.0, 150.0, 30.0, "Pick Image…") {
+    ui_button(1, 20.0, y + 14.0, 150.0, 30.0, "Pick Image…", || {
         let handles = file_pick("Pick an image", "png,jpg,jpeg,gif,webp,bmp", false);
         if handles.is_empty() {
             s.last_error = String::from("Picker cancelled");
@@ -215,8 +215,8 @@ fn draw_toolbar(y: f32, w: f32) {
             s.last_error.clear();
             load_picked_files(&handles);
         }
-    }
-    if ui_button(2, 180.0, y + 14.0, 150.0, 30.0, "Pick Files…") {
+    });
+    ui_button(2, 180.0, y + 14.0, 150.0, 30.0, "Pick Files…", || {
         let handles = file_pick("Pick one or more files", "", true);
         if handles.is_empty() {
             s.last_error = String::from("Picker cancelled");
@@ -224,23 +224,29 @@ fn draw_toolbar(y: f32, w: f32) {
             s.last_error.clear();
             load_picked_files(&handles);
         }
-    }
-    if ui_button(3, 340.0, y + 14.0, 150.0, 30.0, "Pick Folder…") {
-        match folder_pick("Pick a folder") {
+    });
+    ui_button(
+        3,
+        340.0,
+        y + 14.0,
+        150.0,
+        30.0,
+        "Pick Folder…",
+        || match folder_pick("Pick a folder") {
             Some(h) => {
                 s.last_error.clear();
                 open_folder(h, format!("handle #{h}"));
             }
             None => s.last_error = String::from("Folder picker cancelled"),
-        }
-    }
-    if ui_button(4, 500.0, y + 14.0, 100.0, 30.0, "Clear") {
+        },
+    );
+    ui_button(4, 500.0, y + 14.0, 100.0, 30.0, "Clear", || {
         s.rows.clear();
         s.current_folder = None;
         s.selected_handle = 0;
         s.preview = None;
         s.last_error.clear();
-    }
+    });
 
     if !s.last_error.is_empty() {
         canvas_text(

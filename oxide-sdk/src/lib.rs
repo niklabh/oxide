@@ -53,9 +53,9 @@
 //!     let (mx, my) = mouse_position();
 //!     canvas_circle(mx, my, 20.0, 255, 100, 100, 255);
 //!
-//!     if ui_button(1, 20.0, 20.0, 100.0, 30.0, "Click me!") {
+//!     ui_button(1, 20.0, 20.0, 100.0, 30.0, "Click me!", || {
 //!         log("Button was clicked!");
-//!     }
+//!     });
 //! }
 //! ```
 //!
@@ -3485,17 +3485,17 @@ impl UiVariant {
     }
 }
 
-/// Render a button at the given position. Returns `true` if it was clicked
-/// on the previous frame. Use [`ui_button_variant`] for non-default styling.
+/// Render a button at the given position and run `on_click` when it is
+/// clicked. Use [`ui_button_variant`] for non-default styling.
 ///
 /// Must be called from `on_frame()` — widgets are only rendered for
 /// interactive applications that export a frame loop.
-pub fn ui_button(id: u32, x: f32, y: f32, w: f32, h: f32, label: &str) -> bool {
-    ui_button_variant(id, x, y, w, h, label, UiVariant::Default)
+pub fn ui_button(id: u32, x: f32, y: f32, w: f32, h: f32, label: &str, on_click: impl FnOnce()) {
+    ui_button_variant(id, x, y, w, h, label, UiVariant::Default, on_click);
 }
 
-/// Render a button with a specific [`UiVariant`]. Returns `true` if it was
-/// clicked on the previous frame.
+/// Render a button with a specific [`UiVariant`] and run `on_click` when it
+/// is clicked.
 pub fn ui_button_variant(
     id: u32,
     x: f32,
@@ -3504,8 +3504,9 @@ pub fn ui_button_variant(
     h: f32,
     label: &str,
     variant: UiVariant,
-) -> bool {
-    unsafe {
+    on_click: impl FnOnce(),
+) {
+    let clicked = unsafe {
         _api_ui_button(
             id,
             x,
@@ -3516,6 +3517,9 @@ pub fn ui_button_variant(
             label.len() as u32,
             variant.as_u32(),
         ) != 0
+    };
+    if clicked {
+        on_click();
     }
 }
 

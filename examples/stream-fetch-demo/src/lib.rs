@@ -151,36 +151,39 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
     let btn_x = w - 220.0;
     let active = s.handle != 0 && matches!(fetch_state(s.handle), FETCH_PENDING | FETCH_STREAMING,);
 
-    if ui_button(
+    ui_button(
         2,
         btn_x,
         row_y,
         96.0,
         28.0,
         if active { "Restart" } else { "Fetch" },
-    ) {
-        if s.handle != 0 {
-            fetch_abort(s.handle);
-            fetch_remove(s.handle);
-        }
-        s.reset();
-        let url_owned = {
-            let mut tmp = [0u8; URL_BUF];
-            tmp[..s.url_len].copy_from_slice(&s.url_buf[..s.url_len]);
-            (tmp, s.url_len)
-        };
-        let url_str = core::str::from_utf8(&url_owned.0[..url_owned.1]).unwrap_or("");
-        let id = fetch_begin_get(url_str);
-        if id > 0 {
-            s.handle = id;
-        } else {
-            s.set_error("failed to init fetch subsystem");
-        }
-    }
+        || {
+            if s.handle != 0 {
+                fetch_abort(s.handle);
+                fetch_remove(s.handle);
+            }
+            s.reset();
+            let url_owned = {
+                let mut tmp = [0u8; URL_BUF];
+                tmp[..s.url_len].copy_from_slice(&s.url_buf[..s.url_len]);
+                (tmp, s.url_len)
+            };
+            let url_str = core::str::from_utf8(&url_owned.0[..url_owned.1]).unwrap_or("");
+            let id = fetch_begin_get(url_str);
+            if id > 0 {
+                s.handle = id;
+            } else {
+                s.set_error("failed to init fetch subsystem");
+            }
+        },
+    );
 
     let abort_x = w - 114.0;
-    if active && ui_button(3, abort_x, row_y, 96.0, 28.0, "Abort") {
-        fetch_abort(s.handle);
+    if active {
+        ui_button(3, abort_x, row_y, 96.0, 28.0, "Abort", || {
+            fetch_abort(s.handle);
+        });
     }
 
     // ── Drain incoming chunks ─────────────────────────────────────────────

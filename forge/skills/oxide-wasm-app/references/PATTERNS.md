@@ -37,9 +37,9 @@ return value.
 pub extern "C" fn on_frame(_dt_ms: u32) {
     canvas_clear(18, 18, 26, 255);
 
-    if ui_button(1, 20.0, 20.0, 120.0, 32.0, "Reset") {
+    ui_button(1, 20.0, 20.0, 120.0, 32.0, "Reset", || {
         state().count = 0;
-    }
+    });
     let volume = ui_slider(2, 20.0, 70.0, 200.0, 0.0, 1.0, 0.5);
     let on = ui_checkbox(3, 20.0, 110.0, "Mute", false);
     let name = ui_text_input(4, 20.0, 140.0, 240.0, "");

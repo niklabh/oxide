@@ -112,9 +112,9 @@ pub extern "C" fn start_app() {
 pub extern "C" fn on_frame(_dt_ms: u32) {
     canvas_clear(30, 30, 46, 255);
     canvas_text(20.0, 30.0, 24.0, 255, 255, 255, 255, "My Oxide App");
-    if ui_button(1, 20.0, 70.0, 120.0, 30.0, "Click") {
+    ui_button(1, 20.0, 70.0, 120.0, 30.0, "Click", || {
         log("clicked!");
-    }
+    });
 }
 ```
 

@@ -308,14 +308,12 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
     );
     y += 22.0;
 
-    if ui_button(BTN_PING, 20.0, y, 140.0, 30.0, "Emit \"ping\"") {
+    ui_button(BTN_PING, 20.0, y, 140.0, 30.0, "Emit \"ping\"", || {
         emit_event("ping", b"hello");
-    }
-    if ui_button(BTN_CLEAR, 170.0, y, 140.0, 30.0, "Reset count") {
-        unsafe {
-            PING_COUNT = 0;
-        }
-    }
+    });
+    ui_button(BTN_CLEAR, 170.0, y, 140.0, 30.0, "Reset count", || unsafe {
+        PING_COUNT = 0;
+    });
     let count = unsafe { PING_COUNT };
     canvas_text(
         330.0,

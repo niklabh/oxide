@@ -168,7 +168,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         "Connect"
     };
 
-    if ui_button(2, btn_x, row_y, 96.0, 28.0, btn_label) {
+    ui_button(2, btn_x, row_y, 96.0, 28.0, btn_label, || {
         if s.connected || ws_ready_state(s.ws_id) == WS_OPEN {
             ws_close(s.ws_id);
             s.connected = false;
@@ -192,7 +192,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
                 s.push_log(2, "Failed to initiate connection.");
             }
         }
-    }
+    });
 
     // ── Drain incoming messages ───────────────────────────────────────────
     if s.ws_id > 0 {
@@ -282,19 +282,21 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
     }
 
     let can_send = s.ws_id > 0 && ws_ready_state(s.ws_id) == WS_OPEN && s.msg_len > 0;
-    if ui_button(4, w - 90.0, compose_y, 76.0, 28.0, "Send") && can_send {
-        let text = {
-            let mut tmp = [0u8; MSG_BUF_SIZE];
-            tmp[..s.msg_len].copy_from_slice(&s.msg_buf[..s.msg_len]);
-            (tmp, s.msg_len)
-        };
-        let text_str = core::str::from_utf8(&text.0[..text.1]).unwrap_or("");
-        ws_send_text(s.ws_id, text_str);
-        s.push_log(1, text_str);
-        // Clear input after send.
-        s.msg_len = 0;
-        s.msg_buf = [0u8; MSG_BUF_SIZE];
-    }
+    ui_button(4, w - 90.0, compose_y, 76.0, 28.0, "Send", || {
+        if can_send {
+            let text = {
+                let mut tmp = [0u8; MSG_BUF_SIZE];
+                tmp[..s.msg_len].copy_from_slice(&s.msg_buf[..s.msg_len]);
+                (tmp, s.msg_len)
+            };
+            let text_str = core::str::from_utf8(&text.0[..text.1]).unwrap_or("");
+            ws_send_text(s.ws_id, text_str);
+            s.push_log(1, text_str);
+            // Clear input after send.
+            s.msg_len = 0;
+            s.msg_buf = [0u8; MSG_BUF_SIZE];
+        }
+    });
 }
 
 /// Format the first few bytes of a binary frame for display.

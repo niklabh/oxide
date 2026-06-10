@@ -115,7 +115,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
             "Step 1: Create a peer connection",
         );
         y += 25.0;
-        if ui_button(10, 16.0, y, 160.0, 28.0, "Create as Offerer") {
+        ui_button(10, 16.0, y, 160.0, 28.0, "Create as Offerer", || {
             let id = rtc_create_peer("");
             if id > 0 {
                 s.peer_id = id;
@@ -136,15 +136,15 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
                     }
                 }
             }
-        }
-        if ui_button(11, 190.0, y, 160.0, 28.0, "Create as Answerer") {
+        });
+        ui_button(11, 190.0, y, 160.0, 28.0, "Create as Answerer", || {
             let id = rtc_create_peer("");
             if id > 0 {
                 s.peer_id = id;
                 s.is_offerer = false;
                 s.push_message(2, "Peer ready — paste the remote offer");
             }
-        }
+        });
         return;
     }
 
@@ -167,7 +167,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         y += 25.0;
 
         let remote_sdp_text = ui_text_input(100, 16.0, y, w - 180.0, "Paste remote SDP here…");
-        if ui_button(12, w - 150.0, y, 140.0, 28.0, "Apply Remote SDP") {
+        ui_button(12, w - 150.0, y, 140.0, 28.0, "Apply Remote SDP", || {
             let sdp = remote_sdp_text.trim();
             if !sdp.is_empty() {
                 let is_offer = !s.is_offerer;
@@ -195,7 +195,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
                     s.push_message(2, &format!("SDP apply error: {rc}"));
                 }
             }
-        }
+        });
         y += 40.0;
 
         // Drain gathered ICE candidates and log them
@@ -250,7 +250,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
     // Message input
     if s.connected && s.channel_id > 0 {
         let msg = ui_text_input(200, 16.0, h - 40.0, w - 140.0, "Type a message…");
-        if ui_button(20, w - 110.0, h - 40.0, 100.0, 28.0, "Send") {
+        ui_button(20, w - 110.0, h - 40.0, 100.0, 28.0, "Send", || {
             let text = msg.trim();
             if !text.is_empty() {
                 let rc = rtc_send_text(s.peer_id, s.channel_id, text);
@@ -260,7 +260,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
                     s.push_message(2, &format!("Send error: {rc}"));
                 }
             }
-        }
+        });
     }
 
     // Poll incoming messages

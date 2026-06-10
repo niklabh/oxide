@@ -76,25 +76,35 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
     let meter_y = thumb_y + thumb_h + 36.0;
 
     // ── Buttons ───────────────────────────────────────────────────────
-    if ui_button(1, 20.0, btn_row_y, 140.0, 32.0, "Open camera") {
-        unsafe {
-            let code = camera_open();
-            if code == 0 {
-                CAMERA_ON = true;
-                log("camera_open OK");
-            } else {
-                log(&format!("camera_open failed: {code}"));
-            }
+    ui_button(1, 20.0, btn_row_y, 140.0, 32.0, "Open camera", || unsafe {
+        let code = camera_open();
+        if code == 0 {
+            CAMERA_ON = true;
+            log("camera_open OK");
+        } else {
+            log(&format!("camera_open failed: {code}"));
         }
-    }
-    if ui_button(2, 175.0, btn_row_y, 120.0, 32.0, "Close camera") {
-        unsafe {
+    });
+    ui_button(
+        2,
+        175.0,
+        btn_row_y,
+        120.0,
+        32.0,
+        "Close camera",
+        || unsafe {
             camera_close();
             CAMERA_ON = false;
-        }
-    }
-    if ui_button(3, 20.0, btn_row_y + 44.0, 140.0, 32.0, "Open mic") {
-        unsafe {
+        },
+    );
+    ui_button(
+        3,
+        20.0,
+        btn_row_y + 44.0,
+        140.0,
+        32.0,
+        "Open mic",
+        || unsafe {
             let code = microphone_open();
             if code == 0 {
                 MIC_ON = true;
@@ -102,28 +112,32 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
             } else {
                 log(&format!("microphone_open failed: {code}"));
             }
-        }
-    }
-    if ui_button(4, 175.0, btn_row_y + 44.0, 120.0, 32.0, "Close mic") {
-        unsafe {
+        },
+    );
+    ui_button(
+        4,
+        175.0,
+        btn_row_y + 44.0,
+        120.0,
+        32.0,
+        "Close mic",
+        || unsafe {
             microphone_close();
             MIC_ON = false;
             MIC_SMOOTH = 0.0;
-        }
-    }
-    if ui_button(5, 310.0, btn_row_y, 160.0, 32.0, "Screenshot") {
-        unsafe {
-            match screen_capture(&mut SCR_BUF[..]) {
-                Ok(n) if n > 0 => {
-                    LAST_SCR_OK = true;
-                    SCR_BYTES = n;
-                    log(&format!("screen_capture OK ({n} bytes)"));
-                }
-                Ok(_) => log("screen_capture: 0 bytes"),
-                Err(e) => log(&format!("screen_capture failed: {e}")),
+        },
+    );
+    ui_button(5, 310.0, btn_row_y, 160.0, 32.0, "Screenshot", || unsafe {
+        match screen_capture(&mut SCR_BUF[..]) {
+            Ok(n) if n > 0 => {
+                LAST_SCR_OK = true;
+                SCR_BYTES = n;
+                log(&format!("screen_capture OK ({n} bytes)"));
             }
+            Ok(_) => log("screen_capture: 0 bytes"),
+            Err(e) => log(&format!("screen_capture failed: {e}")),
         }
-    }
+    });
 
     // ── Camera preview ────────────────────────────────────────────────
     unsafe {

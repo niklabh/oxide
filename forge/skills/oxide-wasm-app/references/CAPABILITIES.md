@@ -138,7 +138,7 @@ Structs: `Color { r, g, b, a: u8 }`, `Point2D { x, y: f32 }`,
 
 ## Widgets — immediate-mode UI (call from `on_frame` only)
 
-- `ui_button(id, x, y, w, h, label) -> bool` — returns true on click.
+- `ui_button(id, x, y, w, h, label, on_click)` — runs `on_click` closure when clicked.
 - `ui_checkbox(id, x, y, label, initial) -> bool` — current state.
 - `ui_slider(id, x, y, w, min, max, initial) -> f32` — current value.
 - `ui_text_input(id, x, y, w, initial) -> String` — current text.

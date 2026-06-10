@@ -34,8 +34,17 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
 
     // ── Buttons row ─────────────────────────────────────────────────
     ui_label(24.0, 112.0, "Buttons", 16.0);
-    let _ = ui_button_variant(100, 24.0, 140.0, 110.0, 36.0, "Default", UiVariant::Default);
-    let _ = ui_button_variant(
+    ui_button_variant(
+        100,
+        24.0,
+        140.0,
+        110.0,
+        36.0,
+        "Default",
+        UiVariant::Default,
+        || {},
+    );
+    ui_button_variant(
         101,
         144.0,
         140.0,
@@ -43,8 +52,9 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         36.0,
         "Secondary",
         UiVariant::Secondary,
+        || {},
     );
-    let _ = ui_button_variant(
+    ui_button_variant(
         102,
         264.0,
         140.0,
@@ -52,9 +62,19 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         36.0,
         "Outline",
         UiVariant::Outline,
+        || {},
     );
-    let _ = ui_button_variant(103, 384.0, 140.0, 110.0, 36.0, "Ghost", UiVariant::Ghost);
-    let _ = ui_button_variant(
+    ui_button_variant(
+        103,
+        384.0,
+        140.0,
+        110.0,
+        36.0,
+        "Ghost",
+        UiVariant::Ghost,
+        || {},
+    );
+    ui_button_variant(
         104,
         504.0,
         140.0,
@@ -62,6 +82,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         36.0,
         "Destructive",
         UiVariant::Destructive,
+        || {},
     );
 
     // ── Badges ──────────────────────────────────────────────────────
@@ -96,8 +117,26 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
     let remember = ui_checkbox(210, 24.0, 614.0, "Remember me", true);
     let marketing = ui_switch(211, 200.0, 614.0, "Marketing emails", false);
 
-    let _submit = ui_button_variant(220, 24.0, 654.0, 120.0, 36.0, "Sign in", UiVariant::Default);
-    let _cancel = ui_button_variant(221, 156.0, 654.0, 100.0, 36.0, "Cancel", UiVariant::Ghost);
+    ui_button_variant(
+        220,
+        24.0,
+        654.0,
+        120.0,
+        36.0,
+        "Sign in",
+        UiVariant::Default,
+        || {},
+    );
+    ui_button_variant(
+        221,
+        156.0,
+        654.0,
+        100.0,
+        36.0,
+        "Cancel",
+        UiVariant::Ghost,
+        || {},
+    );
 
     // ── Live preview card ───────────────────────────────────────────
     ui_card(
