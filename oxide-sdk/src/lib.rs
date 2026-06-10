@@ -1037,6 +1037,9 @@ pub fn error(msg: &str) {
 // ─── Geolocation API ────────────────────────────────────────────────────────
 
 /// Get the device's mock geolocation as a `"lat,lon"` string.
+///
+/// Gated by an in-browser permission prompt on first use per origin. Returns an empty string
+/// while the prompt is showing (retry on a later frame) or when the user blocked access.
 pub fn get_location() -> String {
     let mut buf = [0u8; 128];
     let len = unsafe { _api_get_location(buf.as_mut_ptr() as u32, buf.len() as u32) };
@@ -2253,9 +2256,16 @@ pub fn subtitle_clear() {
 
 // ─── Media capture API ─────────────────────────────────────────────────────
 
-/// Opens the default camera after a host permission dialog.
+/// Returned by permission-gated APIs ([`camera_open`], [`microphone_open`], [`screen_capture`])
+/// while the browser's permission prompt is awaiting the user's decision.
 ///
-/// Returns `0` on success. Negative codes: `-1` user denied, `-2` no camera, `-3` open failed.
+/// Not a hard failure: retry on a later frame until the call succeeds or returns `-1` (blocked).
+pub const PERMISSION_PENDING: i32 = -5;
+
+/// Opens the default camera. Gated by an in-browser permission prompt on first use per origin.
+///
+/// Returns `0` on success. Negative codes: `-1` user blocked, `-2` no camera, `-3` open failed,
+/// [`PERMISSION_PENDING`] while the prompt is showing (retry next frame).
 pub fn camera_open() -> i32 {
     unsafe { _api_camera_open() }
 }
@@ -2279,9 +2289,11 @@ pub fn camera_frame_dimensions() -> (u32, u32) {
     (w, h)
 }
 
-/// Starts microphone capture (mono `f32` ring buffer) after a host permission dialog.
+/// Starts microphone capture (mono `f32` ring buffer). Gated by an in-browser permission
+/// prompt on first use per origin.
 ///
-/// Returns `0` on success. Negative codes: `-1` denied, `-2` no input device, `-3` stream error.
+/// Returns `0` on success. Negative codes: `-1` user blocked, `-2` no input device,
+/// `-3` stream error, [`PERMISSION_PENDING`] while the prompt is showing (retry next frame).
 pub fn microphone_open() -> i32 {
     unsafe { _api_microphone_open() }
 }
@@ -2301,9 +2313,12 @@ pub fn microphone_read_samples(out: &mut [f32]) -> u32 {
     unsafe { _api_microphone_read_samples(out.as_mut_ptr() as u32, out.len() as u32) }
 }
 
-/// Captures the primary display as RGBA8 after permission dialogs (OS may prompt separately).
+/// Captures the primary display as RGBA8. Gated by an in-browser permission prompt on first
+/// use per origin (the OS may prompt separately for screen recording).
 ///
-/// Returns `Ok(bytes_written)` or an error code: `-1` denied, `-2` no display, `-3` capture failed, `-4` buffer error.
+/// Returns `Ok(bytes_written)` or an error code: `-1` user blocked, `-2` no display,
+/// `-3` capture failed, `-4` buffer error, [`PERMISSION_PENDING`] while the prompt is showing
+/// (retry next frame).
 pub fn screen_capture(out: &mut [u8]) -> Result<usize, i32> {
     let n = unsafe { _api_screen_capture(out.as_mut_ptr() as u32, out.len() as u32) };
     if n >= 0 {

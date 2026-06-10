@@ -4511,6 +4511,102 @@ impl Render for OxideBrowserView {
             );
         }
 
+        // Permission prompt (Chrome-style: top-left, under the toolbar). Shown while a guest
+        // request for a sensitive API (camera, microphone, location, screen) awaits a decision.
+        {
+            let pending = self.tabs[active]
+                .host_state
+                .permissions
+                .lock()
+                .unwrap()
+                .pending
+                .clone();
+            if let Some(req) = pending {
+                let origin = SharedString::from(req.origin.clone());
+                let request_line = SharedString::from(req.kind.description());
+                root = root.child(
+                    div()
+                        .id("oxide_permission_prompt")
+                        .absolute()
+                        .top(px(92.0))
+                        .left(px(8.0))
+                        .w(px(320.0))
+                        .rounded_md()
+                        .bg(gpui::rgb(0x2c2c36))
+                        .border_1()
+                        .border_color(gpui::rgb(0x3a3a44))
+                        .shadow_lg()
+                        .p_3()
+                        .flex()
+                        .flex_col()
+                        .gap_2()
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(gpui::rgb(0x9696a0))
+                                .overflow_hidden()
+                                .child(origin),
+                        )
+                        .child(
+                            div()
+                                .text_sm()
+                                .text_color(gpui::rgb(0xe4e4ec))
+                                .child(SharedString::from(format!("wants to: {request_line}"))),
+                        )
+                        .child(
+                            div()
+                                .flex()
+                                .flex_row()
+                                .justify_end()
+                                .gap_2()
+                                .child(
+                                    div()
+                                        .id("oxide_permission_block")
+                                        .cursor_pointer()
+                                        .px_3()
+                                        .py(px(6.0))
+                                        .rounded_sm()
+                                        .text_sm()
+                                        .text_color(gpui::rgb(0xdcdce6))
+                                        .bg(gpui::rgb(0x3a3a44))
+                                        .hover(|s| s.bg(gpui::rgb(0x4a4a56)))
+                                        .child("Block")
+                                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                            let perms = this.tabs[this.active_tab]
+                                                .host_state
+                                                .permissions
+                                                .clone();
+                                            crate::permissions::resolve_pending(&perms, false);
+                                            cx.notify();
+                                        })),
+                                )
+                                .child(
+                                    div()
+                                        .id("oxide_permission_allow")
+                                        .cursor_pointer()
+                                        .px_3()
+                                        .py(px(6.0))
+                                        .rounded_sm()
+                                        .text_sm()
+                                        .font_weight(gpui::FontWeight::SEMIBOLD)
+                                        .text_color(gpui::rgb(theme::PRIMARY_FG))
+                                        .bg(gpui::rgb(theme::PRIMARY))
+                                        .hover(|s| s.bg(gpui::rgb(0xd4d4d8)))
+                                        .child("Allow")
+                                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                            let perms = this.tabs[this.active_tab]
+                                                .host_state
+                                                .permissions
+                                                .clone();
+                                            crate::permissions::resolve_pending(&perms, true);
+                                            cx.notify();
+                                        })),
+                                ),
+                        ),
+                );
+            }
+        }
+
         if self.show_menu {
             root = root.child(
                 div()

@@ -147,6 +147,9 @@ pub struct HostState {
     pub clipboard: Arc<Mutex<String>>,
     /// When `false`, `api_clipboard_read` / `api_clipboard_write` are blocked and log a warning.
     pub clipboard_allowed: Arc<Mutex<bool>>,
+    /// Per-origin grants for sensitive APIs (camera, microphone, geolocation, screen capture)
+    /// plus the prompt currently awaiting a user decision (rendered by the UI shell).
+    pub permissions: crate::permissions::SharedPermissions,
     /// Optional embedded [`sled`] database for persistent per-origin key/value bytes (`api_kv_store_*`).
     pub kv_db: Option<Arc<sled::Db>>,
     /// The guest’s exported linear memory, used to read/write pointers passed to host imports.
@@ -682,6 +685,7 @@ impl Default for HostState {
             timer_next_id: Arc::new(Mutex::new(1)),
             clipboard: Arc::new(Mutex::new(String::new())),
             clipboard_allowed: Arc::new(Mutex::new(false)),
+            permissions: Arc::new(Mutex::new(crate::permissions::PermissionsState::default())),
             kv_db: None,
             memory: None,
             module_loader: None,
@@ -1332,6 +1336,17 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
         "oxide",
         "api_get_location",
         |mut caller: Caller<'_, HostState>, out_ptr: u32, out_cap: u32| -> u32 {
+            let origin = crate::url::app_origin_of(&caller.data().current_url.lock().unwrap());
+            match crate::permissions::check_or_request(
+                &caller.data().permissions,
+                &origin,
+                crate::permissions::PermissionKind::Geolocation,
+            ) {
+                crate::permissions::PermissionStatus::Granted => {}
+                // Denied, or the prompt is still showing — write nothing.
+                // Guests may retry on a later frame while the prompt is up.
+                _ => return 0,
+            }
             let location = "37.7749,-122.4194"; // mock: San Francisco
             let bytes = location.as_bytes();
             let write_len = bytes.len().min(out_cap as usize);

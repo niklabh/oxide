@@ -1,8 +1,10 @@
 //! Host-side media capture: camera, microphone, and screen (with permission prompts).
 //!
-//! Guests call [`register_media_capture_functions`] imports from the `oxide` module. Native
-//! OS prompts (camera / microphone / screen recording) may appear in addition to Oxide’s
-//! in-app confirmation dialogs.
+//! Guests call [`register_media_capture_functions`] imports from the `oxide` module. Access is
+//! gated per origin through [`crate::permissions`]: the first call returns
+//! [`PERMISSION_PENDING`] while the in-browser prompt is showing, and the guest retries on a
+//! later frame. Native OS prompts (camera / microphone / screen recording) may appear in
+//! addition once the in-browser grant is given.
 
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
@@ -16,6 +18,7 @@ use nokhwa::Camera;
 use wasmtime::{Caller, Linker};
 
 use crate::capabilities::{console_log, write_guest_bytes, ConsoleLevel, HostState};
+use crate::permissions::{check_or_request, PermissionKind, PermissionStatus, PERMISSION_PENDING};
 
 const MIC_RING_CAP: usize = 96_000;
 
@@ -39,15 +42,17 @@ struct MicrophoneInput {
     sample_rate: u32,
 }
 
-fn prompt(feature: &str) -> bool {
-    matches!(
-        rfd::MessageDialog::new()
-            .set_title("Oxide")
-            .set_description(format!("Allow this page to access {feature}?"))
-            .set_buttons(rfd::MessageButtons::OkCancel)
-            .show(),
-        rfd::MessageDialogResult::Ok | rfd::MessageDialogResult::Yes
-    )
+/// Checks the per-origin grant for `kind`.
+///
+/// Returns `None` when granted, or the code the host API should return: `-1` when the user
+/// blocked it, [`PERMISSION_PENDING`] while the in-browser prompt is awaiting a decision.
+fn permission_gate(caller: &Caller<'_, HostState>, kind: PermissionKind) -> Option<i32> {
+    let origin = crate::url::app_origin_of(&caller.data().current_url.lock().unwrap());
+    match check_or_request(&caller.data().permissions, &origin, kind) {
+        PermissionStatus::Granted => None,
+        PermissionStatus::Denied => Some(-1),
+        PermissionStatus::Pending => Some(PERMISSION_PENDING),
+    }
 }
 
 fn push_mono_f32(data: &[f32], channels: usize, ring: &Arc<Mutex<VecDeque<f32>>>) {
@@ -189,8 +194,8 @@ pub fn register_media_capture_functions(linker: &mut Linker<HostState>) -> Resul
         |caller: Caller<'_, HostState>| -> i32 {
             let console = caller.data().console.clone();
             let st = caller.data().media_capture.clone();
-            if !prompt("the camera") {
-                return -1;
+            if let Some(code) = permission_gate(&caller, PermissionKind::Camera) {
+                return code;
             }
             let mut g = st.lock().unwrap();
             if let Some(mut cam) = g.camera.take() {
@@ -306,8 +311,8 @@ pub fn register_media_capture_functions(linker: &mut Linker<HostState>) -> Resul
         |caller: Caller<'_, HostState>| -> i32 {
             let console = caller.data().console.clone();
             let st = caller.data().media_capture.clone();
-            if !prompt("the microphone") {
-                return -1;
+            if let Some(code) = permission_gate(&caller, PermissionKind::Microphone) {
+                return code;
             }
             let mut g = st.lock().unwrap();
             g.microphone = None;
@@ -378,8 +383,9 @@ pub fn register_media_capture_functions(linker: &mut Linker<HostState>) -> Resul
                 None => return -4,
             };
             let console = caller.data().console.clone();
-            if !prompt("screen capture (the OS may also ask for screen recording permission)") {
-                return -1;
+            // The OS may additionally ask for screen-recording permission once granted here.
+            if let Some(code) = permission_gate(&caller, PermissionKind::ScreenCapture) {
+                return code;
             }
             let screens = match screenshots::Screen::all() {
                 Ok(s) => s,
