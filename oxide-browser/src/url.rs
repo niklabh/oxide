@@ -161,6 +161,35 @@ impl OxideUrl {
     pub fn same_origin(&self, other: &OxideUrl) -> bool {
         self.inner.origin() == other.inner.origin()
     }
+
+    /// Stable app identity used to scope permissions and storage.
+    ///
+    /// - `http`/`https`: scheme + host + port (path changes, e.g. via `push_state`, don't
+    ///   change the origin).
+    /// - `file`: the containing directory, so different local apps don't share state while
+    ///   an app and its sibling assets do.
+    /// - Other schemes fall back to [`OxideUrl::origin_str`].
+    pub fn app_origin(&self) -> String {
+        if self.is_local_file() {
+            let path = self.inner.path();
+            let dir = match path.rfind('/') {
+                Some(0) => "/",
+                Some(i) => &path[..i],
+                None => path,
+            };
+            format!("file://{dir}")
+        } else {
+            self.origin_str()
+        }
+    }
+}
+
+/// [`OxideUrl::app_origin`] for a raw URL string; falls back to the input when unparseable.
+pub fn app_origin_of(url: &str) -> String {
+    match OxideUrl::parse(url) {
+        Ok(parsed) => parsed.app_origin(),
+        Err(_) => url.to_string(),
+    }
 }
 
 impl fmt::Display for OxideUrl {
@@ -238,6 +267,28 @@ mod tests {
         let encoded = percent_encode(original);
         let decoded = percent_decode(&encoded);
         assert_eq!(decoded, original);
+    }
+
+    #[test]
+    fn app_origin_https_ignores_path() {
+        let a = OxideUrl::parse("https://example.com/apps/a.wasm").unwrap();
+        let b = OxideUrl::parse("https://example.com/other/b.wasm").unwrap();
+        assert_eq!(a.app_origin(), "https://example.com:443");
+        assert_eq!(a.app_origin(), b.app_origin());
+    }
+
+    #[test]
+    fn app_origin_file_is_containing_directory() {
+        let a = OxideUrl::parse("file:///tmp/apps/a.wasm").unwrap();
+        let b = OxideUrl::parse("file:///tmp/other/b.wasm").unwrap();
+        assert_eq!(a.app_origin(), "file:///tmp/apps");
+        assert_ne!(a.app_origin(), b.app_origin());
+    }
+
+    #[test]
+    fn app_origin_of_falls_back_to_input() {
+        assert_eq!(app_origin_of(""), "");
+        assert_eq!(app_origin_of("./relative.wasm"), "./relative.wasm");
     }
 
     #[test]

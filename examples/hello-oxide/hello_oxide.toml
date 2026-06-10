@@ -1,0 +1,4 @@
+name = "Hello Oxide"
+description = "Interactive widgets, input, and the frame loop"
+version = "0.1.0"
+permissions = []

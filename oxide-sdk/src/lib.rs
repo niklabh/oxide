@@ -53,9 +53,9 @@
 //!     let (mx, my) = mouse_position();
 //!     canvas_circle(mx, my, 20.0, 255, 100, 100, 255);
 //!
-//!     if ui_button(1, 20.0, 20.0, 100.0, 30.0, "Click me!") {
+//!     ui_button(1, 20.0, 20.0, 100.0, 30.0, "Click me!", || {
 //!         log("Button was clicked!");
-//!     }
+//!     });
 //! }
 //! ```
 //!
@@ -145,7 +145,7 @@ extern "C" {
     fn _api_error(ptr: u32, len: u32);
 
     #[link_name = "api_get_location"]
-    fn _api_get_location(out_ptr: u32, out_cap: u32) -> u32;
+    fn _api_get_location(out_ptr: u32, out_cap: u32) -> i32;
 
     #[link_name = "api_upload_file"]
     fn _api_upload_file(name_ptr: u32, name_cap: u32, data_ptr: u32, data_cap: u32) -> u64;
@@ -1036,11 +1036,18 @@ pub fn error(msg: &str) {
 
 // ─── Geolocation API ────────────────────────────────────────────────────────
 
-/// Get the device's mock geolocation as a `"lat,lon"` string.
-pub fn get_location() -> String {
+/// Get the device's geolocation as a `"lat,lon"` string (currently a mock location).
+///
+/// Gated by an in-browser permission prompt on first use per origin. Errors:
+/// [`PERMISSION_PENDING`] while the prompt is showing (retry on a later frame), `-1` once
+/// blocked — by the user or by an app manifest that doesn't declare `geolocation`.
+pub fn get_location() -> Result<String, i32> {
     let mut buf = [0u8; 128];
     let len = unsafe { _api_get_location(buf.as_mut_ptr() as u32, buf.len() as u32) };
-    String::from_utf8_lossy(&buf[..len as usize]).to_string()
+    if len < 0 {
+        return Err(len);
+    }
+    Ok(String::from_utf8_lossy(&buf[..len as usize]).to_string())
 }
 
 // ─── File Upload API ────────────────────────────────────────────────────────
@@ -2253,9 +2260,16 @@ pub fn subtitle_clear() {
 
 // ─── Media capture API ─────────────────────────────────────────────────────
 
-/// Opens the default camera after a host permission dialog.
+/// Returned by permission-gated APIs ([`camera_open`], [`microphone_open`], [`screen_capture`])
+/// while the browser's permission prompt is awaiting the user's decision.
 ///
-/// Returns `0` on success. Negative codes: `-1` user denied, `-2` no camera, `-3` open failed.
+/// Not a hard failure: retry on a later frame until the call succeeds or returns `-1` (blocked).
+pub const PERMISSION_PENDING: i32 = -5;
+
+/// Opens the default camera. Gated by an in-browser permission prompt on first use per origin.
+///
+/// Returns `0` on success. Negative codes: `-1` user blocked, `-2` no camera, `-3` open failed,
+/// [`PERMISSION_PENDING`] while the prompt is showing (retry next frame).
 pub fn camera_open() -> i32 {
     unsafe { _api_camera_open() }
 }
@@ -2279,9 +2293,11 @@ pub fn camera_frame_dimensions() -> (u32, u32) {
     (w, h)
 }
 
-/// Starts microphone capture (mono `f32` ring buffer) after a host permission dialog.
+/// Starts microphone capture (mono `f32` ring buffer). Gated by an in-browser permission
+/// prompt on first use per origin.
 ///
-/// Returns `0` on success. Negative codes: `-1` denied, `-2` no input device, `-3` stream error.
+/// Returns `0` on success. Negative codes: `-1` user blocked, `-2` no input device,
+/// `-3` stream error, [`PERMISSION_PENDING`] while the prompt is showing (retry next frame).
 pub fn microphone_open() -> i32 {
     unsafe { _api_microphone_open() }
 }
@@ -2301,9 +2317,12 @@ pub fn microphone_read_samples(out: &mut [f32]) -> u32 {
     unsafe { _api_microphone_read_samples(out.as_mut_ptr() as u32, out.len() as u32) }
 }
 
-/// Captures the primary display as RGBA8 after permission dialogs (OS may prompt separately).
+/// Captures the primary display as RGBA8. Gated by an in-browser permission prompt on first
+/// use per origin (the OS may prompt separately for screen recording).
 ///
-/// Returns `Ok(bytes_written)` or an error code: `-1` denied, `-2` no display, `-3` capture failed, `-4` buffer error.
+/// Returns `Ok(bytes_written)` or an error code: `-1` user blocked, `-2` no display,
+/// `-3` capture failed, `-4` buffer error, [`PERMISSION_PENDING`] while the prompt is showing
+/// (retry next frame).
 pub fn screen_capture(out: &mut [u8]) -> Result<usize, i32> {
     let n = unsafe { _api_screen_capture(out.as_mut_ptr() as u32, out.len() as u32) };
     if n >= 0 {
@@ -3485,17 +3504,17 @@ impl UiVariant {
     }
 }
 
-/// Render a button at the given position. Returns `true` if it was clicked
-/// on the previous frame. Use [`ui_button_variant`] for non-default styling.
+/// Render a button at the given position and run `on_click` when it is
+/// clicked. Use [`ui_button_variant`] for non-default styling.
 ///
 /// Must be called from `on_frame()` — widgets are only rendered for
 /// interactive applications that export a frame loop.
-pub fn ui_button(id: u32, x: f32, y: f32, w: f32, h: f32, label: &str) -> bool {
-    ui_button_variant(id, x, y, w, h, label, UiVariant::Default)
+pub fn ui_button(id: u32, x: f32, y: f32, w: f32, h: f32, label: &str, on_click: impl FnOnce()) {
+    ui_button_variant(id, x, y, w, h, label, UiVariant::Default, on_click);
 }
 
-/// Render a button with a specific [`UiVariant`]. Returns `true` if it was
-/// clicked on the previous frame.
+/// Render a button with a specific [`UiVariant`] and run `on_click` when it
+/// is clicked.
 pub fn ui_button_variant(
     id: u32,
     x: f32,
@@ -3504,8 +3523,9 @@ pub fn ui_button_variant(
     h: f32,
     label: &str,
     variant: UiVariant,
-) -> bool {
-    unsafe {
+    on_click: impl FnOnce(),
+) {
+    let clicked = unsafe {
         _api_ui_button(
             id,
             x,
@@ -3516,6 +3536,9 @@ pub fn ui_button_variant(
             label.len() as u32,
             variant.as_u32(),
         ) != 0
+    };
+    if clicked {
+        on_click();
     }
 }
 

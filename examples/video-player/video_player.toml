@@ -1,0 +1,4 @@
+name = "Video Player"
+description = "FFmpeg video, subtitles, PiP, HLS"
+version = "0.1.0"
+permissions = []

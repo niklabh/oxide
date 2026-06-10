@@ -122,14 +122,14 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         } else {
             "Resume Animation"
         };
-        if ui_button(BTN_TOGGLE, 20.0, 140.0, 180.0, 35.0, label) {
+        ui_button(BTN_TOGGLE, 20.0, 140.0, 180.0, 35.0, label, || {
             RUNNING = !RUNNING;
             if RUNNING {
                 RAF_ID = request_animation_frame(CB_ANIMATION);
             } else {
                 cancel_animation_frame(RAF_ID);
             }
-        }
+        });
 
         // Instructions
         canvas_text(

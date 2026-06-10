@@ -15,6 +15,11 @@ static mut MIC_ON: bool = false;
 static mut MIC_SMOOTH: f32 = 0.0;
 static mut LAST_SCR_OK: bool = false;
 static mut SCR_BYTES: usize = 0;
+// "Wanted" flags drive retries while the browser permission prompt is pending,
+// so the capture starts automatically once the user clicks Allow.
+static mut CAM_WANTED: bool = false;
+static mut MIC_WANTED: bool = false;
+static mut SCR_WANTED: bool = false;
 
 fn rgba_to_png(width: u32, height: u32, rgba: &[u8]) -> Option<Vec<u8>> {
     let expected = (width as usize)
@@ -60,7 +65,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         150,
         170,
         255,
-        "Camera / mic / screenshot use host dialogs + OS permissions.",
+        "Camera / mic / screenshot use the in-browser permission prompt (top-left).",
     );
 
     let preview_x = 20.0;
@@ -76,51 +81,96 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
     let meter_y = thumb_y + thumb_h + 36.0;
 
     // ── Buttons ───────────────────────────────────────────────────────
-    if ui_button(1, 20.0, btn_row_y, 140.0, 32.0, "Open camera") {
-        unsafe {
-            let code = camera_open();
-            if code == 0 {
-                CAMERA_ON = true;
-                log("camera_open OK");
-            } else {
-                log(&format!("camera_open failed: {code}"));
-            }
-        }
-    }
-    if ui_button(2, 175.0, btn_row_y, 120.0, 32.0, "Close camera") {
-        unsafe {
+    ui_button(1, 20.0, btn_row_y, 140.0, 32.0, "Open camera", || unsafe {
+        CAM_WANTED = true;
+    });
+    ui_button(
+        2,
+        175.0,
+        btn_row_y,
+        120.0,
+        32.0,
+        "Close camera",
+        || unsafe {
             camera_close();
             CAMERA_ON = false;
-        }
-    }
-    if ui_button(3, 20.0, btn_row_y + 44.0, 140.0, 32.0, "Open mic") {
-        unsafe {
-            let code = microphone_open();
-            if code == 0 {
-                MIC_ON = true;
-                log("microphone_open OK");
-            } else {
-                log(&format!("microphone_open failed: {code}"));
-            }
-        }
-    }
-    if ui_button(4, 175.0, btn_row_y + 44.0, 120.0, 32.0, "Close mic") {
-        unsafe {
+            CAM_WANTED = false;
+        },
+    );
+    ui_button(
+        3,
+        20.0,
+        btn_row_y + 44.0,
+        140.0,
+        32.0,
+        "Open mic",
+        || unsafe {
+            MIC_WANTED = true;
+        },
+    );
+    ui_button(
+        4,
+        175.0,
+        btn_row_y + 44.0,
+        120.0,
+        32.0,
+        "Close mic",
+        || unsafe {
             microphone_close();
             MIC_ON = false;
+            MIC_WANTED = false;
             MIC_SMOOTH = 0.0;
+        },
+    );
+    ui_button(5, 310.0, btn_row_y, 160.0, 32.0, "Screenshot", || unsafe {
+        SCR_WANTED = true;
+    });
+
+    // ── Open requested devices, retrying while the permission prompt is up ──
+    unsafe {
+        if CAM_WANTED && !CAMERA_ON {
+            match camera_open() {
+                0 => {
+                    CAMERA_ON = true;
+                    log("camera_open OK");
+                }
+                PERMISSION_PENDING => {} // prompt showing — retry next frame
+                code => {
+                    CAM_WANTED = false;
+                    log(&format!("camera_open failed: {code}"));
+                }
+            }
         }
-    }
-    if ui_button(5, 310.0, btn_row_y, 160.0, 32.0, "Screenshot") {
-        unsafe {
+        if MIC_WANTED && !MIC_ON {
+            match microphone_open() {
+                0 => {
+                    MIC_ON = true;
+                    log("microphone_open OK");
+                }
+                PERMISSION_PENDING => {}
+                code => {
+                    MIC_WANTED = false;
+                    log(&format!("microphone_open failed: {code}"));
+                }
+            }
+        }
+        if SCR_WANTED {
             match screen_capture(&mut SCR_BUF[..]) {
                 Ok(n) if n > 0 => {
                     LAST_SCR_OK = true;
                     SCR_BYTES = n;
+                    SCR_WANTED = false;
                     log(&format!("screen_capture OK ({n} bytes)"));
                 }
-                Ok(_) => log("screen_capture: 0 bytes"),
-                Err(e) => log(&format!("screen_capture failed: {e}")),
+                Ok(_) => {
+                    SCR_WANTED = false;
+                    log("screen_capture: 0 bytes");
+                }
+                Err(PERMISSION_PENDING) => {}
+                Err(e) => {
+                    SCR_WANTED = false;
+                    log(&format!("screen_capture failed: {e}"));
+                }
             }
         }
     }

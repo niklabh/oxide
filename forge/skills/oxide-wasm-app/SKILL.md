@@ -125,7 +125,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
   let clicked = mouse_button_clicked(0);
   ```
 - **Text input** with cursor: `let text = ui_text_input(42, x, y, w, "");`
-- **Button**: `if ui_button(1, x, y, w, h, "Label") { … }`
+- **Button**: `ui_button(1, x, y, w, h, "Label", || { … });`
 - **Fetch (blocking, small)**: for short JSON / text:
   ```rust
   if let Ok(resp) = fetch_get("https://…") { log(&resp.text()); }

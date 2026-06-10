@@ -46,12 +46,14 @@
 //! | [`runtime`] | Module fetching, compilation, execution lifecycle |
 //! | [`capabilities`] | All host-imported functions exposed to guest wasm modules |
 //! | [`gpu`] | WebGPU-style GPU resource management (buffers, textures, shaders, pipelines) |
+//! | [`manifest`] | Optional TOML app manifests (name, version, declared permissions) |
 //! | [`media_capture`] | Camera, microphone, and screen capture with permission prompts |
 //! | [`rtc`] | WebRTC peer connections, data channels, media tracks, and signaling |
 //! | [`websocket`] | WebSocket client connections (text/binary frames, ready-state polling) |
 //! | [`worker`] | Background WASM workers with isolated fuel/memory and message passing |
 //! | [`midi`] | MIDI input/output device enumeration and I/O (CoreMIDI on macOS) |
 //! | [`navigation`] | Browser history stack with back/forward traversal |
+//! | [`permissions`] | Per-origin grants for sensitive APIs (camera, microphone, geolocation, screen capture) |
 //! | [`bookmarks`] | Persistent bookmark storage backed by sled |
 //! | [`url`] | WHATWG-compliant URL parsing with Oxide-specific schemes |
 //! | [`ui`] | GPUI desktop shell (toolbar, canvas, console, tabs) |
@@ -109,9 +111,11 @@ pub mod forge;
 pub mod forge_config;
 pub mod gpu;
 pub mod history;
+pub mod manifest;
 pub mod media_capture;
 pub mod midi;
 pub mod navigation;
+pub mod permissions;
 pub mod rtc;
 pub mod runtime;
 pub mod subtitle;

@@ -1,0 +1,4 @@
+name = "Timer Demo"
+description = "set_timeout / set_interval"
+version = "0.1.0"
+permissions = []

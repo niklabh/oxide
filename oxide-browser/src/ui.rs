@@ -73,8 +73,15 @@ use crate::navigation::HistoryEntry;
 use crate::runtime::{LiveModule, PageStatus};
 
 enum RunRequest {
-    FetchAndRun { url: String },
-    LoadLocal(Vec<u8>),
+    FetchAndRun {
+        url: String,
+    },
+    LoadLocal {
+        bytes: Vec<u8>,
+        /// Source URL the module's origin/storage/permissions are scoped to.
+        url: String,
+        manifest: Option<crate::manifest::AppManifest>,
+    },
 }
 
 struct RunResult {
@@ -220,7 +227,11 @@ impl TabState {
                 let mut host = crate::runtime::BrowserHost::recreate(hs.clone(), st.clone());
                 let result = match request {
                     RunRequest::FetchAndRun { url } => rt.block_on(host.fetch_and_run(&url)),
-                    RunRequest::LoadLocal(bytes) => host.run_bytes(&bytes),
+                    RunRequest::LoadLocal {
+                        bytes,
+                        url,
+                        manifest,
+                    } => host.run_bytes(&bytes, &url, manifest),
                 };
                 let (error, live_module) = match result {
                     Ok(live) => (None, live),
@@ -271,7 +282,20 @@ impl TabState {
         match status {
             PageStatus::Idle => "New Tab".to_string(),
             PageStatus::Loading(_) => "Loading\u{2026}".to_string(),
-            PageStatus::Running(ref url) => url_to_title(url),
+            PageStatus::Running(ref url) => {
+                // Prefer the app's manifest name over a URL-derived title — but not on
+                // internal oxide:// pages, which would otherwise keep showing the name of
+                // a previously loaded app (the manifest isn't cleared when switching to
+                // an internal page).
+                if self.internal_page.is_none() {
+                    if let Some(m) = self.host_state.manifest.lock().unwrap().as_ref() {
+                        if !m.name.trim().is_empty() {
+                            return m.name.clone();
+                        }
+                    }
+                }
+                url_to_title(url)
+            }
             PageStatus::Error(_) => "Error".to_string(),
         }
     }
@@ -1411,14 +1435,19 @@ impl OxideBrowserView {
                 .map(|s| s.slug)
                 .unwrap_or_else(|| format!("session-{id}"))
         };
+        let run_url = format!("oxide://forge/run/{slug}");
         let new_idx = self.create_tab();
         self.active_tab = new_idx;
         let tab = &mut self.tabs[new_idx];
-        tab.url_input = format!("oxide://forge/run/{slug}");
+        tab.url_input = run_url.clone();
         tab.url_cursor = tab.url_input.len();
         tab.url_sel_start = tab.url_input.len();
         tab.internal_page = None;
-        let _ = tab.run_tx.send(RunRequest::LoadLocal(bytes));
+        let _ = tab.run_tx.send(RunRequest::LoadLocal {
+            bytes,
+            url: run_url,
+            manifest: None,
+        });
     }
 
     fn poll_file_pick(&mut self, cx: &mut Context<Self>) {
@@ -1428,13 +1457,27 @@ impl OxideBrowserView {
         };
         match rx.try_recv() {
             Ok(FilePickDone::Chosen { path, bytes }) => {
+                let manifest = match crate::manifest::load_local_manifest(&path) {
+                    Ok(m) => m,
+                    Err(e) => {
+                        crate::capabilities::console_log(
+                            &self.tabs[self.active_tab].host_state.console,
+                            ConsoleLevel::Warn,
+                            format!("[MANIFEST] {e} — loading app without a manifest"),
+                        );
+                        None
+                    }
+                };
                 let file_url = format!("file://{}", path.display());
                 let tab = &mut self.tabs[self.active_tab];
                 tab.url_input = file_url.clone();
-                *tab.host_state.current_url.lock().unwrap() = file_url.clone();
-                tab.pending_history_url = Some(file_url);
+                tab.pending_history_url = Some(file_url.clone());
                 tab.internal_page = None;
-                let _ = tab.run_tx.send(RunRequest::LoadLocal(bytes));
+                let _ = tab.run_tx.send(RunRequest::LoadLocal {
+                    bytes,
+                    url: file_url,
+                    manifest,
+                });
                 cx.notify();
             }
             Ok(FilePickDone::Directory(path)) => {
@@ -1629,6 +1672,27 @@ impl Render for OxideBrowserView {
                         input.modifiers_ctrl =
                             event.keystroke.modifiers.control || event.keystroke.modifiers.platform;
                         input.modifiers_alt = event.keystroke.modifiers.alt;
+                    }
+                    // Keyboard path for the permission prompt (mouse-free resolution):
+                    // Enter = Allow, Escape = Block. Swallowed so the guest never sees them.
+                    if !this.url_focus.is_focused(window) {
+                        let perms = this.tabs[this.active_tab].host_state.permissions.clone();
+                        let pending = perms.lock().unwrap().pending.is_some();
+                        if pending && !event.keystroke.modifiers.modified() {
+                            match event.keystroke.key.as_str() {
+                                "enter" => {
+                                    crate::permissions::resolve_pending(&perms, true);
+                                    cx.notify();
+                                    return;
+                                }
+                                "escape" => {
+                                    crate::permissions::resolve_pending(&perms, false);
+                                    cx.notify();
+                                    return;
+                                }
+                                _ => {}
+                            }
+                        }
                     }
                     if event.keystroke.modifiers.secondary() && event.keystroke.key == "r" {
                         this.tabs[this.active_tab].reload();
@@ -4509,6 +4573,108 @@ impl Render for OxideBrowserView {
                     .text_color(gpui::rgb(0x8c8cb4))
                     .child(url),
             );
+        }
+
+        // Permission prompt (Chrome-style: top-left, under the toolbar). Shown while a guest
+        // request for a sensitive API (camera, microphone, location, screen) awaits a decision.
+        {
+            let pending = self.tabs[active]
+                .host_state
+                .permissions
+                .lock()
+                .unwrap()
+                .pending
+                .clone();
+            if let Some(req) = pending {
+                let origin = SharedString::from(req.origin.clone());
+                let request_line = SharedString::from(req.kind.description());
+                root = root.child(
+                    div()
+                        .id("oxide_permission_prompt")
+                        .absolute()
+                        .top(px(92.0))
+                        .left(px(8.0))
+                        .w(px(320.0))
+                        .rounded_md()
+                        .bg(gpui::rgb(0x2c2c36))
+                        .border_1()
+                        .border_color(gpui::rgb(0x3a3a44))
+                        .shadow_lg()
+                        .p_3()
+                        .flex()
+                        .flex_col()
+                        .gap_2()
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(gpui::rgb(0x9696a0))
+                                .overflow_hidden()
+                                .child(origin),
+                        )
+                        .child(
+                            div()
+                                .text_sm()
+                                .text_color(gpui::rgb(0xe4e4ec))
+                                .child(SharedString::from(format!("wants to: {request_line}"))),
+                        )
+                        .child(
+                            div()
+                                .flex()
+                                .flex_row()
+                                .justify_end()
+                                .gap_2()
+                                .child(
+                                    div()
+                                        .id("oxide_permission_block")
+                                        .cursor_pointer()
+                                        .px_3()
+                                        .py(px(6.0))
+                                        .rounded_sm()
+                                        .text_sm()
+                                        .text_color(gpui::rgb(0xdcdce6))
+                                        .bg(gpui::rgb(0x3a3a44))
+                                        .hover(|s| s.bg(gpui::rgb(0x4a4a56)))
+                                        .child("Block")
+                                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                            let perms = this.tabs[this.active_tab]
+                                                .host_state
+                                                .permissions
+                                                .clone();
+                                            crate::permissions::resolve_pending(&perms, false);
+                                            cx.notify();
+                                        })),
+                                )
+                                .child(
+                                    div()
+                                        .id("oxide_permission_allow")
+                                        .cursor_pointer()
+                                        .px_3()
+                                        .py(px(6.0))
+                                        .rounded_sm()
+                                        .text_sm()
+                                        .font_weight(gpui::FontWeight::SEMIBOLD)
+                                        .text_color(gpui::rgb(theme::PRIMARY_FG))
+                                        .bg(gpui::rgb(theme::PRIMARY))
+                                        .hover(|s| s.bg(gpui::rgb(0xd4d4d8)))
+                                        .child("Allow")
+                                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                            let perms = this.tabs[this.active_tab]
+                                                .host_state
+                                                .permissions
+                                                .clone();
+                                            crate::permissions::resolve_pending(&perms, true);
+                                            cx.notify();
+                                        })),
+                                ),
+                        )
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(gpui::rgb(0x70707a))
+                                .child("Enter to allow \u{00b7} Esc to block"),
+                        ),
+                );
+            }
         }
 
         if self.show_menu {

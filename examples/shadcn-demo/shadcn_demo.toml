@@ -1,0 +1,4 @@
+name = "UI Components"
+description = "shadcn-inspired widget kit demo"
+version = "0.1.0"
+permissions = []

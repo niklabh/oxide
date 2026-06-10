@@ -1,0 +1,4 @@
+name = "Media Capture"
+description = "Camera preview, microphone level meter, and screenshots"
+version = "0.1.0"
+permissions = ["camera", "microphone", "screen-capture"]

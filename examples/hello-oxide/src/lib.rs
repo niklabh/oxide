@@ -29,16 +29,12 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
     // ── Button demo ─────────────────────────────────────────────────
     canvas_text(20.0, 75.0, 16.0, 180, 140, 255, 255, "Button");
 
-    if ui_button(1, 20.0, 100.0, 120.0, 28.0, "Click Me!") {
-        unsafe {
-            COUNTER += 1;
-        }
-    }
-    if ui_button(2, 150.0, 100.0, 80.0, 28.0, "Reset") {
-        unsafe {
-            COUNTER = 0;
-        }
-    }
+    ui_button(1, 20.0, 100.0, 120.0, 28.0, "Click Me!", || unsafe {
+        COUNTER += 1;
+    });
+    ui_button(2, 150.0, 100.0, 80.0, 28.0, "Reset", || unsafe {
+        COUNTER = 0;
+    });
     let count = unsafe { COUNTER };
     canvas_text(
         245.0,

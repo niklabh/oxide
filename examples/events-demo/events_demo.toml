@@ -1,0 +1,4 @@
+name = "Events Demo"
+description = "Custom event listeners"
+version = "0.1.0"
+permissions = []

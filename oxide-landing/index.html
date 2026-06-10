@@ -132,7 +132,7 @@
             </div>
             <div class="hero-stats" data-animate="fade-up" data-delay="400">
                 <div class="stat">
-                    <span class="stat-value">150+</span>
+                    <span class="stat-value">200+</span>
                     <span class="stat-label">Host APIs</span>
                 </div>
                 <div class="stat-divider"></div>
@@ -280,7 +280,7 @@
                         <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
                     </div>
                     <h3>Sandboxed</h3>
-                    <p>Zero filesystem access. Zero environment variables. Zero network sockets. Guest modules can only interact with the host through explicitly granted capabilities.</p>
+                    <p>Zero filesystem access. Zero environment variables. Zero network sockets. Camera, microphone, location, and screen capture sit behind per-origin permission prompts — apps declare what they need in a manifest, and you decide.</p>
                 </div>
                 <div class="about-card" data-animate="fade-up" data-delay="400">
                     <div class="about-icon">
@@ -416,6 +416,7 @@
                             <span class="cap-tag">timers</span>
                             <span class="cap-tag">storage</span>
                             <span class="cap-tag">crypto</span>
+                            <span class="cap-tag">permissions</span>
                         </div>
                     </div>
 
@@ -464,6 +465,7 @@
                             <li>Canvas rendering, widgets, input polling, navigation</li>
                             <li>HTTP fetch, storage, clipboard, crypto, protobuf codec</li>
                             <li>Dynamic child module loading with isolated memory</li>
+                            <li>Per-origin permission prompts, app manifests &amp; origin-scoped storage</li>
                         </ul>
                     </div>
                 </div>

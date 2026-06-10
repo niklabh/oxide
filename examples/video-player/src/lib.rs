@@ -50,10 +50,10 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         255,
         &format!("{pos} / {dur} ms"),
     );
-    if ui_button(1, 40.0, ch as f32 - 52.0, 120.0, 36.0, "Pause") {
+    ui_button(1, 40.0, ch as f32 - 52.0, 120.0, 36.0, "Pause", || {
         video_pause();
-    }
-    if ui_button(2, 180.0, ch as f32 - 52.0, 120.0, 36.0, "Resume") {
+    });
+    ui_button(2, 180.0, ch as f32 - 52.0, 120.0, 36.0, "Resume", || {
         video_play();
-    }
+    });
 }

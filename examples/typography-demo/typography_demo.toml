@@ -1,0 +1,4 @@
+name = "Typography"
+description = "canvas_text_ex, fonts, and alignment"
+version = "0.1.0"
+permissions = []

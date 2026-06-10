@@ -23,8 +23,11 @@ The core architecture is live: a Rust-native browser that fetches and executes `
 - [x] Hyperlink regions and URL utilities (resolve, encode, decode)
 - [x] Input polling (mouse, keyboard, scroll, modifiers)
 - [x] File upload via native OS picker
-- [x] Geolocation API (mock)
+- [x] Geolocation API (mock, permission-gated)
 - [x] Notification API
+- [x] Per-origin permission prompts for sensitive APIs (camera, microphone, geolocation, screen capture)
+- [x] App manifests (`app.toml`) — name, version, and declared capabilities; undeclared sensitive APIs are denied
+- [x] Origin-scoped storage — session + persistent KV isolated per app origin
 
 ---
 

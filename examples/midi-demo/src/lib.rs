@@ -229,7 +229,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
             let display = if name.len() > 22 { &name[..22] } else { name };
             canvas_text(btn_x + 8.0, btn_y + 8.0, 13.0, 230, 235, 255, 255, display);
 
-            if ui_button((10 + i) as u32, btn_x, btn_y, 178.0, 32.0, "") {
+            ui_button((10 + i) as u32, btn_x, btn_y, 178.0, 32.0, "", || {
                 if is_active {
                     midi_close(s.port_handle);
                     s.port_handle = 0;
@@ -258,7 +258,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
                         s.push_log("Failed to open MIDI device");
                     }
                 }
-            }
+            });
         }
     }
 

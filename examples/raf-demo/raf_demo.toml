@@ -1,0 +1,4 @@
+name = "Animation Frames"
+description = "request_animation_frame demo"
+version = "0.1.0"
+permissions = []

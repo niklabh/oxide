@@ -64,9 +64,9 @@
 //!     canvas_clear(30, 30, 46, 255);
 //!     let (mx, my) = mouse_position();
 //!     canvas_circle(mx, my, 20.0, 255, 100, 100, 255);
-//!     if ui_button(1, 20.0, 20.0, 100.0, 30.0, "Click me!") {
+//!     ui_button(1, 20.0, 20.0, 100.0, 30.0, "Click me!", || {
 //!         log("Clicked!");
-//!     }
+//!     });
 //! }
 //! ```
 //!
@@ -242,6 +242,9 @@
 //!
 //! ## Storage
 //!
+//! Both stores are scoped to the app origin; session storage is cleared on
+//! cross-origin navigation, the KV store persists across restarts.
+//!
 //! | Function | Description |
 //! |----------|-------------|
 //! | [`oxide_sdk::storage_set`] | Store a key-value pair (session-scoped) |
@@ -284,7 +287,10 @@
 //!
 //! ## Media Capture
 //!
-//! The host shows permission dialogs before granting access to hardware.
+//! Gated by the browser's per-origin permission prompt: the first call
+//! returns [`oxide_sdk::PERMISSION_PENDING`] while the prompt is showing —
+//! retry on a later frame. Apps shipping a manifest must declare these
+//! capabilities in `permissions` or calls are denied without prompting.
 //!
 //! | Function | Description |
 //! |----------|-------------|
@@ -405,7 +411,7 @@
 //!
 //! | Function | Description |
 //! |----------|-------------|
-//! | [`oxide_sdk::ui_button`] | Clickable button, returns `true` when clicked |
+//! | [`oxide_sdk::ui_button`] | Clickable button, runs a callback when clicked |
 //! | [`oxide_sdk::ui_checkbox`] | Checkbox, returns current checked state |
 //! | [`oxide_sdk::ui_slider`] | Slider, returns current value |
 //! | [`oxide_sdk::ui_text_input`] | Text input field, returns current text |

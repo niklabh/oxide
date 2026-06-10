@@ -96,20 +96,22 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
     let countdown = unsafe { COUNTDOWN };
     let running = unsafe { COUNTDOWN_TIMER } != 0;
 
-    if ui_button(
+    ui_button(
         BTN_START_COUNTDOWN,
         20.0,
         95.0,
         140.0,
         30.0,
         "Start from 10",
-    ) && !running
-    {
-        unsafe {
-            COUNTDOWN = 10;
-            COUNTDOWN_TIMER = set_interval(CB_COUNTDOWN, 1000);
-        }
-    }
+        || {
+            if !running {
+                unsafe {
+                    COUNTDOWN = 10;
+                    COUNTDOWN_TIMER = set_interval(CB_COUNTDOWN, 1000);
+                }
+            }
+        },
+    );
 
     let (count_text, count_color) = if countdown > 3 {
         (format!("{countdown}"), GREEN)
@@ -149,10 +151,18 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         "DELAYED MESSAGE (set_timeout)",
     );
 
-    if ui_button(BTN_FIRE_DELAY, 20.0, 183.0, 180.0, 30.0, "Fire after 3 sec") {
-        unsafe { DELAYED_MSG = "Waiting..." };
-        set_timeout(CB_DELAYED_MSG, 3000);
-    }
+    ui_button(
+        BTN_FIRE_DELAY,
+        20.0,
+        183.0,
+        180.0,
+        30.0,
+        "Fire after 3 sec",
+        || {
+            unsafe { DELAYED_MSG = "Waiting..." };
+            set_timeout(CB_DELAYED_MSG, 3000);
+        },
+    );
 
     let msg = unsafe { DELAYED_MSG };
     if !msg.is_empty() {
@@ -183,8 +193,14 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
     } else {
         "Start Blink"
     };
-    if ui_button(BTN_TOGGLE_BLINK, 20.0, 268.0, 120.0, 30.0, label) {
-        unsafe {
+    ui_button(
+        BTN_TOGGLE_BLINK,
+        20.0,
+        268.0,
+        120.0,
+        30.0,
+        label,
+        || unsafe {
             if blinking {
                 clear_timer(BLINK_TIMER);
                 BLINK_TIMER = 0;
@@ -193,8 +209,8 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
                 BLINK_ON = true;
                 BLINK_TIMER = set_interval(CB_BLINK, 500);
             }
-        }
-    }
+        },
+    );
 
     let blink_on = unsafe { BLINK_ON };
     if blink_on {
@@ -234,20 +250,42 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
     let sw_running = unsafe { STOPWATCH_TIMER } != 0;
     let sw_ms = unsafe { STOPWATCH_MS };
 
-    if ui_button(BTN_STOPWATCH_START, 20.0, 353.0, 80.0, 30.0, "Start") && !sw_running {
-        unsafe {
-            STOPWATCH_TIMER = set_interval(CB_STOPWATCH, 100);
+    ui_button(
+        BTN_STOPWATCH_START,
+        20.0,
+        353.0,
+        80.0,
+        30.0,
+        "Start",
+        || {
+            if !sw_running {
+                unsafe {
+                    STOPWATCH_TIMER = set_interval(CB_STOPWATCH, 100);
+                }
+            }
+        },
+    );
+    ui_button(BTN_STOPWATCH_STOP, 110.0, 353.0, 80.0, 30.0, "Stop", || {
+        if sw_running {
+            unsafe {
+                clear_timer(STOPWATCH_TIMER);
+                STOPWATCH_TIMER = 0;
+            }
         }
-    }
-    if ui_button(BTN_STOPWATCH_STOP, 110.0, 353.0, 80.0, 30.0, "Stop") && sw_running {
-        unsafe {
-            clear_timer(STOPWATCH_TIMER);
-            STOPWATCH_TIMER = 0;
-        }
-    }
-    if ui_button(BTN_STOPWATCH_RESET, 200.0, 353.0, 80.0, 30.0, "Reset") && !sw_running {
-        unsafe { STOPWATCH_MS = 0 };
-    }
+    });
+    ui_button(
+        BTN_STOPWATCH_RESET,
+        200.0,
+        353.0,
+        80.0,
+        30.0,
+        "Reset",
+        || {
+            if !sw_running {
+                unsafe { STOPWATCH_MS = 0 };
+            }
+        },
+    );
 
     let secs = sw_ms / 1000;
     let tenths = (sw_ms % 1000) / 100;

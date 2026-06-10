@@ -148,12 +148,12 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
     canvas_clear(30, 30, 46, 255);
     canvas_text(20.0, 30.0, 24.0, 255, 255, 255, 255, "Counter App");
 
-    if ui_button(1, 20.0, 70.0, 120.0, 30.0, "Increment") {
+    ui_button(1, 20.0, 70.0, 120.0, 30.0, "Increment", || {
         unsafe { COUNTER += 1; }
-    }
-    if ui_button(2, 150.0, 70.0, 80.0, 30.0, "Reset") {
+    });
+    ui_button(2, 150.0, 70.0, 80.0, 30.0, "Reset", || {
         unsafe { COUNTER = 0; }
-    }
+    });
 
     let count = unsafe { COUNTER };
     canvas_text(20.0, 120.0, 18.0, 160, 220, 160, 255, &format!("Count: {count}"));
@@ -328,19 +328,19 @@ All input functions return per-frame data. Call them from `on_frame()`.
 
 ### Interactive Widgets
 
-Widgets are **immediate-mode**: call them every frame from `on_frame()`. They return the current value. The host renders them as native GPUI elements overlaid on the canvas.
+Widgets are **immediate-mode**: call them every frame from `on_frame()`. Value widgets return the current value; buttons run a callback when clicked. The host renders them as native GPUI elements overlaid on the canvas.
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
-| `ui_button` | `fn(id, x, y, w, h: f32, label: &str) -> bool` | Button; returns `true` when clicked |
+| `ui_button` | `fn(id, x, y, w, h: f32, label: &str, on_click: impl FnOnce())` | Button; runs the callback when clicked |
 | `ui_checkbox` | `fn(id, x, y: f32, label: &str, initial: bool) -> bool` | Checkbox; returns checked state |
 | `ui_slider` | `fn(id, x, y, w, min, max, initial: f32) -> f32` | Slider; returns current value |
 | `ui_text_input` | `fn(id, x, y, w: f32, initial: &str) -> String` | Text field; returns current text |
 
 ```rust
-if ui_button(1, 20.0, 100.0, 120.0, 28.0, "Click Me!") {
+ui_button(1, 20.0, 100.0, 120.0, 28.0, "Click Me!", || {
     log("Button was clicked!");
-}
+});
 
 let dark_mode = ui_checkbox(10, 20.0, 140.0, "Dark mode", false);
 let volume = ui_slider(20, 20.0, 180.0, 300.0, 0.0, 100.0, 50.0);
@@ -412,7 +412,11 @@ while let Some(field) = decoder.next() {
 
 ### Storage
 
-#### Session storage (in-memory, cleared on restart)
+Both stores are scoped to the **app origin** (scheme + host + port for `http(s)`, the containing directory for `file://`). The origin is captured once per module load, so `push_state` / `replace_state` never shift an app's storage.
+
+#### Session storage (in-memory)
+
+Survives same-origin reloads within a tab; cleared when the tab navigates to a different origin or the browser restarts (like `sessionStorage`).
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
@@ -420,7 +424,7 @@ while let Some(field) = decoder.next() {
 | `storage_get` | `fn(key: &str) -> String` | Retrieve (empty if missing) |
 | `storage_remove` | `fn(key: &str)` | Delete a key |
 
-#### Persistent KV store (on-disk, survives restarts)
+#### Persistent KV store (on-disk, survives restarts, per origin)
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
@@ -551,7 +555,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
 
 ### Media Capture
 
-Permission dialogs are shown by the host before granting access.
+Gated by the in-browser permission prompt (see [Permissions](#permissions)). The first call per origin returns `PERMISSION_PENDING` (`-5`) while the prompt is showing — retry on a later frame. If the app ships a [manifest](#app-manifests), the capability must be declared in `permissions` or the call returns `-1` without prompting.
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
@@ -568,11 +572,16 @@ Permission dialogs are shown by the host before granting access.
 | `media_pipeline_stats` | `fn() -> (u64, u32)` | Camera frames / mic depth |
 
 ```rust
-if camera_open() == 0 {
-    let mut buf = vec![0u8; 1920 * 1080 * 4];
-    let bytes = camera_capture_frame(&mut buf);
-    let (w, h) = camera_frame_dimensions();
-    log(&format!("Captured {}x{} frame ({} bytes)", w, h, bytes));
+// In on_frame: retry while the permission prompt is up.
+match camera_open() {
+    0 => {
+        let mut buf = vec![0u8; 1920 * 1080 * 4];
+        let bytes = camera_capture_frame(&mut buf);
+        let (w, h) = camera_frame_dimensions();
+        log(&format!("Captured {}x{} frame ({} bytes)", w, h, bytes));
+    }
+    PERMISSION_PENDING => { /* prompt showing — try again next frame */ }
+    code => log(&format!("camera_open failed: {code}")),
 }
 ```
 
@@ -951,7 +960,7 @@ register_hyperlink(20.0, 100.0, 200.0, 20.0, "https://example.com/app.wasm");
 |----------|-----------|-------------|
 | `notify` | `fn(title: &str, body: &str)` | Show a notification |
 | `upload_file` | `fn() -> Option<UploadedFile>` | Open native file picker |
-| `get_location` | `fn() -> String` | Mock geolocation as `"lat,lon"` |
+| `get_location` | `fn() -> Result<String, i32>` | Geolocation as `"lat,lon"` (mock); permission-gated — `Err(PERMISSION_PENDING)` while the prompt is showing, `Err(-1)` once blocked |
 | `load_module` | `fn(url: &str) -> i32` | Dynamically load another `.wasm` |
 | `url_resolve` | `fn(base: &str, rel: &str) -> Option<String>` | Resolve relative URL |
 | `url_encode` / `url_decode` | `fn(input: &str) -> String` | Percent-encoding |
@@ -982,6 +991,40 @@ register_hyperlink(20.0, 100.0, 200.0, 20.0, "https://example.com/app.wasm");
 - **File upload**: `upload_file()` opens a native OS file picker. The guest never gets filesystem access; the host passes the selected file's name and content bytes.
 - **HTTP fetch**: `fetch()` proxies through the host. The guest cannot open raw sockets.
 - **Dynamic loading**: `load_module()` fetches and runs a child `.wasm` with isolated memory and fuel, preventing sandbox escape.
+
+### Permissions
+
+Sensitive APIs — **camera**, **microphone**, **geolocation**, and **screen capture** — are gated behind an in-browser permission prompt (top-left, under the toolbar), similar to Chrome. The flow is non-blocking:
+
+1. The first call per origin (e.g. `camera_open()`) returns `PERMISSION_PENDING` (`-5`) and the prompt appears.
+2. The guest retries on a later frame.
+3. After the user clicks **Allow**, the call succeeds; after **Block**, it returns `-1`. Decisions are remembered per `(origin, capability)` for the lifetime of the tab.
+
+`get_location()` returns `Err(PERMISSION_PENDING)` while the prompt is pending and `Err(-1)` once blocked.
+
+---
+
+## App Manifests
+
+An app may ship an optional TOML manifest next to its `.wasm` file, at the same URL with the `.wasm` extension replaced by `.toml` (`https://host/app.wasm` → `https://host/app.toml`). Example:
+
+```toml
+name = "Media Capture"
+description = "Camera preview, microphone level meter, and screenshots"
+version = "0.1.0"
+permissions = ["camera", "microphone", "screen-capture"]
+```
+
+| Field | Required | Meaning |
+|-------|----------|---------|
+| `name` | yes | Shown as the tab title instead of the URL |
+| `description` | no | Short description of the app |
+| `version` | no | Informational version string |
+| `permissions` | no | Sensitive capabilities the app may request: `camera`, `microphone`, `geolocation`, `screen-capture` |
+
+When a manifest is present it acts as a **capability declaration**: sensitive APIs *not* listed in `permissions` are denied without a prompt. Apps without a manifest keep the legacy behavior (any sensitive API may prompt on first use).
+
+Each example crate ships a manifest named after its build artifact (e.g. `examples/media-capture/media_capture.toml`). When loading an example from `target/wasm32-unknown-unknown/release/`, copy the manifest next to the `.wasm` for it to be picked up; hosted deployments should upload both files side by side.
 
 ---
 
