@@ -328,19 +328,19 @@ All input functions return per-frame data. Call them from `on_frame()`.
 
 ### Interactive Widgets
 
-Widgets are **immediate-mode**: call them every frame from `on_frame()`. They return the current value. The host renders them as native GPUI elements overlaid on the canvas.
+Widgets are **immediate-mode**: call them every frame from `on_frame()`. Value widgets return the current value; buttons run a callback when clicked. The host renders them as native GPUI elements overlaid on the canvas.
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
-| `ui_button` | `fn(id, x, y, w, h: f32, label: &str) -> bool` | Button; returns `true` when clicked |
+| `ui_button` | `fn(id, x, y, w, h: f32, label: &str, on_click: impl FnOnce())` | Button; runs the callback when clicked |
 | `ui_checkbox` | `fn(id, x, y: f32, label: &str, initial: bool) -> bool` | Checkbox; returns checked state |
 | `ui_slider` | `fn(id, x, y, w, min, max, initial: f32) -> f32` | Slider; returns current value |
 | `ui_text_input` | `fn(id, x, y, w: f32, initial: &str) -> String` | Text field; returns current text |
 
 ```rust
-if ui_button(1, 20.0, 100.0, 120.0, 28.0, "Click Me!") {
+ui_button(1, 20.0, 100.0, 120.0, 28.0, "Click Me!", || {
     log("Button was clicked!");
-}
+});
 
 let dark_mode = ui_checkbox(10, 20.0, 140.0, "Dark mode", false);
 let volume = ui_slider(20, 20.0, 180.0, 300.0, 0.0, 100.0, 50.0);
@@ -960,7 +960,7 @@ register_hyperlink(20.0, 100.0, 200.0, 20.0, "https://example.com/app.wasm");
 |----------|-----------|-------------|
 | `notify` | `fn(title: &str, body: &str)` | Show a notification |
 | `upload_file` | `fn() -> Option<UploadedFile>` | Open native file picker |
-| `get_location` | `fn() -> String` | Geolocation as `"lat,lon"` (mock); permission-gated — empty while the prompt is pending or after a block |
+| `get_location` | `fn() -> Result<String, i32>` | Geolocation as `"lat,lon"` (mock); permission-gated — `Err(PERMISSION_PENDING)` while the prompt is showing, `Err(-1)` once blocked |
 | `load_module` | `fn(url: &str) -> i32` | Dynamically load another `.wasm` |
 | `url_resolve` | `fn(base: &str, rel: &str) -> Option<String>` | Resolve relative URL |
 | `url_encode` / `url_decode` | `fn(input: &str) -> String` | Percent-encoding |
@@ -1000,7 +1000,7 @@ Sensitive APIs — **camera**, **microphone**, **geolocation**, and **screen cap
 2. The guest retries on a later frame.
 3. After the user clicks **Allow**, the call succeeds; after **Block**, it returns `-1`. Decisions are remembered per `(origin, capability)` for the lifetime of the tab.
 
-`get_location()` returns an empty string while the prompt is pending or after a block.
+`get_location()` returns `Err(PERMISSION_PENDING)` while the prompt is pending and `Err(-1)` once blocked.
 
 ---
 

@@ -399,7 +399,7 @@ pub struct FolderEntry { pub name: String, pub size: u64, pub is_dir: bool,
 
 ## Geolocation
 
-- `get_location() -> String` — `"lat,lon"` (host-configurable mock).
+- `get_location() -> Result<String, i32>` — `"lat,lon"` (host-configurable mock); permission-gated: `Err(PERMISSION_PENDING)` while the prompt is showing (retry next frame), `Err(-1)` once blocked.
 
 ## Notifications
 

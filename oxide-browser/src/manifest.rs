@@ -72,13 +72,20 @@ pub fn manifest_allows(manifest: &SharedManifest, kind: PermissionKind) -> bool 
 
 /// Manifest URL for a `.wasm` module URL (`…/app.wasm` → `…/app.toml`).
 ///
-/// Returns `None` when the path doesn't end in `.wasm`.
+/// The query string is preserved so signed or versioned module URLs
+/// (`app.wasm?token=…`) keep working for the sibling manifest; the fragment is dropped
+/// (never sent to the server). Returns `None` when the path doesn't end in `.wasm`.
 pub fn manifest_url_for(wasm_url: &OxideUrl) -> Option<String> {
     let url = wasm_url.as_str();
-    let without_query = url.split(['?', '#']).next().unwrap_or(url);
-    without_query
-        .strip_suffix(".wasm")
-        .map(|base| format!("{base}.toml"))
+    let without_fragment = url.split('#').next().unwrap_or(url);
+    let (path, query) = match without_fragment.split_once('?') {
+        Some((path, query)) => (path, Some(query)),
+        None => (without_fragment, None),
+    };
+    path.strip_suffix(".wasm").map(|base| match query {
+        Some(query) => format!("{base}.toml?{query}"),
+        None => format!("{base}.toml"),
+    })
 }
 
 /// Sibling manifest path for a local `.wasm` file path.
@@ -131,7 +138,7 @@ pub async fn fetch_manifest(wasm_url: &OxideUrl) -> Result<Option<AppManifest>, 
         .build()
         .map_err(|e| format!("failed to build HTTP client: {e}"))?;
 
-    let response = match client.get(&url).send().await {
+    let mut response = match client.get(&url).send().await {
         Ok(r) => r,
         // Network failure fetching an *optional* file: treat as absent.
         Err(_) => return Ok(None),
@@ -139,18 +146,32 @@ pub async fn fetch_manifest(wasm_url: &OxideUrl) -> Result<Option<AppManifest>, 
     if !response.status().is_success() {
         return Ok(None);
     }
-    let bytes = response
-        .bytes()
-        .await
-        .map_err(|e| format!("failed to read manifest body: {e}"))?;
-    if bytes.len() > MAX_MANIFEST_SIZE {
+    // Enforce the size cap *while* downloading: reject a too-large Content-Length up
+    // front, then stream chunks with a running byte budget so a missing or lying header
+    // can't make the host buffer an arbitrarily large body.
+    if response
+        .content_length()
+        .is_some_and(|len| usize::try_from(len).map_or(true, |len| len > MAX_MANIFEST_SIZE))
+    {
         return Err(format!(
-            "manifest too large ({} bytes, limit {MAX_MANIFEST_SIZE})",
-            bytes.len()
+            "manifest too large (Content-Length exceeds limit {MAX_MANIFEST_SIZE})"
         ));
     }
-    let text = String::from_utf8(bytes.to_vec())
-        .map_err(|_| format!("manifest at {url} is not valid UTF-8"))?;
+    let mut bytes = Vec::new();
+    loop {
+        match response.chunk().await {
+            Ok(Some(chunk)) => {
+                if bytes.len() + chunk.len() > MAX_MANIFEST_SIZE {
+                    return Err(format!("manifest too large (limit {MAX_MANIFEST_SIZE})"));
+                }
+                bytes.extend_from_slice(&chunk);
+            }
+            Ok(None) => break,
+            Err(e) => return Err(format!("failed to read manifest body: {e}")),
+        }
+    }
+    let text =
+        String::from_utf8(bytes).map_err(|_| format!("manifest at {url} is not valid UTF-8"))?;
     AppManifest::parse(&text)
         .map(Some)
         .map_err(|e| format!("invalid manifest at {url}: {e}"))
@@ -196,13 +217,22 @@ permissions = ["camera", "geolocation"]
 
     #[test]
     fn manifest_url_swaps_extension() {
-        let url = OxideUrl::parse("https://example.com/apps/demo.wasm?v=2").unwrap();
+        let url = OxideUrl::parse("https://example.com/apps/demo.wasm").unwrap();
         assert_eq!(
             manifest_url_for(&url).as_deref(),
             Some("https://example.com/apps/demo.toml")
         );
         let not_wasm = OxideUrl::parse("https://example.com/apps/demo").unwrap();
         assert_eq!(manifest_url_for(&not_wasm), None);
+    }
+
+    #[test]
+    fn manifest_url_preserves_query() {
+        let url = OxideUrl::parse("https://example.com/apps/demo.wasm?token=abc&v=2").unwrap();
+        assert_eq!(
+            manifest_url_for(&url).as_deref(),
+            Some("https://example.com/apps/demo.toml?token=abc&v=2")
+        );
     }
 
     #[test]

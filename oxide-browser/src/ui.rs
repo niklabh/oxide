@@ -78,6 +78,8 @@ enum RunRequest {
     },
     LoadLocal {
         bytes: Vec<u8>,
+        /// Source URL the module's origin/storage/permissions are scoped to.
+        url: String,
         manifest: Option<crate::manifest::AppManifest>,
     },
 }
@@ -225,10 +227,11 @@ impl TabState {
                 let mut host = crate::runtime::BrowserHost::recreate(hs.clone(), st.clone());
                 let result = match request {
                     RunRequest::FetchAndRun { url } => rt.block_on(host.fetch_and_run(&url)),
-                    RunRequest::LoadLocal { bytes, manifest } => {
-                        *host.host_state.manifest.lock().unwrap() = manifest;
-                        host.run_bytes(&bytes)
-                    }
+                    RunRequest::LoadLocal {
+                        bytes,
+                        url,
+                        manifest,
+                    } => host.run_bytes(&bytes, &url, manifest),
                 };
                 let (error, live_module) = match result {
                     Ok(live) => (None, live),
@@ -280,10 +283,15 @@ impl TabState {
             PageStatus::Idle => "New Tab".to_string(),
             PageStatus::Loading(_) => "Loading\u{2026}".to_string(),
             PageStatus::Running(ref url) => {
-                // Prefer the app's manifest name over a URL-derived title.
-                if let Some(m) = self.host_state.manifest.lock().unwrap().as_ref() {
-                    if !m.name.trim().is_empty() {
-                        return m.name.clone();
+                // Prefer the app's manifest name over a URL-derived title — but not on
+                // internal oxide:// pages, which would otherwise keep showing the name of
+                // a previously loaded app (the manifest isn't cleared when switching to
+                // an internal page).
+                if self.internal_page.is_none() {
+                    if let Some(m) = self.host_state.manifest.lock().unwrap().as_ref() {
+                        if !m.name.trim().is_empty() {
+                            return m.name.clone();
+                        }
                     }
                 }
                 url_to_title(url)
@@ -1427,15 +1435,17 @@ impl OxideBrowserView {
                 .map(|s| s.slug)
                 .unwrap_or_else(|| format!("session-{id}"))
         };
+        let run_url = format!("oxide://forge/run/{slug}");
         let new_idx = self.create_tab();
         self.active_tab = new_idx;
         let tab = &mut self.tabs[new_idx];
-        tab.url_input = format!("oxide://forge/run/{slug}");
+        tab.url_input = run_url.clone();
         tab.url_cursor = tab.url_input.len();
         tab.url_sel_start = tab.url_input.len();
         tab.internal_page = None;
         let _ = tab.run_tx.send(RunRequest::LoadLocal {
             bytes,
+            url: run_url,
             manifest: None,
         });
     }
@@ -1461,10 +1471,13 @@ impl OxideBrowserView {
                 let file_url = format!("file://{}", path.display());
                 let tab = &mut self.tabs[self.active_tab];
                 tab.url_input = file_url.clone();
-                *tab.host_state.current_url.lock().unwrap() = file_url.clone();
-                tab.pending_history_url = Some(file_url);
+                tab.pending_history_url = Some(file_url.clone());
                 tab.internal_page = None;
-                let _ = tab.run_tx.send(RunRequest::LoadLocal { bytes, manifest });
+                let _ = tab.run_tx.send(RunRequest::LoadLocal {
+                    bytes,
+                    url: file_url,
+                    manifest,
+                });
                 cx.notify();
             }
             Ok(FilePickDone::Directory(path)) => {
@@ -1659,6 +1672,27 @@ impl Render for OxideBrowserView {
                         input.modifiers_ctrl =
                             event.keystroke.modifiers.control || event.keystroke.modifiers.platform;
                         input.modifiers_alt = event.keystroke.modifiers.alt;
+                    }
+                    // Keyboard path for the permission prompt (mouse-free resolution):
+                    // Enter = Allow, Escape = Block. Swallowed so the guest never sees them.
+                    if !this.url_focus.is_focused(window) {
+                        let perms = this.tabs[this.active_tab].host_state.permissions.clone();
+                        let pending = perms.lock().unwrap().pending.is_some();
+                        if pending && !event.keystroke.modifiers.modified() {
+                            match event.keystroke.key.as_str() {
+                                "enter" => {
+                                    crate::permissions::resolve_pending(&perms, true);
+                                    cx.notify();
+                                    return;
+                                }
+                                "escape" => {
+                                    crate::permissions::resolve_pending(&perms, false);
+                                    cx.notify();
+                                    return;
+                                }
+                                _ => {}
+                            }
+                        }
                     }
                     if event.keystroke.modifiers.secondary() && event.keystroke.key == "r" {
                         this.tabs[this.active_tab].reload();
@@ -4632,6 +4666,12 @@ impl Render for OxideBrowserView {
                                             cx.notify();
                                         })),
                                 ),
+                        )
+                        .child(
+                            div()
+                                .text_xs()
+                                .text_color(gpui::rgb(0x70707a))
+                                .child("Enter to allow \u{00b7} Esc to block"),
                         ),
                 );
             }

@@ -745,13 +745,16 @@ impl Default for HostState {
 /// Captures the stable origin for a newly loaded module from its URL.
 ///
 /// Called by the runtime once per load, before `start_app`. When the new origin differs from
-/// the previous one, session storage is cleared so apps from different origins never see each
-/// other's `api_storage_*` data (like `sessionStorage` across origins in a shared tab).
+/// the previous one, per-origin tab state is dropped: session storage is cleared (like
+/// `sessionStorage` across origins in a shared tab) and live media-capture streams are
+/// stopped so the new origin can't read camera frames or microphone samples opened under a
+/// grant given to the previous origin.
 pub fn set_module_origin(state: &HostState, url: &str) {
     let new_origin = crate::url::app_origin_of(url);
     let mut origin = state.module_origin.lock().unwrap();
     if *origin != new_origin {
         state.storage.lock().unwrap().clear();
+        state.media_capture.lock().unwrap().reset();
         *origin = new_origin;
     }
 }
@@ -1362,12 +1365,14 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
     linker.func_wrap(
         "oxide",
         "api_get_location",
-        |mut caller: Caller<'_, HostState>, out_ptr: u32, out_cap: u32| -> u32 {
+        // Returns bytes written (>= 0), `-1` when blocked (by the user or an undeclared
+        // manifest permission), or `PERMISSION_PENDING` while the prompt awaits a decision.
+        |mut caller: Caller<'_, HostState>, out_ptr: u32, out_cap: u32| -> i32 {
             if !crate::manifest::manifest_allows(
                 &caller.data().manifest,
                 crate::permissions::PermissionKind::Geolocation,
             ) {
-                return 0; // not declared in the app manifest — denied without a prompt
+                return -1; // not declared in the app manifest — denied without a prompt
             }
             let origin = caller.data().module_origin.lock().unwrap().clone();
             match crate::permissions::check_or_request(
@@ -1376,16 +1381,18 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
                 crate::permissions::PermissionKind::Geolocation,
             ) {
                 crate::permissions::PermissionStatus::Granted => {}
-                // Denied, or the prompt is still showing — write nothing.
-                // Guests may retry on a later frame while the prompt is up.
-                _ => return 0,
+                crate::permissions::PermissionStatus::Denied => return -1,
+                // Prompt still showing — the guest should retry on a later frame.
+                crate::permissions::PermissionStatus::Pending => {
+                    return crate::permissions::PERMISSION_PENDING
+                }
             }
             let location = "37.7749,-122.4194"; // mock: San Francisco
             let bytes = location.as_bytes();
             let write_len = bytes.len().min(out_cap as usize);
             let mem = caller.data().memory.expect("memory not set");
             write_guest_bytes(&mem, &mut caller, out_ptr, &bytes[..write_len]).ok();
-            write_len as u32
+            write_len as i32
         },
     )?;
 

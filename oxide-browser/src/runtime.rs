@@ -273,13 +273,30 @@ impl BrowserHost {
     /// Compiles and runs `wasm_bytes` like [`fetch_and_run`](Self::fetch_and_run), but without a
     /// network fetch—useful for in-memory or locally read modules.
     ///
-    /// Sets [`PageStatus::Running`] with a `"(local)"` label. Returns `Some` with a [`LiveModule`]
-    /// when `on_frame` is exported, otherwise [`None`].
-    pub fn run_bytes(&mut self, wasm_bytes: &[u8]) -> Result<Option<LiveModule>> {
+    /// `source_url` and `manifest` are set on the shared [`HostState`] before the module runs,
+    /// so a reused `BrowserHost` never scopes storage or permissions to the *previous* app's
+    /// origin/manifest. Pass a `file://` URL for picked files or a synthetic identifier (e.g.
+    /// `oxide://forge/run/<slug>`) for in-memory modules.
+    ///
+    /// Sets [`PageStatus::Running`] with `source_url` (or `"(local)"` when empty). Returns
+    /// `Some` with a [`LiveModule`] when `on_frame` is exported, otherwise [`None`].
+    pub fn run_bytes(
+        &mut self,
+        wasm_bytes: &[u8],
+        source_url: &str,
+        manifest: Option<crate::manifest::AppManifest>,
+    ) -> Result<Option<LiveModule>> {
         self.host_state.canvas.lock().unwrap().commands.clear();
         self.host_state.console.lock().unwrap().clear();
         self.host_state.hyperlinks.lock().unwrap().clear();
-        *self.status.lock().unwrap() = PageStatus::Running("(local)".to_string());
+        *self.host_state.current_url.lock().unwrap() = source_url.to_string();
+        *self.host_state.manifest.lock().unwrap() = manifest;
+        let label = if source_url.is_empty() {
+            "(local)".to_string()
+        } else {
+            source_url.to_string()
+        };
+        *self.status.lock().unwrap() = PageStatus::Running(label);
         self.run_module(wasm_bytes)
     }
 

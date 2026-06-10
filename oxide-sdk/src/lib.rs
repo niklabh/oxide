@@ -145,7 +145,7 @@ extern "C" {
     fn _api_error(ptr: u32, len: u32);
 
     #[link_name = "api_get_location"]
-    fn _api_get_location(out_ptr: u32, out_cap: u32) -> u32;
+    fn _api_get_location(out_ptr: u32, out_cap: u32) -> i32;
 
     #[link_name = "api_upload_file"]
     fn _api_upload_file(name_ptr: u32, name_cap: u32, data_ptr: u32, data_cap: u32) -> u64;
@@ -1036,14 +1036,18 @@ pub fn error(msg: &str) {
 
 // ─── Geolocation API ────────────────────────────────────────────────────────
 
-/// Get the device's mock geolocation as a `"lat,lon"` string.
+/// Get the device's geolocation as a `"lat,lon"` string (currently a mock location).
 ///
-/// Gated by an in-browser permission prompt on first use per origin. Returns an empty string
-/// while the prompt is showing (retry on a later frame) or when the user blocked access.
-pub fn get_location() -> String {
+/// Gated by an in-browser permission prompt on first use per origin. Errors:
+/// [`PERMISSION_PENDING`] while the prompt is showing (retry on a later frame), `-1` once
+/// blocked — by the user or by an app manifest that doesn't declare `geolocation`.
+pub fn get_location() -> Result<String, i32> {
     let mut buf = [0u8; 128];
     let len = unsafe { _api_get_location(buf.as_mut_ptr() as u32, buf.len() as u32) };
-    String::from_utf8_lossy(&buf[..len as usize]).to_string()
+    if len < 0 {
+        return Err(len);
+    }
+    Ok(String::from_utf8_lossy(&buf[..len as usize]).to_string())
 }
 
 // ─── File Upload API ────────────────────────────────────────────────────────

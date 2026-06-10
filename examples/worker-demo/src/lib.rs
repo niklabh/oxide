@@ -95,6 +95,11 @@ pub extern "C" fn on_frame(dt_ms: u32) {
         32.0,
         "Run in background worker",
         || {
+            // Ignore clicks while a worker is already computing, so a running
+            // worker is never orphaned by overwriting its handle.
+            if s.phase == 1 {
+                return;
+            }
             s.phase = 1;
             s.result = 0;
             let base = get_url();

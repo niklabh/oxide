@@ -35,6 +35,19 @@ pub struct MediaCaptureState {
     screen_captures: u64,
 }
 
+impl MediaCaptureState {
+    /// Stops any live camera/microphone streams and resets all counters.
+    ///
+    /// Called when the tab navigates to a different origin so a new app can never
+    /// read frames or samples from devices the previous origin opened.
+    pub fn reset(&mut self) {
+        if let Some(mut cam) = self.camera.take() {
+            let _ = cam.stop_stream();
+        }
+        *self = Self::default();
+    }
+}
+
 struct MicrophoneInput {
     #[allow(dead_code)]
     stream: cpal::Stream,
