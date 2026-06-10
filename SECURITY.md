@@ -27,6 +27,8 @@ The following areas are in scope for security reports:
 
 - **WASM sandbox escapes** — Guest modules bypassing capability-based restrictions
 - **Host API abuse** — Exploiting granted capabilities beyond their intended scope
+- **Permission bypasses** — Accessing camera, microphone, geolocation, or screen capture without a user grant, or circumventing manifest capability declarations
+- **Cross-origin data leaks** — One app reading another origin's session or persistent storage, or inheriting its permission grants
 - **Memory safety issues** — Bugs in the `wasmtime` integration, fuel metering, or memory limits
 - **Network security** — Issues with `.wasm` binary fetching, URL handling, or origin validation
 - **Clipboard / file-picker misuse** — Unintended data exfiltration through host peripherals
@@ -48,6 +50,9 @@ Oxide's security model is built on several layers:
 
 1. **WebAssembly sandboxing** — Guest modules execute in an isolated WASM runtime with no implicit access to the host.
 2. **Capability-based permissions** — Host APIs (network, clipboard, etc.) are only available when explicitly granted.
-3. **Fuel metering** — Execution is bounded to prevent runaway computation.
-4. **Memory limits** — Guest memory is capped to prevent resource exhaustion.
-5. **No filesystem or environment access** — Guest modules cannot read or write the host filesystem or environment variables.
+3. **User permission prompts** — Sensitive capabilities (camera, microphone, geolocation, screen capture) require an explicit in-browser Allow per origin; decisions are remembered per `(origin, capability)`.
+4. **Manifest capability declarations** — Apps shipping a manifest must declare the sensitive capabilities they may request; undeclared APIs are denied without prompting.
+5. **Origin-scoped storage** — Session and persistent key-value storage are isolated per app origin; session storage is cleared on cross-origin navigation.
+6. **Fuel metering** — Execution is bounded to prevent runaway computation.
+7. **Memory limits** — Guest memory is capped to prevent resource exhaustion.
+8. **No filesystem or environment access** — Guest modules cannot read or write the host filesystem or environment variables.

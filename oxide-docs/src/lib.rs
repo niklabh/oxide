@@ -242,6 +242,9 @@
 //!
 //! ## Storage
 //!
+//! Both stores are scoped to the app origin; session storage is cleared on
+//! cross-origin navigation, the KV store persists across restarts.
+//!
 //! | Function | Description |
 //! |----------|-------------|
 //! | [`oxide_sdk::storage_set`] | Store a key-value pair (session-scoped) |
@@ -284,7 +287,10 @@
 //!
 //! ## Media Capture
 //!
-//! The host shows permission dialogs before granting access to hardware.
+//! Gated by the browser's per-origin permission prompt: the first call
+//! returns [`oxide_sdk::PERMISSION_PENDING`] while the prompt is showing —
+//! retry on a later frame. Apps shipping a manifest must declare these
+//! capabilities in `permissions` or calls are denied without prompting.
 //!
 //! | Function | Description |
 //! |----------|-------------|

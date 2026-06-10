@@ -6,7 +6,7 @@
 [![docs.rs](https://img.shields.io/docsrs/oxide-sdk?style=flat-square)](https://docs.rs/oxide-sdk)
 [![CI](https://img.shields.io/github/actions/workflow/status/niklabh/oxide/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/niklabh/oxide/actions/workflows/ci.yml)
 
-Oxide is a **binary-first browser**: it fetches and runs `.wasm` (WebAssembly) modules instead of HTML, CSS, and JavaScript. Guest apps are Rust libraries compiled to `wasm32-unknown-unknown`, linked against [`oxide-sdk`](https://crates.io/crates/oxide-sdk), and executed in a **capability-based sandbox** — no filesystem, no environment variables, no raw sockets. Every interaction with the host (canvas, HTTP, audio, WebRTC, GPU, …) goes through explicit, opt-in host APIs registered in a wasmtime linker.
+Oxide is a **binary-first browser**: it fetches and runs `.wasm` (WebAssembly) modules instead of HTML, CSS, and JavaScript. Guest apps are Rust libraries compiled to `wasm32-unknown-unknown`, linked against [`oxide-sdk`](https://crates.io/crates/oxide-sdk), and executed in a **capability-based sandbox** — no filesystem, no environment variables, no raw sockets. Every interaction with the host (canvas, HTTP, audio, WebRTC, GPU, …) goes through explicit, opt-in host APIs registered in a wasmtime linker. Sensitive capabilities — camera, microphone, location, screen capture — additionally sit behind **per-origin permission prompts**, and apps can declare what they need up front in an optional **app manifest**.
 
 The desktop shell is built on [GPUI](https://www.gpui.rs/) (Zed's GPU-accelerated UI framework). Guest draw commands map directly onto GPUI primitives, so canvas output gets full hardware acceleration without a DOM or layout engine.
 
@@ -125,6 +125,19 @@ cargo build --target wasm32-unknown-unknown --release
 
 For a higher-level drawing API, use `oxide_sdk::draw` (`Canvas`, `Color`, `Rect`, `Point2D`). Full API tables, WebSocket/WebRTC patterns, and protobuf fetch are in **[DOCS.md](./DOCS.md)**.
 
+### Optional app manifest
+
+Ship a TOML manifest next to your `.wasm` (same URL with `.wasm` → `.toml`, e.g. `my_app.wasm` + `my_app.toml`) to give your app a name and declare the sensitive capabilities it may request:
+
+```toml
+name = "My App"
+description = "What it does"
+version = "0.1.0"
+permissions = ["camera", "microphone"]   # also: geolocation, screen-capture
+```
+
+The `name` becomes the tab title. With a manifest present, sensitive APIs **not** listed in `permissions` are denied without prompting; declared ones show a Chrome-style permission prompt on first use per origin. Apps without a manifest may prompt for any sensitive API. See [DOCS.md → App Manifests](./DOCS.md#app-manifests).
+
 ### Guest contract (checklist)
 
 | Requirement | Detail |
@@ -147,7 +160,7 @@ For a higher-level drawing API, use `oxide_sdk::draw` (`Canvas`, `Color`, `Rect`
 | **`oxide://`** | Built-in pages (home, history, forge, …) — no guest module |
 | **Child module** | Guest calls `load_module(url)` for an isolated sub-sandbox |
 
-Pipeline: **fetch bytes → compile (wasmtime) → link host functions → instantiate → `start_app()` → `on_frame` loop**. Load runs on a background thread; the GPUI shell talks to the runtime over channels.
+Pipeline: **fetch bytes (+ optional sibling manifest) → compile (wasmtime) → link host functions → instantiate → `start_app()` → `on_frame` loop**. Load runs on a background thread; the GPUI shell talks to the runtime over channels.
 
 ## Example apps
 
@@ -246,7 +259,7 @@ oxide/
  └───────────────┘     └──────────────┘     └──────────────────┘
 ```
 
-1. **Fetch** — download `.wasm` via HTTP or read a local file (max 50 MB).
+1. **Fetch** — download `.wasm` via HTTP or read a local file (max 50 MB); an optional sibling `.toml` manifest is loaded alongside.
 2. **Compile** — `WasmEngine` + `SandboxPolicy` (fuel and memory bounds).
 3. **Link** — register all `oxide::*` imports; bounded linear memory (4096 pages / 256 MB max).
 4. **Instantiate** — `HostState` holds canvas commands, console, input, storage, widgets.
@@ -264,7 +277,7 @@ Guest modules start with **zero capabilities**. All host access is under the `"o
 | **UI widgets** | `button`, `checkbox`, `slider`, `text_input` (immediate-mode) |
 | **Console** | `log`, `warn`, `error` |
 | **Input** | mouse position/buttons, keys, scroll delta, modifiers |
-| **Storage** | session `storage_*`, persistent `kv_store_*` (sled-backed, per-origin) |
+| **Storage** | session `storage_*`, persistent `kv_store_*` (sled-backed) — both scoped to the app origin |
 | **File I/O** | `file_pick`, `folder_pick`, `folder_entries`, `file_read`, `file_read_range` |
 | **Events** | `on_event`, `off_event`, `emit_event` |
 | **Download / PDF** | `download_data`, `download_url`, `canvas_print_pdf` |
@@ -272,7 +285,7 @@ Guest modules start with **zero capabilities**. All host access is under the `"o
 | **WebSocket** | connect, send/recv text/binary, ready state, close |
 | **WebRTC** | peer connection, SDP, ICE, data channels, media tracks |
 | **Audio / video** | playback, seek, HLS, subtitles; FFmpeg-backed decode |
-| **Media capture** | camera, microphone, screen |
+| **Media capture** | camera, microphone, screen — gated by per-origin permission prompts |
 | **MIDI** | device enumeration, open, send, recv |
 | **Timers** | `set_timeout`, `set_interval`, `request_animation_frame` |
 | **Navigation** | `navigate`, history, `get_url`, hyperlinks on canvas |
@@ -303,8 +316,12 @@ The guest decides layout, styling, and hit targets explicitly.
 | Network sockets | **None** | All HTTP/WebSocket/WebRTC mediated by host |
 | Memory ceiling | 256 MB (4096 pages) | Prevents memory exhaustion |
 | Fuel budget | 500M instructions/call | Prevents infinite loops and DoS |
+| Sensitive APIs | **User permission required** | Camera, mic, location, screen capture prompt per origin |
+| Storage | **Origin-scoped** | Session + persistent KV isolated per app origin |
 
 Security is **additive**: nothing is granted by default. File access uses a native picker; HTTP uses host `reqwest`; child modules get separate memory and fuel. **No WASI** is linked.
+
+On top of the sandbox, sensitive capabilities use a Chrome-style **permission prompt** (top-left, Allow/Block, remembered per origin and capability), and an app's [manifest](#optional-app-manifest) acts as a capability declaration — undeclared sensitive APIs are denied without prompting.
 
 ## Core stack
 

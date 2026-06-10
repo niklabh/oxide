@@ -412,7 +412,11 @@ while let Some(field) = decoder.next() {
 
 ### Storage
 
-#### Session storage (in-memory, cleared on restart)
+Both stores are scoped to the **app origin** (scheme + host + port for `http(s)`, the containing directory for `file://`). The origin is captured once per module load, so `push_state` / `replace_state` never shift an app's storage.
+
+#### Session storage (in-memory)
+
+Survives same-origin reloads within a tab; cleared when the tab navigates to a different origin or the browser restarts (like `sessionStorage`).
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
@@ -420,7 +424,7 @@ while let Some(field) = decoder.next() {
 | `storage_get` | `fn(key: &str) -> String` | Retrieve (empty if missing) |
 | `storage_remove` | `fn(key: &str)` | Delete a key |
 
-#### Persistent KV store (on-disk, survives restarts)
+#### Persistent KV store (on-disk, survives restarts, per origin)
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
@@ -551,7 +555,7 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
 
 ### Media Capture
 
-Permission dialogs are shown by the host before granting access.
+Gated by the in-browser permission prompt (see [Permissions](#permissions)). The first call per origin returns `PERMISSION_PENDING` (`-5`) while the prompt is showing — retry on a later frame. If the app ships a [manifest](#app-manifests), the capability must be declared in `permissions` or the call returns `-1` without prompting.
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
@@ -568,11 +572,16 @@ Permission dialogs are shown by the host before granting access.
 | `media_pipeline_stats` | `fn() -> (u64, u32)` | Camera frames / mic depth |
 
 ```rust
-if camera_open() == 0 {
-    let mut buf = vec![0u8; 1920 * 1080 * 4];
-    let bytes = camera_capture_frame(&mut buf);
-    let (w, h) = camera_frame_dimensions();
-    log(&format!("Captured {}x{} frame ({} bytes)", w, h, bytes));
+// In on_frame: retry while the permission prompt is up.
+match camera_open() {
+    0 => {
+        let mut buf = vec![0u8; 1920 * 1080 * 4];
+        let bytes = camera_capture_frame(&mut buf);
+        let (w, h) = camera_frame_dimensions();
+        log(&format!("Captured {}x{} frame ({} bytes)", w, h, bytes));
+    }
+    PERMISSION_PENDING => { /* prompt showing — try again next frame */ }
+    code => log(&format!("camera_open failed: {code}")),
 }
 ```
 
@@ -951,7 +960,7 @@ register_hyperlink(20.0, 100.0, 200.0, 20.0, "https://example.com/app.wasm");
 |----------|-----------|-------------|
 | `notify` | `fn(title: &str, body: &str)` | Show a notification |
 | `upload_file` | `fn() -> Option<UploadedFile>` | Open native file picker |
-| `get_location` | `fn() -> String` | Mock geolocation as `"lat,lon"` |
+| `get_location` | `fn() -> String` | Geolocation as `"lat,lon"` (mock); permission-gated — empty while the prompt is pending or after a block |
 | `load_module` | `fn(url: &str) -> i32` | Dynamically load another `.wasm` |
 | `url_resolve` | `fn(base: &str, rel: &str) -> Option<String>` | Resolve relative URL |
 | `url_encode` / `url_decode` | `fn(input: &str) -> String` | Percent-encoding |
