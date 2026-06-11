@@ -1203,6 +1203,8 @@ pub struct OxideBrowserView {
     scroll_drag_start_y: f32,
     /// The absolute scroll Y offset when the scrollbar drag started.
     scroll_drag_start_scroll_y: f32,
+    /// Active slider drag: (widget id, slider x, slider width, min, max).
+    slider_drag: Option<(u32, f32, f32, f32, f32)>,
 }
 
 impl OxideBrowserView {
@@ -1238,6 +1240,7 @@ impl OxideBrowserView {
             scroll_dragging: false,
             scroll_drag_start_y: 0.0,
             scroll_drag_start_scroll_y: 0.0,
+            slider_drag: None,
         }
     }
 
@@ -3878,6 +3881,21 @@ impl Render for OxideBrowserView {
                             cx.notify();
                         }
 
+                        if let Some((id, sx, sw, min, max)) = this.slider_drag {
+                            let tab = &mut this.tabs[this.active_tab];
+                            let (ox, _) = *tab.host_state.canvas_offset.lock().unwrap();
+                            let lx = f32::from(event.position.x) - ox;
+                            let frac = ((lx - sx) / sw).clamp(0.0, 1.0);
+                            let v = min + frac * (max - min);
+                            tab.host_state
+                                .widget_states
+                                .lock()
+                                .unwrap()
+                                .insert(id, WidgetValue::Float(v));
+                            cx.notify();
+                        }
+
+                        let tab = &mut this.tabs[this.active_tab];
                         let (ox, oy) = *tab.host_state.canvas_offset.lock().unwrap();
                         let lx = f32::from(event.position.x) - ox;
                         let ly = f32::from(event.position.y) - oy;
@@ -3910,6 +3928,7 @@ impl Render for OxideBrowserView {
                     MouseButton::Left,
                     cx.listener(|this, _: &MouseUpEvent, _, _cx| {
                         this.scroll_dragging = false;
+                        this.slider_drag = None;
                         let tab = &mut this.tabs[this.active_tab];
                         let mut input = tab.host_state.input_state.lock().unwrap();
                         input.mouse_buttons_down[0] = false;
@@ -5419,11 +5438,13 @@ fn render_slider(
         .h(px(28.0))
         .flex()
         .items_center()
-        .on_click(cx.listener(move |this, event: &ClickEvent, _, cx| {
-            if let Some(pos) = event.mouse_position() {
+        .on_mouse_down(
+            MouseButton::Left,
+            cx.listener(move |this, event: &MouseDownEvent, _, cx| {
+                this.slider_drag = Some((id, x, w, min, max));
                 let tab = &mut this.tabs[this.active_tab];
                 let (ox, _) = *tab.host_state.canvas_offset.lock().unwrap();
-                let lx = f32::from(pos.x) - ox;
+                let lx = f32::from(event.position.x) - ox;
                 let frac = ((lx - x) / w).clamp(0.0, 1.0);
                 let v = min + frac * (max - min);
                 tab.host_state
@@ -5432,8 +5453,8 @@ fn render_slider(
                     .unwrap()
                     .insert(id, WidgetValue::Float(v));
                 cx.notify();
-            }
-        }))
+            }),
+        )
         .child(
             div()
                 .absolute()
