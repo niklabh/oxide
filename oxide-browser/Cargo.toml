@@ -31,7 +31,7 @@ url = "2"
 percent-encoding = "2"
 getrandom = "0.2"
 rodio = "0.22.2"
-ffmpeg-next = "8.1.0"
+ffmpeg-next = "9.0.0"
 tempfile = "3"
 nokhwa = { version = "0.10.10", features = ["input-native", "camera-sync-impl"] }
 cpal = "0.17.3"
