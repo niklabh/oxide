@@ -32,15 +32,13 @@ pub(crate) fn draw_rect_outline(
     blue: u8,
     thickness: f32,
 ) {
-    // Semi-transparent fill for the rectangle interior.
     canvas_rect(left, top, right - left, bottom - top, red, green, blue, 60);
-    // Draw the 4 edges as thick lines connecting consecutive corners.
     for window in [
         (left, top),
         (right, top),
         (right, bottom),
         (left, bottom),
-        (left, top), // Closes the rectangle by returning to the start.
+        (left, top),
     ]
     .windows(2)
     {
@@ -79,7 +77,6 @@ pub(crate) fn render_stroke_tube(points: &[Point], color: Color, thickness: f32)
     let (red, green, blue) = color;
     let joint_radius = thickness * 0.5;
     if points.len() == 1 {
-        // Single point — render as a dot (filled circle).
         canvas_circle(
             points[0].0,
             points[0].1,
@@ -91,7 +88,6 @@ pub(crate) fn render_stroke_tube(points: &[Point], color: Color, thickness: f32)
         );
         return;
     }
-    // Draw thick line segments between consecutive points.
     for segment in points.windows(2) {
         canvas_line(
             segment[0].0,
@@ -105,7 +101,6 @@ pub(crate) fn render_stroke_tube(points: &[Point], color: Color, thickness: f32)
             thickness,
         );
     }
-    // Draw filled circles at each joint to fill gaps at corners.
     for &point in points {
         canvas_circle(point.0, point.1, joint_radius, red, green, blue, 255);
     }

@@ -45,9 +45,7 @@ pub(crate) enum Session {
 }
 
 impl Session {
-    /// Begin a new drawing session at the given position. The first point is
-    /// immediately added to the point list. The initial `average_step_distance`
-    /// of 4.0 provides a reasonable starting threshold for the adaptive sampler.
+    /// Begin a new drawing session at the given position.
     pub(crate) fn begin(tool: DrawTool, color: Color, thickness: f32, start: Point) -> Self {
         Self::Drawing {
             tool,
@@ -83,26 +81,19 @@ impl Session {
             let distance = points
                 .last()
                 .map_or(f32::INFINITY, |&last| dist(point, last));
-            // Exponential moving average update: blends old average with new sample.
             *average_step_distance = *average_step_distance * 0.7 + distance * 0.3;
-            // Accept only if the point moves meaningfully relative to recent speed.
             if distance >= (*average_step_distance * 0.8).clamp(2.0, 10.0) {
                 points.push(point);
             }
         }
     }
 
-    /// Finish the current stroke and produce a committed Shape. Consumes the session
-    /// (moves it out of `App::session` via `mem::replace` in the Input phase of
-    /// [`crate::app::on_frame`]).
+    /// Finish the current stroke and produce a committed Shape.
     ///
     /// For each tool:
-    /// - **Freehand (≥3 points)**: Runs the full smoothing pipeline. If the pipeline
-    ///   detects a circle, the geometry becomes `Geom::Circle` instead of freehand.
-    /// - **Freehand (<3 points)**: Commits as raw freehand (too few points to smooth).
-    /// - **Line**: Commits a straight line from `start` to the last mouse position.
-    /// - **Rect**: Commits a rectangle from `start` to the last mouse position.
-    /// - **Circle**: Commits a circle centered at `start` with radius = dist(start, end).
+    /// - **Freehand (≥3 points)**: Runs the smoothing pipeline; may snap to circle.
+    /// - **Freehand (<3 points)**: Commits as raw freehand.
+    /// - **Line/Rect/Circle**: Commits the corresponding geometric shape.
     ///
     /// Returns `Some(Shape)` on success, or `None` if the session was already Idle.
     pub(crate) fn finish(self) -> Option<Shape> {
@@ -121,14 +112,11 @@ impl Session {
                         let (smoothed, recognized) = smooth_pipeline(&points);
                         match recognized {
                             RecognizedShape::Circle { center, radius } => {
-                                // The user drew something that looks like a circle —
-                                // snap it to perfect circular geometry.
                                 Geom::Circle { center, radius }
                             }
                             RecognizedShape::Freehand => Geom::Freehand { points: smoothed },
                         }
                     }
-                    // Too few points to run the pipeline — commit as raw freehand.
                     DrawTool::Freehand => Geom::Freehand { points },
                     DrawTool::Line => Geom::Line { start, end },
                     DrawTool::Rect => Geom::Rect { start, end },
@@ -143,7 +131,6 @@ impl Session {
                     geom,
                 })
             }
-            // No active session — nothing to commit.
             Self::Idle => None,
         }
     }

@@ -4,12 +4,10 @@
 //! the `Point`/`Color` type aliases, the Euclidean `dist()` helper, the 12-color
 //! `PALETTE`, and every layout constant that sizes and positions the dock UI.
 
-/// A 2D point in canvas coordinates (x, y), measured in pixels from the top-left origin.
-/// Used for all geometry: stroke vertices, shape anchors, UI hit testing, and layout.
+/// A 2D point in canvas coordinates (x, y).
 pub(crate) type Point = (f32, f32);
 
-/// An RGB color triplet with 8-bit channels (0–255 per channel).
-/// Alpha is always 255 (fully opaque) unless explicitly specified at the call site.
+/// An RGB color triplet with 8-bit channels.
 pub(crate) type Color = (u8, u8, u8);
 
 /// Compute the Euclidean distance between two points using the Pythagorean theorem:
@@ -45,34 +43,12 @@ pub(crate) const PALETTE: [Color; 12] = [
     (4, 120, 87),    // Emerald — deep green
 ];
 
-/// Number of columns in the color swatch grid. The 12 colors are laid out in a
-/// 4-column × 3-row grid centered horizontally in the dock.
 pub(crate) const SWATCH_COLUMNS: u32 = 4;
-
-/// Width and height of each color swatch square in pixels.
 pub(crate) const SWATCH_SIZE: f32 = 28.0;
-
-/// Center-to-center spacing between adjacent swatch cells (both horizontal and vertical).
-/// Must be > SWATCH_SIZE to leave visual gaps between swatches.
 pub(crate) const SWATCH_SPACING: f32 = 32.0;
-
-/// Extra padding added around each swatch's bounding box for hit testing. This makes
-/// swatches easier to click by extending the clickable area beyond the visible square.
 pub(crate) const SWATCH_HIT_PADDING: f32 = 4.0;
-
-/// Width of the tool mode buttons (Line, Rect, Circle, Freehand) in the dock.
 pub(crate) const BUTTON_WIDTH: f32 = 64.0;
-
-/// Height of each tool mode button.
 pub(crate) const BUTTON_HEIGHT: f32 = 22.0;
-
-/// Vertical gap between stacked tool mode buttons.
 pub(crate) const BUTTON_GAP: f32 = 4.0;
-
-/// Total height of the bottom dock panel in pixels. The dock occupies the bottom
-/// DOCK_HEIGHT pixels of the canvas; everything above is the drawing area.
 pub(crate) const DOCK_HEIGHT: f32 = 120.0;
-
-/// Background color of the dock — a very dark blue-gray that contrasts with both
-/// the canvas background (30,30,46) and the UI elements rendered on top.
 pub(crate) const DOCK_BACKGROUND: Color = (24, 24, 34);

@@ -36,7 +36,7 @@ impl DrawTool {
         DrawTool::Freehand,
     ];
 
-    /// Human-readable label for the tool, used as the button text in the dock.
+    /// Tool label for the dock button.
     pub(crate) fn label(self) -> &'static str {
         match self {
             Self::Line => "Line",
@@ -96,7 +96,7 @@ impl Shape {
                 center.1,
                 *radius,
                 0.0,
-                core::f32::consts::TAU, // Full circle: 0 to 2π radians
+                core::f32::consts::TAU,
                 red,
                 green,
                 blue,
@@ -104,8 +104,6 @@ impl Shape {
                 thickness,
             ),
             Geom::Rect { start, end } => {
-                // Normalize corners so left < right and top < bottom,
-                // regardless of which direction the user dragged.
                 let left = start.0.min(end.0);
                 let right = start.0.max(end.0);
                 let top = start.1.min(end.1);

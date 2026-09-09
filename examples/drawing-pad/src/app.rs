@@ -115,32 +115,17 @@ pub extern "C" fn on_frame(_delta_ms: u32) {
     let mouse_is_down = mouse_button_down(0);
 
     // ── Input ──────────────────────────────────────────────────────────
-    // Scoped borrow: release `app` before button callbacks run so they
-    // can re-borrow freely without a double-mutable-borrow conflict.
-    //
-    // This scope is necessary because `ui_button_variant` closures capture
-    // `app()` mutably, and the outer `app()` borrow above would conflict.
-    // By confining the borrow to this block, it's dropped before any
-    // callback executes.
     {
         let app = app();
-        // Detect the leading edge of a mouse press (down this frame, was up last frame).
-        // This prevents repeated actions from held buttons (e.g., starting a new stroke
-        // every frame while the mouse is held).
         let just_pressed = mouse_is_down && !app.was_mouse_down;
         let (swatch_origin_x, swatch_origin_y) = compute_swatch_origin(canvas_width, dock_top);
         if just_pressed {
-            // Check if the click landed on a color swatch.
             if let Some(color_index) =
                 hit_test_swatches(mouse_x, mouse_y, swatch_origin_x, swatch_origin_y)
             {
                 app.selected_color_index = color_index;
             }
         }
-        // Only start a new stroke if:
-        //   - This is a leading-edge press (just pressed, not held)
-        //   - The click is on the canvas area (above the dock, with a 4px margin)
-        //   - No stroke is currently active (session is Idle)
         let in_canvas_area = mouse_y > 0.0 && mouse_y < dock_top - 4.0;
         if just_pressed && in_canvas_area && matches!(app.session, Session::Idle) {
             app.session = Session::begin(
@@ -150,32 +135,23 @@ pub extern "C" fn on_frame(_delta_ms: u32) {
                 (mouse_x, mouse_y),
             );
         }
-        // While the mouse is held, feed the current position into the active session.
         if mouse_is_down {
             app.session.push((mouse_x, mouse_y));
         }
-        // On mouse release: finish the session and commit the resulting shape.
         if !mouse_is_down && app.was_mouse_down {
-            // `mem::replace` moves the session out so we can call `finish()` (which
-            // consumes self) while simultaneously setting the session back to Idle.
             let previous_session = core::mem::replace(&mut app.session, Session::Idle);
             if let Some(shape) = previous_session.finish() {
                 app.committed_shapes.push(shape);
             }
         }
-        // Record mouse state for edge detection in the next frame.
         app.was_mouse_down = mouse_is_down;
     }
 
     // ── Draw ───────────────────────────────────────────────────────────
-    // Clear the entire canvas to a dark blue-gray background.
     canvas_clear(30, 30, 46, 255);
-    // Re-render every committed shape from oldest to newest (painter's algorithm).
     for shape in &app().committed_shapes {
         shape.render();
     }
-    // Render the live preview of the in-progress stroke (rubber-banding for
-    // geometric tools, accumulating polyline for freehand).
     if let Session::Drawing {
         tool,
         color,
@@ -190,7 +166,6 @@ pub extern "C" fn on_frame(_delta_ms: u32) {
     }
 
     // ── Dock ───────────────────────────────────────────────────────────
-    // Draw the dock background as a filled rectangle spanning the full width.
     canvas_rect(
         0.0,
         dock_top,
@@ -203,11 +178,9 @@ pub extern "C" fn on_frame(_delta_ms: u32) {
     );
 
     let (grid_x, grid_y) = compute_swatch_origin(canvas_width, dock_top);
-    // Position the clear button to the right of the swatch grid.
     let clear_x = grid_x + SWATCH_COLUMNS as f32 * SWATCH_SPACING + 20.0;
     let clear_y = dock_top + (DOCK_HEIGHT - 32.0) / 2.0;
 
-    // Clear button — Ghost variant (transparent until hover), ✕ symbol.
     ui_button_variant(
         2,
         clear_x,
@@ -221,13 +194,10 @@ pub extern "C" fn on_frame(_delta_ms: u32) {
         },
     );
 
-    // Tool mode buttons — stacked vertically on the left side of the dock.
-    // Vertically centered within the dock height based on the number of tools.
     let mode_button_top_y = dock_top
         + (DOCK_HEIGHT - DrawTool::ALL.len() as f32 * (BUTTON_HEIGHT + BUTTON_GAP) - BUTTON_GAP)
             / 2.0;
     for (tool_index, &tool) in DrawTool::ALL.iter().enumerate() {
-        // The active tool gets the Default (filled) variant; others are Ghost.
         let variant = if app().active_tool == tool {
             UiVariant::Default
         } else {
@@ -248,14 +218,10 @@ pub extern "C" fn on_frame(_delta_ms: u32) {
         );
     }
 
-    // Brush size slider — horizontal bar positioned between the tool buttons
-    // and the color swatch grid. Returns the current slider value, which is
-    // immediately applied to `app().brush_size`.
     let brush_x = grid_x - 20.0 - 108.0;
     let brush_y = dock_top + (DOCK_HEIGHT - 22.0) / 2.0;
     let brush = ui_slider(5, brush_x, brush_y, 88.0, 1.0, 40.0, 6.0);
     app().brush_size = brush;
-    // Display the current brush size as text below the slider.
     canvas_text(
         brush_x,
         brush_y + 26.0,
@@ -267,14 +233,9 @@ pub extern "C" fn on_frame(_delta_ms: u32) {
         &format!("{:.0}px", brush),
     );
 
-    // Color swatches — render the 4×3 grid of palette colors. The selected
-    // swatch gets an additional semi-transparent glow (rounded rect behind it)
-    // at 60% opacity to indicate selection.
     let (sel_red, sel_green, sel_blue) = PALETTE[app().selected_color_index];
     for (palette_idx, &(swatch_red, swatch_green, swatch_blue)) in PALETTE.iter().enumerate() {
         let (swatch_x, swatch_y) = swatch_cell(palette_idx, grid_x, grid_y);
-        // Selection indicator: a slightly larger, semi-transparent rounded rect
-        // behind the selected swatch, creating a subtle glow effect.
         if palette_idx == app().selected_color_index {
             canvas_rounded_rect(
                 swatch_x - 2.0,
@@ -288,7 +249,6 @@ pub extern "C" fn on_frame(_delta_ms: u32) {
                 60,
             );
         }
-        // The swatch itself — a fully opaque rounded rectangle.
         canvas_rounded_rect(
             swatch_x,
             swatch_y,
@@ -303,13 +263,7 @@ pub extern "C" fn on_frame(_delta_ms: u32) {
     }
 }
 
-// ═══════════════════════════════════════════════════════════════════════════════
-//  Layout helpers
-//
-//  Utility functions for computing positions within the dock's swatch grid.
-//  The palette is arranged as a 4-column × 3-row grid, centered horizontally
-//  in the dock and positioned near the bottom with a 12px margin.
-// ═══════════════════════════════════════════════════════════════════════════════
+// ── Layout helpers ───────────────────────────────────────────────────────
 
 /// Compute the (x, y) position of a swatch cell given its palette index and the
 /// grid's origin point.
