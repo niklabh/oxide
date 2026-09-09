@@ -15,6 +15,7 @@ const PURPLE: (u8, u8, u8) = (160, 90, 220);
 const PINK: (u8, u8, u8) = (240, 140, 200);
 const CYAN: (u8, u8, u8) = (80, 220, 220);
 const YELLOW: (u8, u8, u8) = (240, 220, 80);
+const RED: (u8, u8, u8) = (239, 68, 68);
 const DIVIDER: (u8, u8, u8) = (50, 45, 70);
 
 struct Card {
@@ -83,6 +84,14 @@ const CARDS: &[Card] = &[
         url: "https://oxide.foundation/file_picker_demo.wasm",
         color: YELLOW,
         icon_char: "F",
+    },
+    Card {
+        title: "Drawing Pad",
+        subtitle: "drawing_pad.wasm",
+        description: "Freehand strokes with circle recognition, shapes, brush size, and palette.",
+        url: "https://oxide.foundation/drawing_pad.wasm",
+        color: RED,
+        icon_char: "D",
     },
 ];
 
