@@ -24,5 +24,6 @@ members = [
     "examples/shadcn-demo",
     "examples/worker-demo",
     "examples/worker-demo-bg",
+    "examples/drawing-pad",
 ]
 resolver = "2"
