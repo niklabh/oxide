@@ -24,6 +24,7 @@ const MIN_BRUSH: f32 = 1.0;
 const MAX_BRUSH: f32 = 24.0;
 const DEFAULT_BRUSH: f32 = 5.0;
 const SLIDER_WIDTH: f32 = 120.0;
+const MAX_SEGMENTS: usize = 8192;
 
 struct Segment {
     start: Point,
@@ -41,6 +42,7 @@ struct App {
 
 static mut APP: Option<App> = None;
 
+/// Returns the global app state, initializing it on first call.
 fn app() -> &'static mut App {
     unsafe {
         APP.get_or_insert(App {
@@ -52,11 +54,13 @@ fn app() -> &'static mut App {
     }
 }
 
+/// WASM entry point called once when the module is loaded.
 #[no_mangle]
 pub extern "C" fn start_app() {
     log("Drawing pad started");
 }
 
+/// WASM entry point called every frame to handle input and render.
 #[no_mangle]
 pub extern "C" fn on_frame(_delta_ms: u32) {
     let (canvas_width, canvas_height) = canvas_dimensions();
@@ -71,7 +75,7 @@ pub extern "C" fn on_frame(_delta_ms: u32) {
     let app = app();
     let point = (mouse_x, mouse_y);
     let in_canvas = mouse_is_down && mouse_y < dock_top - 4.0;
-    if in_canvas {
+    if in_canvas && app.segments.len() < MAX_SEGMENTS {
         app.segments.push(Segment {
             start: app.last_point.unwrap_or(point),
             end: point,
