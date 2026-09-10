@@ -49,7 +49,7 @@ fn app() -> &'static mut App {
             selected_color: 2,
             brush_size: DEFAULT_BRUSH,
             last_point: None,
-            segments: Vec::new(),
++           segments: Vec::with_capacity(MAX_SEGMENTS),
         })
     }
 }
