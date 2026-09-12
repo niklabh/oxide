@@ -354,6 +354,19 @@
 //! | [`oxide_sdk::ws_close`] | Initiate the close handshake |
 //! | [`oxide_sdk::ws_remove`] | Free host resources after close completes |
 //!
+//! ## Server-Sent Events
+//!
+//! EventSource-style HTTP push. The host reconnects automatically and sends
+//! `Last-Event-ID`. Drain [`oxide_sdk::sse_recv`] each frame.
+//!
+//! | Function | Description |
+//! |----------|-------------|
+//! | [`oxide_sdk::sse_open`] | Open a stream, returns a handle |
+//! | [`oxide_sdk::sse_state`] | Poll state ([`oxide_sdk::SSE_OPEN`], etc.) |
+//! | [`oxide_sdk::sse_recv`] | Pop the next [`oxide_sdk::SseEvent`] |
+//! | [`oxide_sdk::sse_error`] | Last error message |
+//! | [`oxide_sdk::sse_close`] / [`oxide_sdk::sse_remove`] | Stop the stream and free resources |
+//!
 //! ## MIDI Devices
 //!
 //! Read and write MIDI messages on hardware controllers and synthesisers.
@@ -422,7 +435,27 @@
 //! |----------|-------------|
 //! | [`oxide_sdk::hash_sha256`] | SHA-256 hash (32-byte array) |
 //! | [`oxide_sdk::hash_sha256_hex`] | SHA-256 hash (hex string) |
+//! | [`oxide_sdk::hash_sha512`] / [`oxide_sdk::hash_sha512_hex`] | SHA-512 hash |
+//! | [`oxide_sdk::hmac_sha256`] / [`oxide_sdk::hmac_sha256_hex`] | HMAC-SHA256 |
+//! | [`oxide_sdk::random_bytes`] | OS-grade random bytes |
+//! | [`oxide_sdk::uuid_v4`] | Random RFC 4122 version-4 UUID |
 //! | [`oxide_sdk::base64_encode`] / [`oxide_sdk::base64_decode`] | Base64 encoding/decoding |
+//!
+//! ## Compression
+//!
+//! | Function | Description |
+//! |----------|-------------|
+//! | [`oxide_sdk::compress`] / [`oxide_sdk::decompress`] | Gzip, raw deflate, or zlib |
+//! | [`oxide_sdk::CompressionFormat`] | Format codes matching web `CompressionStream` |
+//!
+//! ## System info
+//!
+//! | Function | Description |
+//! |----------|-------------|
+//! | [`oxide_sdk::system_theme`] | OS colour scheme (`THEME_LIGHT` / `THEME_DARK` / `THEME_UNKNOWN`) |
+//! | [`oxide_sdk::system_locale`] | BCP 47 locale tag |
+//! | [`oxide_sdk::system_timezone`] / [`oxide_sdk::system_timezone_offset_minutes`] | IANA timezone and UTC offset |
+//! | [`oxide_sdk::battery_level`] / [`oxide_sdk::battery_charging`] | Battery charge and AC status |
 //!
 //! ## Other APIs
 //!
@@ -445,7 +478,7 @@
 //! Key modules for contributors:
 //!
 //! - **[`oxide_browser::engine`]** — Wasmtime engine setup, [`oxide_browser::engine::SandboxPolicy`],
-//!   fuel metering, bounded linear memory
+//!   fuel metering, bounded linear memory, and an on-disk AOT compilation cache
 //! - **[`oxide_browser::runtime`]** — [`oxide_browser::runtime::BrowserHost`] orchestrates module
 //!   fetching, compilation, and execution. [`oxide_browser::runtime::LiveModule`] keeps interactive
 //!   apps alive across frames.
@@ -466,9 +499,12 @@
 //! - **[`oxide_browser::gpu`]** — WebGPU-style host state: buffers, textures, shaders, and render/compute pipelines.
 //! - **[`oxide_browser::rtc`]** — WebRTC peer connections, data channels, media tracks, and the built-in signalling client.
 //! - **[`oxide_browser::websocket`]** — WebSocket host state: connection registry, send/recv queues, and ready-state tracking.
+//! - **[`oxide_browser::sse`]** — Server-Sent Events: EventSource parser, reconnect, and `Last-Event-ID`.
 //! - **[`oxide_browser::midi`]** — MIDI input/output port enumeration, bounded receive queues, and packet splitting.
 //! - **[`oxide_browser::fetch`]** — Streaming fetch host state: in-flight handles, body chunk queue, and abort tracking.
 //! - **[`oxide_browser::download`]** — Background downloader for non-WASM URLs surfaced as files in the host UI.
+//! - **[`oxide_browser::compression`]** — Gzip / raw deflate / zlib host functions with a 128 MB decompress cap.
+//! - **[`oxide_browser::system`]** — Read-only theme, locale, timezone, and battery host functions.
 //!
 //! ---
 //!

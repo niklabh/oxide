@@ -83,6 +83,19 @@ cargo run -p oxide-browser
 
 This opens the Oxide browser window with a URL bar, canvas area, and console panel.
 
+### Keyboard shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl/Cmd + L` | Focus the address bar |
+| `Ctrl/Cmd + T` / `W` / `R` | New tab / close tab / reload |
+| `Ctrl/Cmd + 1`–`8` / `9` | Switch to tab N / last tab |
+| `Alt + Left` / `Right` (or `Cmd + [` / `]`) | Back / forward |
+| `Ctrl/Cmd + D` / `B` | Bookmark page / toggle bookmarks panel |
+| `Ctrl/Cmd + Shift + J` | Toggle console |
+| `Ctrl/Cmd + K` | Command palette |
+| `Escape` | Blur the address bar, or close the palette |
+
 ---
 
 ## Creating a Guest Application
@@ -870,6 +883,30 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
 }
 ```
 
+### Server-Sent Events
+
+Long-lived HTTP push streams (web `EventSource`). The host reconnects automatically and sends `Last-Event-ID`. Drain events each frame via `sse_recv`. See the `sse-demo` example.
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `sse_open` | `fn(url: &str) -> u32` | Open a stream; returns a handle |
+| `sse_state` | `fn(id: u32) -> u32` | `SSE_CONNECTING`, `SSE_OPEN`, `SSE_CLOSED`, `SSE_ERROR` |
+| `sse_recv` | `fn(id: u32) -> Option<SseEvent>` | Pop the next `{ name, id, data }` event |
+| `sse_error` | `fn(id: u32) -> String` | Last error message |
+| `sse_close` | `fn(id: u32) -> i32` | Stop the stream |
+| `sse_remove` | `fn(id: u32)` | Free host resources after close |
+
+```rust
+let sse = sse_open("https://stream.wikimedia.org/v2/stream/recentchange");
+
+#[no_mangle]
+pub extern "C" fn on_frame(_dt_ms: u32) {
+    while let Some(ev) = sse_recv(sse) {
+        log(&format!("{}: {}", ev.name, ev.data));
+    }
+}
+```
+
 ### MIDI Devices
 
 Read and write MIDI messages on hardware controllers and synthesisers. Each input port maintains a bounded receive queue; long SysEx packets are split. See the `midi-demo` (piano visualizer) example.
@@ -937,8 +974,34 @@ register_hyperlink(20.0, 100.0, 200.0, 20.0, "https://example.com/app.wasm");
 |----------|-----------|-------------|
 | `hash_sha256` | `fn(data: &[u8]) -> [u8; 32]` | SHA-256 hash (raw) |
 | `hash_sha256_hex` | `fn(data: &[u8]) -> String` | SHA-256 hash (hex) |
+| `hash_sha512` | `fn(data: &[u8]) -> [u8; 64]` | SHA-512 hash (raw) |
+| `hash_sha512_hex` | `fn(data: &[u8]) -> String` | SHA-512 hash (hex) |
+| `hmac_sha256` | `fn(key: &[u8], data: &[u8]) -> [u8; 32]` | HMAC-SHA256 tag (raw) |
+| `hmac_sha256_hex` | `fn(key: &[u8], data: &[u8]) -> String` | HMAC-SHA256 tag (hex) |
+| `random_bytes` | `fn(len: usize) -> Vec<u8>` | OS-grade random bytes (64 KiB per host call) |
+| `uuid_v4` | `fn() -> String` | Random RFC 4122 version-4 UUID |
 | `base64_encode` | `fn(data: &[u8]) -> String` | Encode to base64 |
 | `base64_decode` | `fn(encoded: &str) -> Vec<u8>` | Decode from base64 |
+
+### Compression
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `compress` | `fn(format: CompressionFormat, data: &[u8]) -> Vec<u8>` | Gzip, raw deflate, or zlib |
+| `decompress` | `fn(format: CompressionFormat, data: &[u8]) -> Option<Vec<u8>>` | Inverse of `compress`; `None` on corrupt or oversized output |
+
+Formats match the web `CompressionStream` names: `Gzip`, `Deflate` (raw), `Zlib`. Decompressed output is capped at 128 MB on the host.
+
+### System info
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `system_theme` | `fn() -> u32` | `THEME_LIGHT` (0), `THEME_DARK` (1), or `THEME_UNKNOWN` (2) |
+| `system_locale` | `fn() -> String` | BCP 47 locale tag (e.g. `"en-IN"`) |
+| `system_timezone` | `fn() -> String` | IANA timezone name (e.g. `"Asia/Kolkata"`) |
+| `system_timezone_offset_minutes` | `fn() -> i32` | Minutes east of UTC (e.g. `330` for IST) |
+| `battery_level` | `fn() -> i32` | Charge percent `0..=100`, or `-1` when no battery |
+| `battery_charging` | `fn() -> i32` | `1` charging/full, `0` discharging, `-1` unknown |
 
 ### Clipboard
 
@@ -1085,9 +1148,12 @@ oxide/
 │       ├── rtc.rs                # WebRTC peer connections, data channels, signaling
 │       ├── gpu.rs                # WebGPU-style GPU resource management
 │       ├── websocket.rs          # WebSocket connections and frame queues
+│       ├── sse.rs                # Server-Sent Events (EventSource) streams
 │       ├── midi.rs               # MIDI input/output ports with bounded queues
 │       ├── fetch.rs              # Streaming fetch handles and chunk queues
-│       └── download.rs           # Background downloader for non-WASM URLs
+│       ├── download.rs           # Background downloader for non-WASM URLs
+│       ├── compression.rs        # Gzip / deflate / zlib host functions
+│       └── system.rs             # Theme, locale, timezone, battery
 ├── oxide-sdk/                    # Guest SDK (no dependencies)
 │   ├── Cargo.toml
 │   └── src/
@@ -1105,9 +1171,11 @@ oxide/
     ├── gpu-graphics-demo/        # GPU/WebGPU rendering demo
     ├── rtc-chat/                 # WebRTC peer-to-peer chat demo
     ├── ws-chat/                  # WebSocket chat demo
+    ├── sse-demo/                 # Server-Sent Events demo
     ├── stream-fetch-demo/        # Streaming HTTP fetch demo
     ├── midi-demo/                # MIDI piano visualizer
     ├── index/                    # Demo hub (links to other examples)
+    ├── platform-demo/            # Crypto, compression, and system info
     └── fullstack-notes/          # Full-stack example (Rust frontend + backend)
 ```
 

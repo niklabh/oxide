@@ -45,6 +45,8 @@
 //! | [`engine`] | Wasmtime engine configuration, sandbox policy, memory bounds |
 //! | [`runtime`] | Module fetching, compilation, execution lifecycle |
 //! | [`capabilities`] | All host-imported functions exposed to guest wasm modules |
+//! | [`compression`] | gzip / deflate / zlib compress and decompress |
+//! | [`system`] | System info (theme, locale, timezone, battery) |
 //! | [`gpu`] | WebGPU-style GPU resource management (buffers, textures, shaders, pipelines) |
 //! | [`manifest`] | Optional TOML app manifests (name, version, declared permissions) |
 //! | [`media_capture`] | Camera, microphone, and screen capture with permission prompts |
@@ -102,6 +104,7 @@
 pub mod audio_format;
 pub mod bookmarks;
 pub mod capabilities;
+pub mod compression;
 pub mod download;
 pub mod engine;
 pub mod events;
@@ -118,7 +121,9 @@ pub mod navigation;
 pub mod permissions;
 pub mod rtc;
 pub mod runtime;
+pub mod sse;
 pub mod subtitle;
+pub mod system;
 pub mod ui;
 pub mod url;
 pub mod video;

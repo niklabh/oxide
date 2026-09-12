@@ -23,7 +23,7 @@ use wasmtime::*;
 use crate::audio_format;
 use crate::bookmarks::SharedBookmarkStore;
 use crate::download::DownloadManager;
-use crate::engine::ModuleLoader;
+use crate::engine::{compile_cached, ModuleLoader};
 use crate::history::SharedHistoryStore;
 use crate::navigation::NavigationStack;
 use crate::subtitle;
@@ -211,6 +211,8 @@ pub struct HostState {
     pub midi: Arc<Mutex<Option<crate::midi::MidiState>>>,
     /// Streaming / non-blocking fetch state (lazily initialised on first `api_fetch_begin`).
     pub fetch: Arc<Mutex<Option<crate::fetch::FetchState>>>,
+    /// Server-Sent Events streams (lazily initialised on first `api_sse_open`).
+    pub sse: Arc<Mutex<Option<crate::sse::SseState>>>,
     /// Native file and folder picker handles. Paths never cross the sandbox;
     /// guests only see opaque `u32` handles allocated here.
     pub file_picker: Arc<Mutex<crate::file_picker::FilePickerState>>,
@@ -726,6 +728,7 @@ impl Default for HostState {
             ws: Arc::new(Mutex::new(None)),
             midi: Arc::new(Mutex::new(None)),
             fetch: Arc::new(Mutex::new(None)),
+            sse: Arc::new(Mutex::new(None)),
             file_picker: Arc::new(Mutex::new(crate::file_picker::FilePickerState::default())),
             events: Arc::new(Mutex::new(crate::events::EventState::default())),
             download_manager: DownloadManager::new(),
@@ -2388,7 +2391,7 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
                 Err(_) => return -1,
             };
 
-            let module = match Module::new(&loader.engine, &wasm_bytes) {
+            let module = match compile_cached(&loader.engine, &wasm_bytes) {
                 Ok(m) => m,
                 Err(e) => {
                     console_log(
@@ -2487,6 +2490,96 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
             let hash = Sha256::digest(&data);
             write_guest_bytes(&mem, &mut caller, out_ptr, &hash).ok();
             hash.len() as u32
+        },
+    )?;
+
+    // api_hash_sha512(data_ptr, data_len, out_ptr) -> u32
+    //   Writes the 64-byte SHA-512 digest to out_ptr. Returns 64.
+    linker.func_wrap(
+        "oxide",
+        "api_hash_sha512",
+        |mut caller: Caller<'_, HostState>, data_ptr: u32, data_len: u32, out_ptr: u32| -> u32 {
+            use sha2::{Digest, Sha512};
+            let mem = caller.data().memory.expect("memory not set");
+            let data = read_guest_bytes(&mem, &caller, data_ptr, data_len).unwrap_or_default();
+            let hash = Sha512::digest(&data);
+            write_guest_bytes(&mem, &mut caller, out_ptr, &hash).ok();
+            hash.len() as u32
+        },
+    )?;
+
+    // api_hmac_sha256(key_ptr, key_len, data_ptr, data_len, out_ptr) -> u32
+    //   Writes the 32-byte HMAC-SHA256 tag to out_ptr. Returns 32.
+    linker.func_wrap(
+        "oxide",
+        "api_hmac_sha256",
+        |mut caller: Caller<'_, HostState>,
+         key_ptr: u32,
+         key_len: u32,
+         data_ptr: u32,
+         data_len: u32,
+         out_ptr: u32|
+         -> u32 {
+            use hmac::{Hmac, Mac};
+            let mem = caller.data().memory.expect("memory not set");
+            let key = read_guest_bytes(&mem, &caller, key_ptr, key_len).unwrap_or_default();
+            let data = read_guest_bytes(&mem, &caller, data_ptr, data_len).unwrap_or_default();
+            let mut mac = Hmac::<sha2::Sha256>::new_from_slice(&key)
+                .expect("HMAC accepts keys of any length");
+            mac.update(&data);
+            let tag = mac.finalize().into_bytes();
+            write_guest_bytes(&mem, &mut caller, out_ptr, &tag).ok();
+            tag.len() as u32
+        },
+    )?;
+
+    // api_random_bytes(out_ptr, len) -> u32
+    //   Fills `len` bytes (capped at 64 KiB per call) with OS-grade randomness.
+    //   Returns the number of bytes written.
+    linker.func_wrap(
+        "oxide",
+        "api_random_bytes",
+        |mut caller: Caller<'_, HostState>, out_ptr: u32, len: u32| -> u32 {
+            const MAX_RANDOM_BYTES: usize = 64 * 1024;
+            let mem = caller.data().memory.expect("memory not set");
+            let want = (len as usize).min(MAX_RANDOM_BYTES);
+            let mut buf = vec![0u8; want];
+            getrandom(&mut buf);
+            if write_guest_bytes(&mem, &mut caller, out_ptr, &buf).is_err() {
+                return 0;
+            }
+            want as u32
+        },
+    )?;
+
+    // api_uuid_v4(out_ptr, out_cap) -> u32
+    //   Writes a random RFC 4122 version-4 UUID as a 36-char lowercase
+    //   hyphenated string. Returns bytes written (36, or 0 if out_cap < 36).
+    linker.func_wrap(
+        "oxide",
+        "api_uuid_v4",
+        |mut caller: Caller<'_, HostState>, out_ptr: u32, out_cap: u32| -> u32 {
+            let mem = caller.data().memory.expect("memory not set");
+            let mut bytes = [0u8; 16];
+            getrandom(&mut bytes);
+            bytes[6] = (bytes[6] & 0x0F) | 0x40; // version 4
+            bytes[8] = (bytes[8] & 0x3F) | 0x80; // RFC 4122 variant
+            let uuid = format!(
+                "{:02x}{:02x}{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}-{:02x}{:02x}{:02x}{:02x}{:02x}{:02x}",
+                bytes[0], bytes[1], bytes[2], bytes[3],
+                bytes[4], bytes[5],
+                bytes[6], bytes[7],
+                bytes[8], bytes[9],
+                bytes[10], bytes[11], bytes[12], bytes[13], bytes[14], bytes[15],
+            );
+            let out = uuid.as_bytes();
+            if (out_cap as usize) < out.len() {
+                return 0;
+            }
+            if write_guest_bytes(&mem, &mut caller, out_ptr, out).is_err() {
+                return 0;
+            }
+            out.len() as u32
         },
     )?;
 
@@ -4475,6 +4568,9 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
     // ── Streaming / non-blocking Fetch API ────────────────────────────
     crate::fetch::register_fetch_functions(linker)?;
 
+    // ── Server-Sent Events API ────────────────────────────────────────
+    crate::sse::register_sse_functions(linker)?;
+
     // ── Event System ──────────────────────────────────────────────────
     crate::events::register_event_functions(linker)?;
 
@@ -4483,6 +4579,12 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
 
     // ── Background Workers API ────────────────────────────────────────
     crate::worker::register_worker_functions(linker)?;
+
+    // ── Compression API ───────────────────────────────────────────────
+    crate::compression::register_compression_functions(linker)?;
+
+    // ── System Info API ───────────────────────────────────────────────
+    crate::system::register_system_functions(linker)?;
 
     // ── Download Manager API ──────────────────────────────────────────
 
