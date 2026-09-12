@@ -447,7 +447,7 @@ The core architecture is live: a Rust-native browser that fetches and executes `
 - [ ] Download manager
 - [ ] Print-to-PDF
 - [ ] Zoom and accessibility controls
-- [ ] Keyboard shortcuts and command palette
+- [x] Keyboard shortcuts and command palette
 - [ ] Dark/light theme toggle
 
 ### Accessibility

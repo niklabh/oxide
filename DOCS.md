@@ -83,6 +83,19 @@ cargo run -p oxide-browser
 
 This opens the Oxide browser window with a URL bar, canvas area, and console panel.
 
+### Keyboard shortcuts
+
+| Shortcut | Action |
+|----------|--------|
+| `Ctrl/Cmd + L` | Focus the address bar |
+| `Ctrl/Cmd + T` / `W` / `R` | New tab / close tab / reload |
+| `Ctrl/Cmd + 1`–`8` / `9` | Switch to tab N / last tab |
+| `Alt + Left` / `Right` (or `Cmd + [` / `]`) | Back / forward |
+| `Ctrl/Cmd + D` / `B` | Bookmark page / toggle bookmarks panel |
+| `Ctrl/Cmd + Shift + J` | Toggle console |
+| `Ctrl/Cmd + K` | Command palette |
+| `Escape` | Blur the address bar, or close the palette |
+
 ---
 
 ## Creating a Guest Application

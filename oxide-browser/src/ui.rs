@@ -8,7 +8,7 @@
 //!
 //! - [`run_browser`] — Start the GPUI [`Application`] and open the main browser window; pass
 //!   [`HostState`] and page status from [`crate::runtime::BrowserHost`].
-//! - [`OxideBrowserView`] — Root view: tabs, toolbar, canvas [`canvas`] element, console, and bookmarks.
+//! - [`OxideBrowserView`] — Root view: tabs, toolbar, canvas [`canvas`] element, console, bookmarks, and command palette (`Cmd/Ctrl+K`).
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -101,6 +101,195 @@ enum InternalPage {
     Bookmarks,
     About,
     Forge,
+}
+
+struct PaletteCommand {
+    id: &'static str,
+    title: &'static str,
+    keywords: &'static str,
+}
+
+const PALETTE_COMMANDS: &[PaletteCommand] = &[
+    PaletteCommand {
+        id: "new-tab",
+        title: "New Tab",
+        keywords: "tab create",
+    },
+    PaletteCommand {
+        id: "close-tab",
+        title: "Close Tab",
+        keywords: "tab close",
+    },
+    PaletteCommand {
+        id: "reload",
+        title: "Reload",
+        keywords: "refresh reload",
+    },
+    PaletteCommand {
+        id: "back",
+        title: "Go Back",
+        keywords: "history back previous",
+    },
+    PaletteCommand {
+        id: "forward",
+        title: "Go Forward",
+        keywords: "history forward next",
+    },
+    PaletteCommand {
+        id: "focus-url",
+        title: "Focus Address Bar",
+        keywords: "url address omnibox location",
+    },
+    PaletteCommand {
+        id: "toggle-bookmark",
+        title: "Bookmark This Page",
+        keywords: "star favorite bookmark",
+    },
+    PaletteCommand {
+        id: "toggle-bookmarks",
+        title: "Toggle Bookmarks Panel",
+        keywords: "bookmarks sidebar",
+    },
+    PaletteCommand {
+        id: "toggle-console",
+        title: "Toggle Console",
+        keywords: "console logs debug",
+    },
+    PaletteCommand {
+        id: "toggle-downloads",
+        title: "Toggle Downloads",
+        keywords: "downloads files",
+    },
+    PaletteCommand {
+        id: "open-file",
+        title: "Open Local Wasm…",
+        keywords: "open file wasm upload",
+    },
+    PaletteCommand {
+        id: "home",
+        title: "Open Home",
+        keywords: "home start",
+    },
+    PaletteCommand {
+        id: "history",
+        title: "Open History",
+        keywords: "history visits",
+    },
+    PaletteCommand {
+        id: "bookmarks-page",
+        title: "Open Bookmarks Page",
+        keywords: "bookmarks page",
+    },
+    PaletteCommand {
+        id: "forge",
+        title: "Open Forge",
+        keywords: "forge ai generate",
+    },
+    PaletteCommand {
+        id: "about",
+        title: "About Oxide",
+        keywords: "about version",
+    },
+];
+
+fn filter_palette_commands(query: &str) -> Vec<&'static PaletteCommand> {
+    let q = query.trim().to_lowercase();
+    PALETTE_COMMANDS
+        .iter()
+        .filter(|cmd| {
+            q.is_empty()
+                || cmd.title.to_lowercase().contains(&q)
+                || cmd.keywords.contains(q.as_str())
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod palette_tests {
+    use super::*;
+
+    #[test]
+    fn filter_matches_title_and_keywords() {
+        let hits = filter_palette_commands("reload");
+        assert!(hits.iter().any(|c| c.id == "reload"));
+        let hits = filter_palette_commands("omnibox");
+        assert!(hits.iter().any(|c| c.id == "focus-url"));
+        assert!(filter_palette_commands("xyz-no-such-command").is_empty());
+    }
+
+    #[test]
+    fn empty_query_lists_all_commands() {
+        assert_eq!(filter_palette_commands("").len(), PALETTE_COMMANDS.len());
+    }
+}
+
+fn palette_shortcut(id: &str) -> &'static str {
+    match id {
+        "new-tab" => {
+            if cfg!(target_os = "macos") {
+                "⌘T"
+            } else {
+                "Ctrl+T"
+            }
+        }
+        "close-tab" => {
+            if cfg!(target_os = "macos") {
+                "⌘W"
+            } else {
+                "Ctrl+W"
+            }
+        }
+        "reload" => {
+            if cfg!(target_os = "macos") {
+                "⌘R"
+            } else {
+                "Ctrl+R"
+            }
+        }
+        "back" => {
+            if cfg!(target_os = "macos") {
+                "⌘[ / ⌥←"
+            } else {
+                "Alt+Left"
+            }
+        }
+        "forward" => {
+            if cfg!(target_os = "macos") {
+                "⌘] / ⌥→"
+            } else {
+                "Alt+Right"
+            }
+        }
+        "focus-url" => {
+            if cfg!(target_os = "macos") {
+                "⌘L"
+            } else {
+                "Ctrl+L"
+            }
+        }
+        "toggle-bookmark" => {
+            if cfg!(target_os = "macos") {
+                "⌘D"
+            } else {
+                "Ctrl+D"
+            }
+        }
+        "toggle-bookmarks" => {
+            if cfg!(target_os = "macos") {
+                "⌘B"
+            } else {
+                "Ctrl+B"
+            }
+        }
+        "toggle-console" => {
+            if cfg!(target_os = "macos") {
+                "⌘⇧J"
+            } else {
+                "Ctrl+Shift+J"
+            }
+        }
+        _ => "",
+    }
 }
 
 fn try_internal_page(url: &str) -> Option<InternalPage> {
@@ -1205,6 +1394,10 @@ pub struct OxideBrowserView {
     scroll_drag_start_scroll_y: f32,
     /// Active slider drag: (widget id, slider x, slider width, min, max).
     slider_drag: Option<(u32, f32, f32, f32, f32)>,
+    command_palette_open: bool,
+    command_palette_query: String,
+    command_palette_index: usize,
+    palette_focus: FocusHandle,
 }
 
 impl OxideBrowserView {
@@ -1241,6 +1434,10 @@ impl OxideBrowserView {
             scroll_drag_start_y: 0.0,
             scroll_drag_start_scroll_y: 0.0,
             slider_drag: None,
+            command_palette_open: false,
+            command_palette_query: String::new(),
+            command_palette_index: 0,
+            palette_focus: cx.focus_handle(),
         }
     }
 
@@ -1568,6 +1765,148 @@ impl OxideBrowserView {
             }
         }
     }
+
+    fn focus_url_bar(&mut self, window: &mut Window) {
+        self.url_focus.focus(window);
+        self.tabs[self.active_tab].url_select_all();
+    }
+
+    fn toggle_console(&mut self) {
+        let tab = &mut self.tabs[self.active_tab];
+        tab.show_console = !tab.show_console;
+    }
+
+    fn select_tab_number(&mut self, n: usize) {
+        if self.tabs.is_empty() {
+            return;
+        }
+        if n == 9 {
+            self.active_tab = self.tabs.len() - 1;
+        } else if (1..=8).contains(&n) && n <= self.tabs.len() {
+            self.active_tab = n - 1;
+        }
+    }
+
+    fn open_palette(&mut self, window: &mut Window) {
+        self.command_palette_open = true;
+        self.command_palette_query.clear();
+        self.command_palette_index = 0;
+        self.show_menu = false;
+        self.palette_focus.focus(window);
+    }
+
+    fn close_palette(&mut self, window: &mut Window) {
+        self.command_palette_open = false;
+        self.command_palette_query.clear();
+        self.command_palette_index = 0;
+        self.canvas_focus.focus(window);
+    }
+
+    fn start_open_file_dialog(&mut self) {
+        if self.file_pick_rx.is_some() {
+            return;
+        }
+        let (tx, rx) = mpsc::channel();
+        self.file_pick_rx = Some(rx);
+        std::thread::spawn(move || {
+            let path = rfd::FileDialog::new()
+                .add_filter("WebAssembly", &["wasm"])
+                .set_title("Open .wasm Application")
+                .pick_file();
+            let msg = match path {
+                Some(p) => match std::fs::read(&p) {
+                    Ok(bytes) => FilePickDone::Chosen { path: p, bytes },
+                    Err(_) => FilePickDone::Cancelled,
+                },
+                None => FilePickDone::Cancelled,
+            };
+            let _ = tx.send(msg);
+        });
+    }
+
+    fn navigate_active(&mut self, url: &str) {
+        self.tabs[self.active_tab].navigate_to(url.to_string(), true, &self.download_manager);
+    }
+
+    fn run_palette_command(&mut self, id: &str, window: &mut Window) {
+        self.close_palette(window);
+        match id {
+            "new-tab" => {
+                let i = self.create_tab();
+                self.active_tab = i;
+            }
+            "close-tab" => self.close_tab(self.active_tab),
+            "reload" => self.tabs[self.active_tab].reload(),
+            "back" => self.tabs[self.active_tab].go_back(),
+            "forward" => self.tabs[self.active_tab].go_forward(),
+            "focus-url" => self.focus_url_bar(window),
+            "toggle-bookmark" => self.toggle_active_bookmark(),
+            "toggle-bookmarks" => self.show_bookmarks = !self.show_bookmarks,
+            "toggle-console" => self.toggle_console(),
+            "toggle-downloads" => self.show_downloads = !self.show_downloads,
+            "open-file" => self.start_open_file_dialog(),
+            "home" => self.navigate_active("oxide://home"),
+            "history" => self.navigate_active("oxide://history"),
+            "bookmarks-page" => self.navigate_active("oxide://bookmarks"),
+            "forge" => self.navigate_active("oxide://forge"),
+            "about" => self.navigate_active("oxide://about"),
+            _ => {}
+        }
+    }
+
+    fn handle_palette_key(&mut self, event: &KeyDownEvent, window: &mut Window) -> bool {
+        if !self.command_palette_open {
+            return false;
+        }
+        match event.keystroke.key.as_str() {
+            "escape" => {
+                self.close_palette(window);
+                return true;
+            }
+            "enter" => {
+                let cmds = filter_palette_commands(&self.command_palette_query);
+                if let Some(cmd) = cmds.get(self.command_palette_index) {
+                    let id = cmd.id;
+                    self.run_palette_command(id, window);
+                }
+                return true;
+            }
+            "up" => {
+                if self.command_palette_index > 0 {
+                    self.command_palette_index -= 1;
+                }
+                return true;
+            }
+            "down" => {
+                let len = filter_palette_commands(&self.command_palette_query).len();
+                if len > 0 {
+                    self.command_palette_index = (self.command_palette_index + 1).min(len - 1);
+                }
+                return true;
+            }
+            "backspace" => {
+                self.command_palette_query.pop();
+                self.command_palette_index = 0;
+                return true;
+            }
+            _ => {}
+        }
+        if event.keystroke.modifiers.secondary() && event.keystroke.key == "v" {
+            if let Ok(mut cb) = arboard::Clipboard::new() {
+                if let Ok(pasted) = cb.get_text() {
+                    self.command_palette_query.push_str(pasted.trim());
+                    self.command_palette_index = 0;
+                }
+            }
+            return true;
+        }
+        if let Some(s) = text_insert_from_keystroke(&event.keystroke) {
+            self.command_palette_query.push_str(&s);
+            self.command_palette_index = 0;
+            return true;
+        }
+        true
+    }
 }
 
 impl Render for OxideBrowserView {
@@ -1747,6 +2086,53 @@ impl Render for OxideBrowserView {
                     }
                     if event.keystroke.modifiers.secondary() && event.keystroke.key == "b" {
                         this.show_bookmarks = !this.show_bookmarks;
+                        cx.notify();
+                        return;
+                    }
+                    if event.keystroke.modifiers.secondary() && event.keystroke.key == "l" {
+                        this.focus_url_bar(window);
+                        cx.notify();
+                        return;
+                    }
+                    if event.keystroke.modifiers.secondary()
+                        && event.keystroke.modifiers.shift
+                        && event.keystroke.key == "j"
+                    {
+                        this.toggle_console();
+                        cx.notify();
+                        return;
+                    }
+                    if event.keystroke.modifiers.secondary() && event.keystroke.key == "k" {
+                        if this.command_palette_open {
+                            this.close_palette(window);
+                        } else {
+                            this.open_palette(window);
+                        }
+                        cx.notify();
+                        return;
+                    }
+                    if (event.keystroke.modifiers.alt && event.keystroke.key == "left")
+                        || (event.keystroke.modifiers.secondary() && event.keystroke.key == "[")
+                    {
+                        this.tabs[this.active_tab].go_back();
+                        cx.notify();
+                        return;
+                    }
+                    if (event.keystroke.modifiers.alt && event.keystroke.key == "right")
+                        || (event.keystroke.modifiers.secondary() && event.keystroke.key == "]")
+                    {
+                        this.tabs[this.active_tab].go_forward();
+                        cx.notify();
+                        return;
+                    }
+                    if event.keystroke.modifiers.secondary() && !event.keystroke.modifiers.shift {
+                        if let Ok(n) = event.keystroke.key.parse::<usize>() {
+                            this.select_tab_number(n);
+                            cx.notify();
+                            return;
+                        }
+                    }
+                    if this.handle_palette_key(event, window) {
                         cx.notify();
                         return;
                     }
@@ -2095,7 +2481,17 @@ impl Render for OxideBrowserView {
                                 }
                                 let tab = &mut this.tabs[this.active_tab];
                                 match event.keystroke.key.as_str() {
+                                    "escape" => {
+                                        this.canvas_focus.focus(window);
+                                        cx.notify();
+                                        return;
+                                    }
                                     "left" => {
+                                        if event.keystroke.modifiers.alt {
+                                            tab.go_back();
+                                            cx.notify();
+                                            return;
+                                        }
                                         if shift {
                                             tab.url_select_to(tab.url_prev_boundary());
                                         } else if tab.url_has_selection() {
@@ -2109,6 +2505,11 @@ impl Render for OxideBrowserView {
                                         return;
                                     }
                                     "right" => {
+                                        if event.keystroke.modifiers.alt {
+                                            tab.go_forward();
+                                            cx.notify();
+                                            return;
+                                        }
                                         if shift {
                                             tab.url_select_to(tab.url_next_boundary());
                                         } else if tab.url_has_selection() {
@@ -2362,25 +2763,7 @@ impl Render for OxideBrowserView {
                         .text_color(gpui::rgb(0xc8c8d4))
                         .child("Open")
                         .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                            if this.file_pick_rx.is_some() {
-                                return;
-                            }
-                            let (tx, rx) = mpsc::channel();
-                            this.file_pick_rx = Some(rx);
-                            std::thread::spawn(move || {
-                                let path = rfd::FileDialog::new()
-                                    .add_filter("WebAssembly", &["wasm"])
-                                    .set_title("Open .wasm Application")
-                                    .pick_file();
-                                let msg = match path {
-                                    Some(p) => match std::fs::read(&p) {
-                                        Ok(bytes) => FilePickDone::Chosen { path: p, bytes },
-                                        Err(_) => FilePickDone::Cancelled,
-                                    },
-                                    None => FilePickDone::Cancelled,
-                                };
-                                let _ = tx.send(msg);
-                            });
+                            this.start_open_file_dialog();
                             cx.notify();
                         })),
                 )
@@ -4851,6 +5234,107 @@ impl Render for OxideBrowserView {
                                 this.show_menu = false;
                                 cx.notify();
                             })),
+                    ),
+            );
+        }
+
+        if self.command_palette_open {
+            let query = self.command_palette_query.clone();
+            let selected = self.command_palette_index;
+            let commands = filter_palette_commands(&query);
+            root = root.child(
+                div()
+                    .id("oxide_palette_scrim")
+                    .absolute()
+                    .size_full()
+                    .top_0()
+                    .left_0()
+                    .bg(gpui::rgba(0x00000088))
+                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                        this.close_palette(window);
+                        cx.notify();
+                    })),
+            );
+            root = root.child(
+                div()
+                    .id("oxide_palette_wrap")
+                    .absolute()
+                    .top(px(72.0))
+                    .w_full()
+                    .flex()
+                    .justify_center()
+                    .child(
+                        div()
+                            .id("oxide_palette")
+                            .track_focus(&self.palette_focus)
+                            .focusable()
+                            .w(px(480.0))
+                            .max_h(px(420.0))
+                            .rounded_md()
+                            .bg(gpui::rgb(0x1c1c22))
+                            .border_1()
+                            .border_color(gpui::rgb(theme::BORDER_STRONG))
+                            .shadow_lg()
+                            .flex()
+                            .flex_col()
+                            .child(
+                                div()
+                                    .px_3()
+                                    .py_2()
+                                    .border_b_1()
+                                    .border_color(gpui::rgb(theme::BORDER))
+                                    .text_sm()
+                                    .text_color(gpui::rgb(theme::FG))
+                                    .child(if query.is_empty() {
+                                        SharedString::from("Type a command…")
+                                    } else {
+                                        SharedString::from(query.clone())
+                                    }),
+                            )
+                            .children(commands.iter().enumerate().map(|(i, cmd)| {
+                                let id = cmd.id;
+                                let title = cmd.title;
+                                let shortcut = palette_shortcut(cmd.id);
+                                let is_sel = i == selected;
+                                div()
+                                    .id(("oxide_palette_item", i))
+                                    .px_3()
+                                    .py(px(8.0))
+                                    .flex()
+                                    .flex_row()
+                                    .items_center()
+                                    .justify_between()
+                                    .cursor_pointer()
+                                    .when(is_sel, |d| d.bg(gpui::rgb(0x2a2a36)))
+                                    .child(
+                                        div()
+                                            .text_sm()
+                                            .text_color(gpui::rgb(theme::FG))
+                                            .child(title),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(gpui::rgb(theme::FG_DIM))
+                                            .child(shortcut),
+                                    )
+                                    .on_click(cx.listener(
+                                        move |this, _: &ClickEvent, window, cx| {
+                                            this.run_palette_command(id, window);
+                                            cx.notify();
+                                        },
+                                    ))
+                            }))
+                            .when(commands.is_empty(), |d| {
+                                d.child(
+                                    div()
+                                        .px_3()
+                                        .py_3()
+                                        .text_sm()
+                                        .text_color(gpui::rgb(theme::FG_MUTED))
+                                        .child("No matching commands"),
+                                )
+                            }),
                     ),
             );
         }

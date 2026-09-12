@@ -80,6 +80,8 @@ or enter a hosted URL (e.g. from [oxide.foundation](https://oxide.foundation)) i
 
 Internal pages use the `oxide://` scheme: `oxide://home`, `oxide://history`, `oxide://bookmarks`, `oxide://about`, `oxide://forge`.
 
+Common shortcuts: `Cmd/Ctrl+L` focuses the address bar, `Cmd/Ctrl+T` / `W` / `R` manage tabs and reload, `Cmd/Ctrl+K` opens the command palette. See [DOCS.md](./DOCS.md#keyboard-shortcuts) for the full list.
+
 ## Build a guest app
 
 Guest apps are Rust `cdylib` crates. They **must** export `start_app()`; optionally export `on_frame(dt_ms: u32)` for interactive loops and `on_timer(callback_id: u32)` for timers.
