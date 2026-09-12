@@ -121,6 +121,7 @@ pub mod navigation;
 pub mod permissions;
 pub mod rtc;
 pub mod runtime;
+pub mod sse;
 pub mod subtitle;
 pub mod system;
 pub mod ui;

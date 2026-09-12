@@ -178,6 +178,7 @@ Build any example with `cargo build --target wasm32-unknown-unknown --release -p
 | [`gpu-graphics-demo`](./examples/gpu-graphics-demo/) | WebGPU-style buffers, shaders, compute |
 | [`rtc-chat`](./examples/rtc-chat/) | WebRTC P2P chat |
 | [`ws-chat`](./examples/ws-chat/) | WebSocket chat |
+| [`sse-demo`](./examples/sse-demo/) | Server-Sent Events (EventSource) |
 | [`stream-fetch-demo`](./examples/stream-fetch-demo/) | Streaming HTTP fetch |
 | [`timer-demo`](./examples/timer-demo/) | `set_timeout` / `set_interval` |
 | [`raf-demo`](./examples/raf-demo/) | `request_animation_frame` |
@@ -210,7 +211,7 @@ Open **`index`** in the browser for a visual catalog, or run `cargo run -p oxide
 │  │                  Capability Layer                          │  │
 │  │  "oxide" import module — ~150 host functions               │  │
 │  │  canvas · gpu · audio · video · capture · fetch · streaming│  │
-│  │  websocket · webrtc · midi · timers · animation frames     │  │
+│  │  websocket · sse · webrtc · midi · timers · animation frames│  │
 │  │  console · storage · clipboard · widgets · crypto · ...    │  │
 │  └────────────────────────────┬───────────────────────────────┘  │
 │                               │                                  │
@@ -286,6 +287,7 @@ Guest modules start with **zero capabilities**. All host access is under the `"o
 | **Download / PDF** | `download_data`, `download_url`, `canvas_print_pdf` |
 | **HTTP** | `fetch`, `fetch_get/post/…`, `fetch_post_proto`, streaming `fetch_begin/recv/…` |
 | **WebSocket** | connect, send/recv text/binary, ready state, close |
+| **SSE** | EventSource streams with automatic reconnect and `Last-Event-ID` |
 | **WebRTC** | peer connection, SDP, ICE, data channels, media tracks |
 | **Audio / video** | playback, seek, HLS, subtitles; FFmpeg-backed decode |
 | **Media capture** | camera, microphone, screen — gated by per-origin permission prompts |

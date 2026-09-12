@@ -883,6 +883,30 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
 }
 ```
 
+### Server-Sent Events
+
+Long-lived HTTP push streams (web `EventSource`). The host reconnects automatically and sends `Last-Event-ID`. Drain events each frame via `sse_recv`. See the `sse-demo` example.
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `sse_open` | `fn(url: &str) -> u32` | Open a stream; returns a handle |
+| `sse_state` | `fn(id: u32) -> u32` | `SSE_CONNECTING`, `SSE_OPEN`, `SSE_CLOSED`, `SSE_ERROR` |
+| `sse_recv` | `fn(id: u32) -> Option<SseEvent>` | Pop the next `{ name, id, data }` event |
+| `sse_error` | `fn(id: u32) -> String` | Last error message |
+| `sse_close` | `fn(id: u32) -> i32` | Stop the stream |
+| `sse_remove` | `fn(id: u32)` | Free host resources after close |
+
+```rust
+let sse = sse_open("https://stream.wikimedia.org/v2/stream/recentchange");
+
+#[no_mangle]
+pub extern "C" fn on_frame(_dt_ms: u32) {
+    while let Some(ev) = sse_recv(sse) {
+        log(&format!("{}: {}", ev.name, ev.data));
+    }
+}
+```
+
 ### MIDI Devices
 
 Read and write MIDI messages on hardware controllers and synthesisers. Each input port maintains a bounded receive queue; long SysEx packets are split. See the `midi-demo` (piano visualizer) example.
@@ -1124,6 +1148,7 @@ oxide/
 │       ├── rtc.rs                # WebRTC peer connections, data channels, signaling
 │       ├── gpu.rs                # WebGPU-style GPU resource management
 │       ├── websocket.rs          # WebSocket connections and frame queues
+│       ├── sse.rs                # Server-Sent Events (EventSource) streams
 │       ├── midi.rs               # MIDI input/output ports with bounded queues
 │       ├── fetch.rs              # Streaming fetch handles and chunk queues
 │       ├── download.rs           # Background downloader for non-WASM URLs
@@ -1146,6 +1171,7 @@ oxide/
     ├── gpu-graphics-demo/        # GPU/WebGPU rendering demo
     ├── rtc-chat/                 # WebRTC peer-to-peer chat demo
     ├── ws-chat/                  # WebSocket chat demo
+    ├── sse-demo/                 # Server-Sent Events demo
     ├── stream-fetch-demo/        # Streaming HTTP fetch demo
     ├── midi-demo/                # MIDI piano visualizer
     ├── index/                    # Demo hub (links to other examples)

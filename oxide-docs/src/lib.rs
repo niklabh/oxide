@@ -354,6 +354,19 @@
 //! | [`oxide_sdk::ws_close`] | Initiate the close handshake |
 //! | [`oxide_sdk::ws_remove`] | Free host resources after close completes |
 //!
+//! ## Server-Sent Events
+//!
+//! EventSource-style HTTP push. The host reconnects automatically and sends
+//! `Last-Event-ID`. Drain [`oxide_sdk::sse_recv`] each frame.
+//!
+//! | Function | Description |
+//! |----------|-------------|
+//! | [`oxide_sdk::sse_open`] | Open a stream, returns a handle |
+//! | [`oxide_sdk::sse_state`] | Poll state ([`oxide_sdk::SSE_OPEN`], etc.) |
+//! | [`oxide_sdk::sse_recv`] | Pop the next [`oxide_sdk::SseEvent`] |
+//! | [`oxide_sdk::sse_error`] | Last error message |
+//! | [`oxide_sdk::sse_close`] / [`oxide_sdk::sse_remove`] | Stop the stream and free resources |
+//!
 //! ## MIDI Devices
 //!
 //! Read and write MIDI messages on hardware controllers and synthesisers.
@@ -486,6 +499,7 @@
 //! - **[`oxide_browser::gpu`]** — WebGPU-style host state: buffers, textures, shaders, and render/compute pipelines.
 //! - **[`oxide_browser::rtc`]** — WebRTC peer connections, data channels, media tracks, and the built-in signalling client.
 //! - **[`oxide_browser::websocket`]** — WebSocket host state: connection registry, send/recv queues, and ready-state tracking.
+//! - **[`oxide_browser::sse`]** — Server-Sent Events: EventSource parser, reconnect, and `Last-Event-ID`.
 //! - **[`oxide_browser::midi`]** — MIDI input/output port enumeration, bounded receive queues, and packet splitting.
 //! - **[`oxide_browser::fetch`]** — Streaming fetch host state: in-flight handles, body chunk queue, and abort tracking.
 //! - **[`oxide_browser::download`]** — Background downloader for non-WASM URLs surfaced as files in the host UI.

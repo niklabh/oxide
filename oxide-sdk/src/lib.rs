@@ -99,6 +99,7 @@
 //! | **Media capture** | [`camera_open`], [`camera_capture_frame`], [`microphone_open`], [`microphone_read_samples`], [`screen_capture`] |
 //! | **WebRTC** | [`rtc_create_peer`], [`rtc_create_offer`], [`rtc_create_answer`], [`rtc_create_data_channel`], [`rtc_send`], [`rtc_recv`], [`rtc_signal_connect`] |
 //! | **WebSocket** | [`ws_connect`], [`ws_send_text`], [`ws_send_binary`], [`ws_recv`], [`ws_ready_state`], [`ws_close`], [`ws_remove`] |
+//! | **Server-Sent Events** | [`sse_open`], [`sse_state`], [`sse_recv`], [`sse_error`], [`sse_close`], [`sse_remove`] |
 //! | **MIDI** | [`midi_input_count`], [`midi_output_count`], [`midi_input_name`], [`midi_output_name`], [`midi_open_input`], [`midi_open_output`], [`midi_send`], [`midi_recv`], [`midi_close`] |
 //! | **Timers** | [`set_timeout`], [`set_interval`], [`clear_timer`], [`request_animation_frame`], [`cancel_animation_frame`], [`time_now_ms`] |
 //! | **Events** | [`on_event`], [`off_event`], [`emit_event`], [`event_type`], [`event_data`], [`event_data_into`] |
@@ -982,6 +983,26 @@ extern "C" {
 
     #[link_name = "api_ws_remove"]
     fn _api_ws_remove(id: u32);
+
+    // ── Server-Sent Events API ──────────────────────────────────────
+
+    #[link_name = "api_sse_open"]
+    fn _api_sse_open(url_ptr: u32, url_len: u32) -> u32;
+
+    #[link_name = "api_sse_state"]
+    fn _api_sse_state(id: u32) -> u32;
+
+    #[link_name = "api_sse_recv"]
+    fn _api_sse_recv(id: u32, out_ptr: u32, out_cap: u32) -> i64;
+
+    #[link_name = "api_sse_error"]
+    fn _api_sse_error(id: u32, out_ptr: u32, out_cap: u32) -> i32;
+
+    #[link_name = "api_sse_close"]
+    fn _api_sse_close(id: u32) -> i32;
+
+    #[link_name = "api_sse_remove"]
+    fn _api_sse_remove(id: u32);
 
     // ── Background Workers API ──────────────────────────────────────
 
@@ -2796,6 +2817,117 @@ pub fn ws_close(id: u32) -> i32 {
 /// leaks.
 pub fn ws_remove(id: u32) {
     unsafe { _api_ws_remove(id) }
+}
+
+// ─── Server-Sent Events API ──────────────────────────────────────────────────
+
+/// SSE stream is connecting or reconnecting.
+pub const SSE_CONNECTING: u32 = 0;
+/// SSE stream is open; events may be queued.
+pub const SSE_OPEN: u32 = 1;
+/// SSE stream was closed (guest close or HTTP 204).
+pub const SSE_CLOSED: u32 = 2;
+/// Last connection attempt failed. See [`sse_error`].
+pub const SSE_ERROR: u32 = 3;
+
+/// One event from an [`sse_open`] stream.
+pub struct SseEvent {
+    /// Event type (`"message"` when the server omitted `event:`).
+    pub name: String,
+    /// Last-Event-ID value, or empty.
+    pub id: String,
+    /// Payload (`data:` lines joined with a newline).
+    pub data: String,
+}
+
+/// Open an EventSource-style stream at `url`.
+///
+/// Returns a handle (`> 0`) or `0` on error. The host reconnects automatically
+/// and sends `Last-Event-ID`. Poll [`sse_state`] and drain [`sse_recv`] each frame.
+pub fn sse_open(url: &str) -> u32 {
+    unsafe { _api_sse_open(url.as_ptr() as u32, url.len() as u32) }
+}
+
+/// Current lifecycle state. See the `SSE_*` constants.
+pub fn sse_state(id: u32) -> u32 {
+    unsafe { _api_sse_state(id) }
+}
+
+/// Pop the next queued event, or `None` if the queue is empty.
+pub fn sse_recv(id: u32) -> Option<SseEvent> {
+    let mut cap = 1024usize;
+    loop {
+        let mut buf = vec![0u8; cap];
+        let n = unsafe { _api_sse_recv(id, buf.as_mut_ptr() as u32, buf.len() as u32) };
+        if n < 0 {
+            return None;
+        }
+        let need = n as usize;
+        if need > cap {
+            if need > 256 * 1024 {
+                return None;
+            }
+            cap = need;
+            continue;
+        }
+        return decode_sse_event(&buf[..need]);
+    }
+}
+
+fn decode_sse_event(bytes: &[u8]) -> Option<SseEvent> {
+    if bytes.len() < 8 {
+        return None;
+    }
+    let name_len = u16::from_le_bytes([bytes[0], bytes[1]]) as usize;
+    let mut off = 2;
+    if off + name_len + 2 > bytes.len() {
+        return None;
+    }
+    let name = String::from_utf8_lossy(&bytes[off..off + name_len]).into_owned();
+    off += name_len;
+    let id_len = u16::from_le_bytes([bytes[off], bytes[off + 1]]) as usize;
+    off += 2;
+    if off + id_len + 4 > bytes.len() {
+        return None;
+    }
+    let id = String::from_utf8_lossy(&bytes[off..off + id_len]).into_owned();
+    off += id_len;
+    let data_len = u32::from_le_bytes(bytes[off..off + 4].try_into().ok()?) as usize;
+    off += 4;
+    if off + data_len > bytes.len() {
+        return None;
+    }
+    let data = String::from_utf8_lossy(&bytes[off..off + data_len]).into_owned();
+    Some(SseEvent { name, id, data })
+}
+
+/// Last error message for `id`, or an empty string.
+pub fn sse_error(id: u32) -> String {
+    let mut buf = vec![0u8; 512];
+    let n = unsafe { _api_sse_error(id, buf.as_mut_ptr() as u32, buf.len() as u32) };
+    if n <= 0 {
+        return String::new();
+    }
+    let need = n as usize;
+    if need > buf.len() {
+        buf.resize(need.min(4 * 1024), 0);
+        let n = unsafe { _api_sse_error(id, buf.as_mut_ptr() as u32, buf.len() as u32) };
+        if n <= 0 {
+            return String::new();
+        }
+        return String::from_utf8_lossy(&buf[..n as usize]).into_owned();
+    }
+    String::from_utf8_lossy(&buf[..need]).into_owned()
+}
+
+/// Close the stream. Returns `1` if the handle was known.
+pub fn sse_close(id: u32) -> i32 {
+    unsafe { _api_sse_close(id) }
+}
+
+/// Release host resources after [`sse_state`] is [`SSE_CLOSED`].
+pub fn sse_remove(id: u32) {
+    unsafe { _api_sse_remove(id) }
 }
 
 // ─── Background Workers API ────────────────────────────────────────────────────

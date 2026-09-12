@@ -211,6 +211,8 @@ pub struct HostState {
     pub midi: Arc<Mutex<Option<crate::midi::MidiState>>>,
     /// Streaming / non-blocking fetch state (lazily initialised on first `api_fetch_begin`).
     pub fetch: Arc<Mutex<Option<crate::fetch::FetchState>>>,
+    /// Server-Sent Events streams (lazily initialised on first `api_sse_open`).
+    pub sse: Arc<Mutex<Option<crate::sse::SseState>>>,
     /// Native file and folder picker handles. Paths never cross the sandbox;
     /// guests only see opaque `u32` handles allocated here.
     pub file_picker: Arc<Mutex<crate::file_picker::FilePickerState>>,
@@ -726,6 +728,7 @@ impl Default for HostState {
             ws: Arc::new(Mutex::new(None)),
             midi: Arc::new(Mutex::new(None)),
             fetch: Arc::new(Mutex::new(None)),
+            sse: Arc::new(Mutex::new(None)),
             file_picker: Arc::new(Mutex::new(crate::file_picker::FilePickerState::default())),
             events: Arc::new(Mutex::new(crate::events::EventState::default())),
             download_manager: DownloadManager::new(),
@@ -4564,6 +4567,9 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
 
     // ── Streaming / non-blocking Fetch API ────────────────────────────
     crate::fetch::register_fetch_functions(linker)?;
+
+    // ── Server-Sent Events API ────────────────────────────────────────
+    crate::sse::register_sse_functions(linker)?;
 
     // ── Event System ──────────────────────────────────────────────────
     crate::events::register_event_functions(linker)?;
