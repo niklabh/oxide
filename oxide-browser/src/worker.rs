@@ -31,7 +31,7 @@ use crate::capabilities::{
     console_log, read_guest_bytes, read_guest_string, register_host_functions, write_guest_bytes,
     ConsoleEntry, ConsoleLevel, HostState,
 };
-use crate::engine::ModuleLoader;
+use crate::engine::{compile_cached, ModuleLoader};
 use crate::url::OxideUrl;
 
 /// Message handed to a worker thread over its inbox channel.
@@ -192,7 +192,7 @@ fn worker_main(
         }
     };
 
-    let module = match Module::new(&loader.engine, &wasm_bytes) {
+    let module = match compile_cached(&loader.engine, &wasm_bytes) {
         Ok(m) => m,
         Err(e) => {
             console_log(

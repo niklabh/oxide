@@ -227,7 +227,7 @@ The core architecture is live: a Rust-native browser that fetches and executes `
 - [ ] `serial_read(port)` / `serial_write(port, data)` — bidirectional serial I/O
 - [ ] `nfc_scan()` — read NFC tags (NDEF records) on supported devices
 - [ ] `nfc_write(tag, records)` — write NDEF data to writable NFC tags
-- [ ] `battery_status()` — query battery level, charging state, and estimated time remaining
+- [x] `battery_status()` — query battery level and charging state (`battery_level`, `battery_charging`)
 - [ ] `battery_on_change()` — poll for battery status changes
 - [ ] `haptic_vibrate(pattern)` — trigger haptic feedback patterns (single pulse, sequences, intensity levels)
 - [ ] `haptic_impact(style)` — fire precise impact feedback (light, medium, heavy) on supported hardware
@@ -460,7 +460,7 @@ The core architecture is live: a Rust-native browser that fetches and executes `
 
 ### Performance
 
-- [ ] Ahead-of-time (AOT) compilation cache for frequently loaded modules
+- [x] Ahead-of-time (AOT) compilation cache for frequently loaded modules
 - [ ] Parallel module compilation
 - [ ] Streaming compilation (compile while downloading)
 - [ ] Memory pool recycling for module instances

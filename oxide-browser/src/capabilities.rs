@@ -23,7 +23,7 @@ use wasmtime::*;
 use crate::audio_format;
 use crate::bookmarks::SharedBookmarkStore;
 use crate::download::DownloadManager;
-use crate::engine::ModuleLoader;
+use crate::engine::{compile_cached, ModuleLoader};
 use crate::history::SharedHistoryStore;
 use crate::navigation::NavigationStack;
 use crate::subtitle;
@@ -2388,7 +2388,7 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
                 Err(_) => return -1,
             };
 
-            let module = match Module::new(&loader.engine, &wasm_bytes) {
+            let module = match compile_cached(&loader.engine, &wasm_bytes) {
                 Ok(m) => m,
                 Err(e) => {
                     console_log(

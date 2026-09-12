@@ -21,7 +21,7 @@
 //! crate-type = ["cdylib"]
 //!
 //! [dependencies]
-//! oxide-sdk = "0.4"
+//! oxide-sdk = "0.7"
 //! ```
 //!
 //! ### Static app (one-shot render)

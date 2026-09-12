@@ -465,7 +465,7 @@
 //! Key modules for contributors:
 //!
 //! - **[`oxide_browser::engine`]** — Wasmtime engine setup, [`oxide_browser::engine::SandboxPolicy`],
-//!   fuel metering, bounded linear memory
+//!   fuel metering, bounded linear memory, and an on-disk AOT compilation cache
 //! - **[`oxide_browser::runtime`]** — [`oxide_browser::runtime::BrowserHost`] orchestrates module
 //!   fetching, compilation, and execution. [`oxide_browser::runtime::LiveModule`] keeps interactive
 //!   apps alive across frames.

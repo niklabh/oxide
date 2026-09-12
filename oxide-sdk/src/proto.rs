@@ -366,3 +366,125 @@ impl<'a> ProtoDecoder<'a> {
         fields
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn field<'a>(fields: &'a [ProtoField<'a>], number: u32) -> &'a ProtoField<'a> {
+        fields
+            .iter()
+            .find(|f| f.number == number)
+            .unwrap_or_else(|| panic!("missing field {number}"))
+    }
+
+    #[test]
+    fn empty_message_has_no_fields() {
+        let data = ProtoEncoder::new().finish();
+        assert!(data.is_empty());
+        assert!(ProtoDecoder::new(&data).next().is_none());
+    }
+
+    #[test]
+    fn roundtrip_varint_types() {
+        let data = ProtoEncoder::new()
+            .uint32(1, 42)
+            .uint64(2, u64::MAX)
+            .int32(3, -7)
+            .int64(4, i64::MIN)
+            .sint32(5, -123)
+            .sint64(6, i64::MIN)
+            .bool(7, true)
+            .bool(8, false)
+            .finish();
+        let fields = ProtoDecoder::new(&data).collect_fields();
+        assert_eq!(fields.len(), 8);
+        assert_eq!(field(&fields, 1).as_u32(), 42);
+        assert_eq!(field(&fields, 2).as_u64(), u64::MAX);
+        assert_eq!(field(&fields, 3).as_i32(), -7);
+        assert_eq!(field(&fields, 4).as_i64(), i64::MIN);
+        assert_eq!(field(&fields, 5).as_sint32(), -123);
+        assert_eq!(field(&fields, 6).as_sint64(), i64::MIN);
+        assert!(field(&fields, 7).as_bool());
+        assert!(!field(&fields, 8).as_bool());
+    }
+
+    #[test]
+    fn roundtrip_bytes_and_strings() {
+        let data = ProtoEncoder::new()
+            .string(1, "alice")
+            .bytes(2, &[0xCA, 0xFE])
+            .string(3, "")
+            .bytes(4, &[])
+            .string(5, "π")
+            .finish();
+        let fields = ProtoDecoder::new(&data).collect_fields();
+        assert_eq!(field(&fields, 1).as_str(), "alice");
+        assert_eq!(field(&fields, 2).as_bytes(), &[0xCA, 0xFE]);
+        assert_eq!(field(&fields, 3).as_str(), "");
+        assert!(field(&fields, 4).as_bytes().is_empty());
+        assert_eq!(field(&fields, 5).as_str(), "π");
+    }
+
+    #[test]
+    fn roundtrip_fixed_and_float() {
+        let data = ProtoEncoder::new()
+            .fixed32(1, 0xAABBCCDD)
+            .fixed64(2, 0x1122334455667788)
+            .sfixed32(3, -42)
+            .sfixed64(4, i64::MIN)
+            .float(5, 1.5)
+            .double(6, -2.25)
+            .finish();
+        let fields = ProtoDecoder::new(&data).collect_fields();
+        assert_eq!(field(&fields, 1).as_u32(), 0xAABBCCDD);
+        assert_eq!(field(&fields, 2).as_u64(), 0x1122334455667788);
+        assert_eq!(field(&fields, 3).as_i32(), -42);
+        assert_eq!(field(&fields, 4).as_i64(), i64::MIN);
+        assert_eq!(field(&fields, 5).as_f32(), 1.5);
+        assert_eq!(field(&fields, 6).as_f64(), -2.25);
+    }
+
+    #[test]
+    fn nested_message_roundtrip() {
+        let inner = ProtoEncoder::new().string(1, "nested").uint32(2, 9);
+        let data = ProtoEncoder::new()
+            .string(1, "outer")
+            .message(2, &inner)
+            .finish();
+        let fields = ProtoDecoder::new(&data).collect_fields();
+        assert_eq!(field(&fields, 1).as_str(), "outer");
+        let inner_fields = field(&fields, 2).as_message().collect_fields();
+        assert_eq!(field(&inner_fields, 1).as_str(), "nested");
+        assert_eq!(field(&inner_fields, 2).as_u32(), 9);
+    }
+
+    #[test]
+    fn decoder_skips_unknown_field_numbers() {
+        let data = ProtoEncoder::new()
+            .string(1, "keep")
+            .uint32(99, 7)
+            .bool(2, true)
+            .finish();
+        let mut seen = Vec::new();
+        let mut decoder = ProtoDecoder::new(&data);
+        while let Some(f) = decoder.next() {
+            if f.number == 1 || f.number == 2 {
+                seen.push(f.number);
+            }
+        }
+        assert_eq!(seen, vec![1, 2]);
+    }
+
+    #[test]
+    fn truncated_input_stops_cleanly() {
+        let data = ProtoEncoder::new().string(1, "hello").finish();
+        assert!(
+            ProtoDecoder::new(&data[..data.len() - 1])
+                .collect_fields()
+                .len()
+                < 2
+        );
+        assert!(ProtoDecoder::new(&[]).next().is_none());
+    }
+}

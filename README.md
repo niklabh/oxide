@@ -261,7 +261,7 @@ oxide/
 ```
 
 1. **Fetch** — download `.wasm` via HTTP or read a local file (max 50 MB); an optional sibling `.toml` manifest is loaded alongside.
-2. **Compile** — `WasmEngine` + `SandboxPolicy` (fuel and memory bounds).
+2. **Compile** — `WasmEngine` + `SandboxPolicy` (fuel and memory bounds). Serialized artifacts are reused from an on-disk AOT cache keyed by the module hash.
 3. **Link** — register all `oxide::*` imports; bounded linear memory (4096 pages / 256 MB max).
 4. **Instantiate** — `HostState` holds canvas commands, console, input, storage, widgets.
 5. **`start_app()`** — guest entry runs once.

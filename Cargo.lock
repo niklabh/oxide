@@ -5627,6 +5627,7 @@ dependencies = [
  "tracing-subscriber",
  "url",
  "wasmtime",
+ "wat",
  "webrtc",
  "wgpu",
 ]
