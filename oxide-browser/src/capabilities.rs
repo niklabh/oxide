@@ -219,6 +219,11 @@ pub struct HostState {
     /// Event listeners, queued events, and built-in event detector state
     /// (resize, focus, online/offline, touch, gamepad, drag-drop).
     pub events: Arc<Mutex<crate::events::EventState>>,
+    /// Shared chrome appearance (System / Dark / Light). Read by `api_system_theme`.
+    pub theme_preference: Arc<Mutex<crate::prefs::ThemePreference>>,
+    /// Shared page zoom multiplier. `api_mouse_position` divides by this so
+    /// guests keep working in their layout coordinate space.
+    pub page_zoom: Arc<Mutex<f32>>,
     /// Download manager for saving files and exporting canvas content.
     pub download_manager: DownloadManager,
     /// Whether the canvas currently has keyboard/window focus. Set by the UI
@@ -731,6 +736,8 @@ impl Default for HostState {
             sse: Arc::new(Mutex::new(None)),
             file_picker: Arc::new(Mutex::new(crate::file_picker::FilePickerState::default())),
             events: Arc::new(Mutex::new(crate::events::EventState::default())),
+            theme_preference: Arc::new(Mutex::new(crate::prefs::ThemePreference::default())),
+            page_zoom: Arc::new(Mutex::new(1.0)),
             download_manager: DownloadManager::new(),
             focused: Arc::new(AtomicBool::new(true)),
             text_system: Arc::new(Mutex::new(None)),
@@ -3064,8 +3071,9 @@ pub fn register_host_functions(linker: &mut Linker<HostState>) -> Result<()> {
         |caller: Caller<'_, HostState>| -> u64 {
             let input = caller.data().input_state.lock().unwrap();
             let offset = caller.data().canvas_offset.lock().unwrap();
-            let x = input.mouse_x - offset.0;
-            let y = input.mouse_y - offset.1;
+            let zoom = (*caller.data().page_zoom.lock().unwrap()).max(0.01);
+            let x = (input.mouse_x - offset.0) / zoom;
+            let y = (input.mouse_y - offset.1) / zoom;
             ((x.to_bits() as u64) << 32) | (y.to_bits() as u64)
         },
     )?;

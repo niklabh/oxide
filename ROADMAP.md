@@ -444,11 +444,12 @@ The core architecture is live: a Rust-native browser that fetches and executes `
 
 - [x] Multi-tab support with per-tab isolation
 - [x] Bookmarks and favorites
-- [ ] Download manager
+- [x] Download manager
 - [ ] Print-to-PDF
-- [ ] Zoom and accessibility controls
+- [x] Zoom and accessibility controls
 - [x] Keyboard shortcuts and command palette
-- [ ] Dark/light theme toggle
+- [x] Dark/light theme toggle
+- [x] Find in page (canvas text, widgets, console, history, bookmarks)
 
 ### Accessibility
 

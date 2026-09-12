@@ -94,6 +94,10 @@ This opens the Oxide browser window with a URL bar, canvas area, and console pan
 | `Ctrl/Cmd + D` / `B` | Bookmark page / toggle bookmarks panel |
 | `Ctrl/Cmd + Shift + J` | Toggle console |
 | `Ctrl/Cmd + K` | Command palette |
+| `Ctrl/Cmd + F` | Find in page (canvas text, widgets, console, history, bookmarks) |
+| `Ctrl/Cmd + G` / `Enter` | Find next (`Shift` for previous) |
+| `Ctrl/Cmd + ,` | Open Settings (`oxide://settings`) |
+| `Ctrl/Cmd + +` / `-` / `0` | Zoom in / out / reset |
 | `Escape` | Blur the address bar, or close the palette |
 
 ---
@@ -996,7 +1000,7 @@ Formats match the web `CompressionStream` names: `Gzip`, `Deflate` (raw), `Zlib`
 
 | Function | Signature | Description |
 |----------|-----------|-------------|
-| `system_theme` | `fn() -> u32` | `THEME_LIGHT` (0), `THEME_DARK` (1), or `THEME_UNKNOWN` (2) |
+| `system_theme` | `fn() -> u32` | `THEME_LIGHT` (0), `THEME_DARK` (1), or `THEME_UNKNOWN` (2). Follows the browser appearance setting (`oxide://settings`) when it is Dark or Light; System uses the OS colour scheme. |
 | `system_locale` | `fn() -> String` | BCP 47 locale tag (e.g. `"en-IN"`) |
 | `system_timezone` | `fn() -> String` | IANA timezone name (e.g. `"Asia/Kolkata"`) |
 | `system_timezone_offset_minutes` | `fn() -> i32` | Minutes east of UTC (e.g. `330` for IST) |

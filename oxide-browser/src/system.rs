@@ -41,11 +41,16 @@ pub fn register_system_functions(linker: &mut Linker<HostState>) -> Result<()> {
     linker.func_wrap(
         "oxide",
         "api_system_theme",
-        |_caller: Caller<'_, HostState>| -> u32 {
-            match dark_light::detect() {
-                Ok(dark_light::Mode::Dark) => THEME_DARK,
-                Ok(dark_light::Mode::Light) => THEME_LIGHT,
-                _ => THEME_UNKNOWN,
+        |caller: Caller<'_, HostState>| -> u32 {
+            use crate::prefs::ThemePreference;
+            match *caller.data().theme_preference.lock().unwrap() {
+                ThemePreference::Dark => THEME_DARK,
+                ThemePreference::Light => THEME_LIGHT,
+                ThemePreference::System => match dark_light::detect() {
+                    Ok(dark_light::Mode::Dark) => THEME_DARK,
+                    Ok(dark_light::Mode::Light) => THEME_LIGHT,
+                    _ => THEME_UNKNOWN,
+                },
             }
         },
     )?;
