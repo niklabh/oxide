@@ -65,6 +65,11 @@ jobs:
         run: cargo check -p oxide-sdk --target wasm32-unknown-unknown
 
       - name: Check examples (wasm32)
-        run: |
-          cargo check -p hello-oxide --target wasm32-unknown-unknown
-          cargo check -p media-capture --target wasm32-unknown-unknown
+        run: >
+          cargo check --target wasm32-unknown-unknown --workspace
+          --exclude oxide-browser
+          --exclude oxide-docs
+          --exclude fullstack-notes-backend
+
+      - name: Check fullstack-notes backend
+        run: cargo check -p fullstack-notes-backend

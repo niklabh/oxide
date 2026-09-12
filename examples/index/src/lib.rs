@@ -84,6 +84,22 @@ const CARDS: &[Card] = &[
         color: YELLOW,
         icon_char: "F",
     },
+    Card {
+        title: "Platform Demo",
+        subtitle: "platform_demo.wasm",
+        description: "SHA-512, HMAC, gzip/deflate, theme, locale, timezone, and battery.",
+        url: "https://oxide.foundation/platform_demo.wasm",
+        color: ORANGE,
+        icon_char: "P",
+    },
+    Card {
+        title: "Server-Sent Events",
+        subtitle: "sse_demo.wasm",
+        description: "EventSource streams with automatic reconnect and Last-Event-ID.",
+        url: "https://oxide.foundation/sse_demo.wasm",
+        color: CYAN,
+        icon_char: "S",
+    },
 ];
 
 #[no_mangle]
@@ -341,4 +357,6 @@ pub extern "C" fn on_frame(_dt_ms: u32) {
         255,
         "Click any card to launch the demo in this browser.",
     );
+
+    set_content_size(width, (footer_y + 70.0) as u32);
 }

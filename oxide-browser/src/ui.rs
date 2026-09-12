@@ -855,7 +855,7 @@ fn decoded_to_render_image(
 ) -> Arc<RenderImage> {
     let mut buf = image::RgbaImage::from_raw(decoded.width, decoded.height, decoded.pixels.clone())
         .expect("decoded image dimensions");
-    for pixel in buf.chunks_exact_mut(4) {
+    for pixel in buf.as_chunks_mut::<4>().0 {
         pixel.swap(0, 2);
     }
     let frame = Frame::new(buf);
