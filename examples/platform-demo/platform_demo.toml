@@ -1,0 +1,4 @@
+name = "Platform Demo"
+description = "Crypto, compression, and system info APIs"
+version = "0.1.0"
+permissions = []

@@ -937,8 +937,34 @@ register_hyperlink(20.0, 100.0, 200.0, 20.0, "https://example.com/app.wasm");
 |----------|-----------|-------------|
 | `hash_sha256` | `fn(data: &[u8]) -> [u8; 32]` | SHA-256 hash (raw) |
 | `hash_sha256_hex` | `fn(data: &[u8]) -> String` | SHA-256 hash (hex) |
+| `hash_sha512` | `fn(data: &[u8]) -> [u8; 64]` | SHA-512 hash (raw) |
+| `hash_sha512_hex` | `fn(data: &[u8]) -> String` | SHA-512 hash (hex) |
+| `hmac_sha256` | `fn(key: &[u8], data: &[u8]) -> [u8; 32]` | HMAC-SHA256 tag (raw) |
+| `hmac_sha256_hex` | `fn(key: &[u8], data: &[u8]) -> String` | HMAC-SHA256 tag (hex) |
+| `random_bytes` | `fn(len: usize) -> Vec<u8>` | OS-grade random bytes (64 KiB per host call) |
+| `uuid_v4` | `fn() -> String` | Random RFC 4122 version-4 UUID |
 | `base64_encode` | `fn(data: &[u8]) -> String` | Encode to base64 |
 | `base64_decode` | `fn(encoded: &str) -> Vec<u8>` | Decode from base64 |
+
+### Compression
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `compress` | `fn(format: CompressionFormat, data: &[u8]) -> Vec<u8>` | Gzip, raw deflate, or zlib |
+| `decompress` | `fn(format: CompressionFormat, data: &[u8]) -> Option<Vec<u8>>` | Inverse of `compress`; `None` on corrupt or oversized output |
+
+Formats match the web `CompressionStream` names: `Gzip`, `Deflate` (raw), `Zlib`. Decompressed output is capped at 128 MB on the host.
+
+### System info
+
+| Function | Signature | Description |
+|----------|-----------|-------------|
+| `system_theme` | `fn() -> u32` | `THEME_LIGHT` (0), `THEME_DARK` (1), or `THEME_UNKNOWN` (2) |
+| `system_locale` | `fn() -> String` | BCP 47 locale tag (e.g. `"en-IN"`) |
+| `system_timezone` | `fn() -> String` | IANA timezone name (e.g. `"Asia/Kolkata"`) |
+| `system_timezone_offset_minutes` | `fn() -> i32` | Minutes east of UTC (e.g. `330` for IST) |
+| `battery_level` | `fn() -> i32` | Charge percent `0..=100`, or `-1` when no battery |
+| `battery_charging` | `fn() -> i32` | `1` charging/full, `0` discharging, `-1` unknown |
 
 ### Clipboard
 
@@ -1087,7 +1113,9 @@ oxide/
 │       ├── websocket.rs          # WebSocket connections and frame queues
 │       ├── midi.rs               # MIDI input/output ports with bounded queues
 │       ├── fetch.rs              # Streaming fetch handles and chunk queues
-│       └── download.rs           # Background downloader for non-WASM URLs
+│       ├── download.rs           # Background downloader for non-WASM URLs
+│       ├── compression.rs        # Gzip / deflate / zlib host functions
+│       └── system.rs             # Theme, locale, timezone, battery
 ├── oxide-sdk/                    # Guest SDK (no dependencies)
 │   ├── Cargo.toml
 │   └── src/
@@ -1108,6 +1136,7 @@ oxide/
     ├── stream-fetch-demo/        # Streaming HTTP fetch demo
     ├── midi-demo/                # MIDI piano visualizer
     ├── index/                    # Demo hub (links to other examples)
+    ├── platform-demo/            # Crypto, compression, and system info
     └── fullstack-notes/          # Full-stack example (Rust frontend + backend)
 ```
 

@@ -105,7 +105,9 @@
 //! | **Navigation** | [`navigate`], [`push_state`], [`replace_state`], [`get_url`], [`history_back`], [`history_forward`] |
 //! | **Input** | [`mouse_position`], [`mouse_button_down`], [`mouse_button_clicked`], [`key_down`], [`key_pressed`], [`scroll_delta`], [`modifiers`] |
 //! | **Widgets** | [`ui_button`], [`ui_checkbox`], [`ui_slider`], [`ui_text_input`] |
-//! | **Crypto** | [`hash_sha256`], [`hash_sha256_hex`], [`base64_encode`], [`base64_decode`] |
+//! | **Crypto** | [`hash_sha256`], [`hash_sha512`], [`hmac_sha256`], [`random_bytes`], [`uuid_v4`], [`base64_encode`], [`base64_decode`] |
+//! | **Compression** | [`compress`], [`decompress`], [`CompressionFormat`] |
+//! | **System info** | [`system_theme`], [`system_locale`], [`system_timezone`], [`system_timezone_offset_minutes`], [`battery_level`], [`battery_charging`] |
 //! | **Other** | [`clipboard_write`], [`clipboard_read`], [`random_u64`], [`random_f64`], [`notify`], [`upload_file`], [`load_module`], [`download_data`], [`download_url`], [`canvas_print_pdf`] |
 //!
 //! ## Guest Module Contract
@@ -451,6 +453,54 @@ extern "C" {
 
     #[link_name = "api_hash_sha256"]
     fn _api_hash_sha256(data_ptr: u32, data_len: u32, out_ptr: u32) -> u32;
+
+    #[link_name = "api_hash_sha512"]
+    fn _api_hash_sha512(data_ptr: u32, data_len: u32, out_ptr: u32) -> u32;
+
+    #[link_name = "api_hmac_sha256"]
+    fn _api_hmac_sha256(
+        key_ptr: u32,
+        key_len: u32,
+        data_ptr: u32,
+        data_len: u32,
+        out_ptr: u32,
+    ) -> u32;
+
+    #[link_name = "api_random_bytes"]
+    fn _api_random_bytes(out_ptr: u32, len: u32) -> u32;
+
+    #[link_name = "api_uuid_v4"]
+    fn _api_uuid_v4(out_ptr: u32, out_cap: u32) -> u32;
+
+    #[link_name = "api_compress"]
+    fn _api_compress(format: u32, data_ptr: u32, data_len: u32, out_ptr: u32, out_cap: u32) -> i64;
+
+    #[link_name = "api_decompress"]
+    fn _api_decompress(
+        format: u32,
+        data_ptr: u32,
+        data_len: u32,
+        out_ptr: u32,
+        out_cap: u32,
+    ) -> i64;
+
+    #[link_name = "api_system_theme"]
+    fn _api_system_theme() -> u32;
+
+    #[link_name = "api_system_locale"]
+    fn _api_system_locale(out_ptr: u32, out_cap: u32) -> u32;
+
+    #[link_name = "api_system_timezone"]
+    fn _api_system_timezone(out_ptr: u32, out_cap: u32) -> u32;
+
+    #[link_name = "api_system_timezone_offset"]
+    fn _api_system_timezone_offset() -> i32;
+
+    #[link_name = "api_battery_level"]
+    fn _api_battery_level() -> i32;
+
+    #[link_name = "api_battery_charging"]
+    fn _api_battery_charging() -> i32;
 
     #[link_name = "api_base64_encode"]
     fn _api_base64_encode(data_ptr: u32, data_len: u32, out_ptr: u32, out_cap: u32) -> u32;
@@ -3162,6 +3212,194 @@ pub fn base64_decode(encoded: &str) -> Vec<u8> {
         )
     };
     buf[..len as usize].to_vec()
+}
+
+/// Compute the SHA-512 hash of the given data. Returns 64 bytes.
+pub fn hash_sha512(data: &[u8]) -> [u8; 64] {
+    let mut out = [0u8; 64];
+    unsafe {
+        _api_hash_sha512(
+            data.as_ptr() as u32,
+            data.len() as u32,
+            out.as_mut_ptr() as u32,
+        );
+    }
+    out
+}
+
+/// Return SHA-512 hash as a lowercase hex string.
+pub fn hash_sha512_hex(data: &[u8]) -> String {
+    to_hex(&hash_sha512(data))
+}
+
+/// Compute the HMAC-SHA256 tag of `data` under `key`. Returns 32 bytes.
+pub fn hmac_sha256(key: &[u8], data: &[u8]) -> [u8; 32] {
+    let mut out = [0u8; 32];
+    unsafe {
+        _api_hmac_sha256(
+            key.as_ptr() as u32,
+            key.len() as u32,
+            data.as_ptr() as u32,
+            data.len() as u32,
+            out.as_mut_ptr() as u32,
+        );
+    }
+    out
+}
+
+/// Return the HMAC-SHA256 tag as a lowercase hex string.
+pub fn hmac_sha256_hex(key: &[u8], data: &[u8]) -> String {
+    to_hex(&hmac_sha256(key, data))
+}
+
+fn to_hex(bytes: &[u8]) -> String {
+    let mut hex = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        hex.push(HEX_CHARS[(*byte >> 4) as usize]);
+        hex.push(HEX_CHARS[(*byte & 0x0F) as usize]);
+    }
+    hex
+}
+
+/// Fill a buffer with `len` bytes of OS-grade (cryptographically secure)
+/// randomness. The host serves at most 64 KiB per call, so this loops as
+/// needed for larger requests.
+pub fn random_bytes(len: usize) -> Vec<u8> {
+    let mut out = vec![0u8; len];
+    let mut filled = 0;
+    while filled < len {
+        let n =
+            unsafe { _api_random_bytes(out[filled..].as_mut_ptr() as u32, (len - filled) as u32) };
+        if n == 0 {
+            break;
+        }
+        filled += n as usize;
+    }
+    out.truncate(filled);
+    out
+}
+
+/// Generate a random RFC 4122 version-4 UUID, e.g.
+/// `"3b12f1df-5232-4804-897e-917bf397618a"`.
+pub fn uuid_v4() -> String {
+    let mut buf = [0u8; 36];
+    let len = unsafe { _api_uuid_v4(buf.as_mut_ptr() as u32, buf.len() as u32) };
+    String::from_utf8_lossy(&buf[..len as usize]).to_string()
+}
+
+// ─── Compression API ────────────────────────────────────────────────────────
+
+/// Compression format for [`compress`] / [`decompress`], mirroring the web
+/// platform's `CompressionStream` formats.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u32)]
+pub enum CompressionFormat {
+    /// Gzip (RFC 1952) — like `CompressionStream("gzip")`.
+    Gzip = 0,
+    /// Raw deflate (RFC 1951) — like `CompressionStream("deflate-raw")`.
+    Deflate = 1,
+    /// Zlib (RFC 1950) — like `CompressionStream("deflate")`.
+    Zlib = 2,
+}
+
+/// Compress data on the host. Returns the compressed bytes, or an empty
+/// vector if compression failed (should not happen for valid input).
+pub fn compress(format: CompressionFormat, data: &[u8]) -> Vec<u8> {
+    // Compressed output is usually smaller than the input; +64 covers
+    // headers and incompressible data. One retry if the guess is short.
+    let cap = data.len() + 64;
+    compress_call(_api_compress, format, data, cap).unwrap_or_default()
+}
+
+/// Decompress data on the host. Returns `None` if the data is corrupt,
+/// not in the given format, or the output exceeds the host's 128 MB cap.
+pub fn decompress(format: CompressionFormat, data: &[u8]) -> Option<Vec<u8>> {
+    let cap = data.len().saturating_mul(4) + 64;
+    compress_call(_api_decompress, format, data, cap)
+}
+
+/// Shared two-call protocol: the host returns the total output size; if it
+/// exceeded our buffer, retry once with a buffer of exactly that size.
+fn compress_call(
+    api: unsafe extern "C" fn(u32, u32, u32, u32, u32) -> i64,
+    format: CompressionFormat,
+    data: &[u8],
+    initial_cap: usize,
+) -> Option<Vec<u8>> {
+    let mut buf = vec![0u8; initial_cap];
+    let mut ret = unsafe {
+        api(
+            format as u32,
+            data.as_ptr() as u32,
+            data.len() as u32,
+            buf.as_mut_ptr() as u32,
+            buf.len() as u32,
+        )
+    };
+    if ret < 0 {
+        return None;
+    }
+    if ret as usize > buf.len() {
+        buf = vec![0u8; ret as usize];
+        ret = unsafe {
+            api(
+                format as u32,
+                data.as_ptr() as u32,
+                data.len() as u32,
+                buf.as_mut_ptr() as u32,
+                buf.len() as u32,
+            )
+        };
+        if ret < 0 || ret as usize > buf.len() {
+            return None;
+        }
+    }
+    buf.truncate(ret as usize);
+    Some(buf)
+}
+
+// ─── System Info API ────────────────────────────────────────────────────────
+
+/// [`system_theme`] result: light colour scheme.
+pub const THEME_LIGHT: u32 = 0;
+/// [`system_theme`] result: dark colour scheme.
+pub const THEME_DARK: u32 = 1;
+/// [`system_theme`] result: preference unknown or unsupported platform.
+pub const THEME_UNKNOWN: u32 = 2;
+
+/// The OS colour scheme: [`THEME_LIGHT`], [`THEME_DARK`], or [`THEME_UNKNOWN`].
+pub fn system_theme() -> u32 {
+    unsafe { _api_system_theme() }
+}
+
+/// The system BCP 47 locale tag (e.g. `"en-IN"`), or an empty string if unknown.
+pub fn system_locale() -> String {
+    let mut buf = [0u8; 64];
+    let len = unsafe { _api_system_locale(buf.as_mut_ptr() as u32, buf.len() as u32) };
+    String::from_utf8_lossy(&buf[..len as usize]).to_string()
+}
+
+/// The IANA timezone name (e.g. `"Asia/Kolkata"`), or an empty string if unknown.
+pub fn system_timezone() -> String {
+    let mut buf = [0u8; 64];
+    let len = unsafe { _api_system_timezone(buf.as_mut_ptr() as u32, buf.len() as u32) };
+    String::from_utf8_lossy(&buf[..len as usize]).to_string()
+}
+
+/// Local timezone offset in minutes east of UTC (e.g. `330` for IST, `-480` for PST).
+pub fn system_timezone_offset_minutes() -> i32 {
+    unsafe { _api_system_timezone_offset() }
+}
+
+/// Battery charge percentage `0..=100`, or `-1` when no battery is present.
+pub fn battery_level() -> i32 {
+    unsafe { _api_battery_level() }
+}
+
+/// `1` when charging or full (on AC power), `0` when discharging,
+/// `-1` when unknown or no battery is present.
+pub fn battery_charging() -> i32 {
+    unsafe { _api_battery_charging() }
 }
 
 // ─── Persistent Key-Value Store API ─────────────────────────────────────────

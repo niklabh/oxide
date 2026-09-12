@@ -182,6 +182,7 @@ Build any example with `cargo build --target wasm32-unknown-unknown --release -p
 | [`midi-demo`](./examples/midi-demo/) | MIDI input visualizer |
 | [`events-demo`](./examples/events-demo/) | Custom event listeners |
 | [`file-picker-demo`](./examples/file-picker-demo/) | Native file/folder picker and I/O |
+| [`platform-demo`](./examples/platform-demo/) | Crypto, compression, and system info |
 | [`gradient-demo`](./examples/gradient-demo/) | Canvas gradients |
 | [`typography-demo`](./examples/typography-demo/) | `canvas_text_ex`, fonts, alignment |
 | [`fullstack-notes`](./examples/fullstack-notes/) | Rust WASM frontend + native backend |

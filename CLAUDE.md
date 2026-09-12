@@ -42,6 +42,8 @@ oxide/
 │   ├── url.rs            # URL parsing (http, https, file, oxide schemes)
 │   ├── rtc.rs            # WebRTC (register_rtc_functions)
 │   ├── websocket.rs      # WebSocket (register_ws_functions)
+│   ├── compression.rs    # Gzip / deflate / zlib (register_compression_functions)
+│   ├── system.rs         # Theme, locale, timezone, battery (register_system_functions)
 │   └── gpu.rs, audio_format.rs, video.rs, media_capture.rs, …
 ├── oxide-sdk/src/
 │   ├── lib.rs            # FFI declarations + safe public wrappers
@@ -50,6 +52,7 @@ oxide/
     ├── hello-oxide/      # Minimal guest app
     ├── ws-chat/          # WebSocket demo
     ├── rtc-chat/         # WebRTC demo
+    ├── platform-demo/    # Crypto, compression, and system info
     └── …
 ```
 
