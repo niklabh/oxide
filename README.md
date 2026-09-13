@@ -78,9 +78,9 @@ In the browser: click **Open** and select
 `target/wasm32-unknown-unknown/release/hello_oxide.wasm`,  
 or enter a hosted URL (e.g. from [oxide.foundation](https://oxide.foundation)) in the address bar.
 
-Internal pages use the `oxide://` scheme: `oxide://home`, `oxide://history`, `oxide://bookmarks`, `oxide://about`, `oxide://forge`.
+Internal pages use the `oxide://` scheme: `oxide://home`, `oxide://history`, `oxide://bookmarks`, `oxide://about`, `oxide://forge`, `oxide://settings`.
 
-Common shortcuts: `Cmd/Ctrl+L` focuses the address bar, `Cmd/Ctrl+T` / `W` / `R` manage tabs and reload, `Cmd/Ctrl+K` opens the command palette. See [DOCS.md](./DOCS.md#keyboard-shortcuts) for the full list.
+Common shortcuts: `Cmd/Ctrl+L` focuses the address bar, `Cmd/Ctrl+T` / `W` / `R` manage tabs and reload, `Cmd/Ctrl+K` opens the command palette, `Cmd/Ctrl+F` finds in the page, `Cmd/Ctrl+,` opens settings, and `Cmd/Ctrl++` / `-` / `0` control page zoom. See [DOCS.md](./DOCS.md#keyboard-shortcuts) for the full list.
 
 ## Build a guest app
 
