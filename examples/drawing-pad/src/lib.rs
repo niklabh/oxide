@@ -49,7 +49,7 @@ fn app() -> &'static mut App {
             selected_color: 2,
             brush_size: DEFAULT_BRUSH,
             last_point: None,
-+           segments: Vec::with_capacity(MAX_SEGMENTS),
+            segments: Vec::with_capacity(MAX_SEGMENTS),
         })
     }
 }
@@ -76,23 +76,16 @@ pub extern "C" fn on_frame(_delta_ms: u32) {
     let point = (mouse_x, mouse_y);
     let in_canvas = mouse_is_down && mouse_y < dock_top - 4.0;
     if in_canvas && app.segments.len() < MAX_SEGMENTS {
-if in_canvas && app.segments.len() < MAX_SEGMENTS {
-    if let Some(start) = app.last_point {
-        if start != point {
-            app.segments.push(Segment {
-                start,
-                end: point,
-                color: PALETTE[app.selected_color],
-                thickness: app.brush_size,
-            });
+        if let Some(start) = app.last_point {
+            if start != point {
+                app.segments.push(Segment {
+                    start,
+                    end: point,
+                    color: PALETTE[app.selected_color],
+                    thickness: app.brush_size,
+                });
+            }
         }
-    }
-}
-            start: app.last_point.unwrap_or(point),
-            end: point,
-            color: PALETTE[app.selected_color],
-            thickness: app.brush_size,
-        });
     }
     app.last_point = in_canvas.then_some(point);
 
