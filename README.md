@@ -78,7 +78,9 @@ In the browser: click **Open** and select
 `target/wasm32-unknown-unknown/release/hello_oxide.wasm`,  
 or enter a hosted URL (e.g. from [oxide.foundation](https://oxide.foundation)) in the address bar.
 
-Internal pages use the `oxide://` scheme: `oxide://home`, `oxide://history`, `oxide://bookmarks`, `oxide://about`, `oxide://forge`.
+Internal pages use the `oxide://` scheme: `oxide://home`, `oxide://history`, `oxide://bookmarks`, `oxide://about`, `oxide://forge`, `oxide://settings`.
+
+Common shortcuts: `Cmd/Ctrl+L` focuses the address bar, `Cmd/Ctrl+T` / `W` / `R` manage tabs and reload, `Cmd/Ctrl+K` opens the command palette, `Cmd/Ctrl+F` finds in the page, `Cmd/Ctrl+,` opens settings, and `Cmd/Ctrl++` / `-` / `0` control page zoom. See [DOCS.md](./DOCS.md#keyboard-shortcuts) for the full list.
 
 ## Build a guest app
 
@@ -176,12 +178,14 @@ Build any example with `cargo build --target wasm32-unknown-unknown --release -p
 | [`gpu-graphics-demo`](./examples/gpu-graphics-demo/) | WebGPU-style buffers, shaders, compute |
 | [`rtc-chat`](./examples/rtc-chat/) | WebRTC P2P chat |
 | [`ws-chat`](./examples/ws-chat/) | WebSocket chat |
+| [`sse-demo`](./examples/sse-demo/) | Server-Sent Events (EventSource) |
 | [`stream-fetch-demo`](./examples/stream-fetch-demo/) | Streaming HTTP fetch |
 | [`timer-demo`](./examples/timer-demo/) | `set_timeout` / `set_interval` |
 | [`raf-demo`](./examples/raf-demo/) | `request_animation_frame` |
 | [`midi-demo`](./examples/midi-demo/) | MIDI input visualizer |
 | [`events-demo`](./examples/events-demo/) | Custom event listeners |
 | [`file-picker-demo`](./examples/file-picker-demo/) | Native file/folder picker and I/O |
+| [`platform-demo`](./examples/platform-demo/) | Crypto, compression, and system info |
 | [`gradient-demo`](./examples/gradient-demo/) | Canvas gradients |
 | [`typography-demo`](./examples/typography-demo/) | `canvas_text_ex`, fonts, alignment |
 | [`fullstack-notes`](./examples/fullstack-notes/) | Rust WASM frontend + native backend |
@@ -207,7 +211,7 @@ Open **`index`** in the browser for a visual catalog, or run `cargo run -p oxide
 │  │                  Capability Layer                          │  │
 │  │  "oxide" import module — ~150 host functions               │  │
 │  │  canvas · gpu · audio · video · capture · fetch · streaming│  │
-│  │  websocket · webrtc · midi · timers · animation frames     │  │
+│  │  websocket · sse · webrtc · midi · timers · animation frames│  │
 │  │  console · storage · clipboard · widgets · crypto · ...    │  │
 │  └────────────────────────────┬───────────────────────────────┘  │
 │                               │                                  │
@@ -260,7 +264,7 @@ oxide/
 ```
 
 1. **Fetch** — download `.wasm` via HTTP or read a local file (max 50 MB); an optional sibling `.toml` manifest is loaded alongside.
-2. **Compile** — `WasmEngine` + `SandboxPolicy` (fuel and memory bounds).
+2. **Compile** — `WasmEngine` + `SandboxPolicy` (fuel and memory bounds). Serialized artifacts are reused from an on-disk AOT cache keyed by the module hash.
 3. **Link** — register all `oxide::*` imports; bounded linear memory (4096 pages / 256 MB max).
 4. **Instantiate** — `HostState` holds canvas commands, console, input, storage, widgets.
 5. **`start_app()`** — guest entry runs once.
@@ -283,6 +287,7 @@ Guest modules start with **zero capabilities**. All host access is under the `"o
 | **Download / PDF** | `download_data`, `download_url`, `canvas_print_pdf` |
 | **HTTP** | `fetch`, `fetch_get/post/…`, `fetch_post_proto`, streaming `fetch_begin/recv/…` |
 | **WebSocket** | connect, send/recv text/binary, ready state, close |
+| **SSE** | EventSource streams with automatic reconnect and `Last-Event-ID` |
 | **WebRTC** | peer connection, SDP, ICE, data channels, media tracks |
 | **Audio / video** | playback, seek, HLS, subtitles; FFmpeg-backed decode |
 | **Media capture** | camera, microphone, screen — gated by per-origin permission prompts |

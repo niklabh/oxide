@@ -45,6 +45,10 @@
 //! | [`engine`] | Wasmtime engine configuration, sandbox policy, memory bounds |
 //! | [`runtime`] | Module fetching, compilation, execution lifecycle |
 //! | [`capabilities`] | All host-imported functions exposed to guest wasm modules |
+//! | [`compression`] | gzip / deflate / zlib compress and decompress |
+//! | [`system`] | System info (theme, locale, timezone, battery) |
+//! | [`prefs`] | Persisted chrome preferences (appearance, page zoom) |
+//! | [`theme`] | Dark/light chrome palettes used by the desktop shell |
 //! | [`gpu`] | WebGPU-style GPU resource management (buffers, textures, shaders, pipelines) |
 //! | [`manifest`] | Optional TOML app manifests (name, version, declared permissions) |
 //! | [`media_capture`] | Camera, microphone, and screen capture with permission prompts |
@@ -56,6 +60,7 @@
 //! | [`permissions`] | Per-origin grants for sensitive APIs (camera, microphone, geolocation, screen capture) |
 //! | [`bookmarks`] | Persistent bookmark storage backed by sled |
 //! | [`url`] | WHATWG-compliant URL parsing with Oxide-specific schemes |
+//! | [`find`] | Page-local Find (canvas text, widgets, console, history, bookmarks) |
 //! | [`ui`] | GPUI desktop shell (toolbar, canvas, console, tabs) |
 //!
 //! ## Which API do I need?
@@ -102,11 +107,13 @@
 pub mod audio_format;
 pub mod bookmarks;
 pub mod capabilities;
+pub mod compression;
 pub mod download;
 pub mod engine;
 pub mod events;
 pub mod fetch;
 pub mod file_picker;
+pub mod find;
 pub mod forge;
 pub mod forge_config;
 pub mod gpu;
@@ -116,9 +123,13 @@ pub mod media_capture;
 pub mod midi;
 pub mod navigation;
 pub mod permissions;
+pub mod prefs;
 pub mod rtc;
 pub mod runtime;
+pub mod sse;
 pub mod subtitle;
+pub mod system;
+pub mod theme;
 pub mod ui;
 pub mod url;
 pub mod video;

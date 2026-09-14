@@ -31,7 +31,7 @@ use crate::capabilities::{
     console_log, read_guest_bytes, read_guest_string, register_host_functions, write_guest_bytes,
     ConsoleEntry, ConsoleLevel, HostState,
 };
-use crate::engine::ModuleLoader;
+use crate::engine::{compile_cached, ModuleLoader};
 use crate::url::OxideUrl;
 
 /// Message handed to a worker thread over its inbox channel.
@@ -93,6 +93,8 @@ impl WorkerState {
             kv_db: parent.kv_db.clone(),
             console: parent.console.clone(),
             current_url: Arc::new(Mutex::new(url.clone())),
+            theme_preference: parent.theme_preference.clone(),
+            page_zoom: parent.page_zoom.clone(),
             worker_outbox: Some(outbox.clone()),
             worker_current_msg: Arc::new(Mutex::new(None)),
             ..Default::default()
@@ -192,7 +194,7 @@ fn worker_main(
         }
     };
 
-    let module = match Module::new(&loader.engine, &wasm_bytes) {
+    let module = match compile_cached(&loader.engine, &wasm_bytes) {
         Ok(m) => m,
         Err(e) => {
             console_log(

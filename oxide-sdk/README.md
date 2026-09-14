@@ -21,7 +21,7 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
-oxide-sdk = "0.1"
+oxide-sdk = "0.7"
 ```
 
 Write your app:
@@ -55,7 +55,9 @@ cargo build --target wasm32-unknown-unknown --release
 | **Storage** | `storage_set/get/remove` (session), `kv_store_set/get/delete` (persistent) |
 | **Networking** | `fetch`, `http_get`, `http_post`, `http_put`, `http_delete` |
 | **Navigation** | `navigate`, `push_state`, `replace_state`, `get_url`, `history_back/forward` |
-| **Crypto** | `hash_sha256`, `base64_encode/decode` |
+| **Crypto** | `hash_sha256`, `hash_sha512`, `hmac_sha256`, `random_bytes`, `uuid_v4`, `base64_encode/decode` |
+| **Compression** | `compress`, `decompress` |
+| **System** | `system_theme`, `system_locale`, `system_timezone`, `battery_level` |
 | **Clipboard** | `clipboard_read`, `clipboard_write` |
 | **Time / Random** | `time_now_ms`, `random_u64`, `random_f64` |
 | **Dynamic loading** | `load_module` |

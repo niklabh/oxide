@@ -8,7 +8,7 @@
 //!
 //! - [`run_browser`] — Start the GPUI [`Application`] and open the main browser window; pass
 //!   [`HostState`] and page status from [`crate::runtime::BrowserHost`].
-//! - [`OxideBrowserView`] — Root view: tabs, toolbar, canvas [`canvas`] element, console, and bookmarks.
+//! - [`OxideBrowserView`] — Root view: tabs, toolbar, canvas [`canvas`] element, console, bookmarks, settings (`oxide://settings`), Find (`Cmd/Ctrl+F`), and command palette (`Cmd/Ctrl+K`).
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -33,43 +33,27 @@ use crate::capabilities::{
     ConsoleLevel, DrawCommand, GradientStop, HostState, WidgetCommand, WidgetValue, WidgetVariant,
 };
 
-/// shadcn-inspired neutral dark palette used across the desktop shell and guest widgets.
-///
-/// Mirrors the default zinc-based dark theme: subtle borders, low-contrast surfaces,
-/// high-contrast foreground text. Kept as raw RGB so the values match GPUI helpers exactly.
-#[allow(dead_code)]
+/// Chrome / widget colours. Values come from [`crate::theme`] and follow the
+/// user's System / Dark / Light preference for the current render pass.
 mod theme {
-    use gpui::Rgba;
-
-    pub const BG: u32 = 0x0a0a0b; // background — page chrome
-    pub const SURFACE: u32 = 0x18181b; // raised panel
-    pub const SURFACE_HOVER: u32 = 0x27272a; // hover state on surfaces
-    pub const MUTED: u32 = 0x27272a; // muted control fill (input, switch off)
-    pub const BORDER: u32 = 0x27272a; // 1px outlines
-    pub const BORDER_STRONG: u32 = 0x3f3f46; // emphasised outlines
-    pub const RING: u32 = 0xd4d4d8; // focus ring
-    pub const PRIMARY: u32 = 0xfafafa; // primary fill (button default)
-    pub const PRIMARY_FG: u32 = 0x18181b; // text on primary fill
-    pub const FG: u32 = 0xfafafa; // body text
-    pub const FG_MUTED: u32 = 0xa1a1aa; // secondary text
-    pub const FG_DIM: u32 = 0x71717a; // disabled / placeholder text
-    pub const ACCENT: u32 = 0x60a5fa; // info / link
-    pub const DESTRUCTIVE: u32 = 0x7f1d1d; // destructive button
-    pub const SUCCESS: u32 = 0x16a34a; // success badge
-
-    /// Translucent selection highlight (matches a thin ring on dark backgrounds).
-    pub fn selection() -> Rgba {
-        gpui::rgba(0x60a5fa55)
-    }
+    pub use crate::theme::{
+        accent, bg, border, border_strong, destructive, destructive_hover, fg, fg_dim, fg_muted,
+        muted, primary, primary_fg, primary_hover, ring, selection, surface, surface_hover,
+    };
 }
 use crate::download::{format_bytes, DownloadManager, DownloadState};
 use crate::engine::ModuleLoader;
+use crate::find::{
+    collect_canvas_hits, collect_console_hits, collect_list_hits, collect_widget_hits, step_index,
+    FindHit, FindSource,
+};
 use crate::forge::{
     ForgeChatMessage, ForgeCreationSummary, ForgeMessageRole, ForgePhase, ForgeSnapshot, ForgeState,
 };
 use crate::forge_config::{mask_api_key, ForgeProvider, ForgeUserConfig};
 use crate::history::HistoryStore;
 use crate::navigation::HistoryEntry;
+use crate::prefs::{BrowserPrefs, ThemePreference};
 use crate::runtime::{LiveModule, PageStatus};
 
 enum RunRequest {
@@ -101,6 +85,296 @@ enum InternalPage {
     Bookmarks,
     About,
     Forge,
+    Settings,
+}
+
+struct PaletteCommand {
+    id: &'static str,
+    title: &'static str,
+    keywords: &'static str,
+}
+
+const PALETTE_COMMANDS: &[PaletteCommand] = &[
+    PaletteCommand {
+        id: "new-tab",
+        title: "New Tab",
+        keywords: "tab create",
+    },
+    PaletteCommand {
+        id: "close-tab",
+        title: "Close Tab",
+        keywords: "tab close",
+    },
+    PaletteCommand {
+        id: "reload",
+        title: "Reload",
+        keywords: "refresh reload",
+    },
+    PaletteCommand {
+        id: "back",
+        title: "Go Back",
+        keywords: "history back previous",
+    },
+    PaletteCommand {
+        id: "forward",
+        title: "Go Forward",
+        keywords: "history forward next",
+    },
+    PaletteCommand {
+        id: "focus-url",
+        title: "Focus Address Bar",
+        keywords: "url address omnibox location",
+    },
+    PaletteCommand {
+        id: "toggle-bookmark",
+        title: "Bookmark This Page",
+        keywords: "star favorite bookmark",
+    },
+    PaletteCommand {
+        id: "toggle-bookmarks",
+        title: "Toggle Bookmarks Panel",
+        keywords: "bookmarks sidebar",
+    },
+    PaletteCommand {
+        id: "toggle-console",
+        title: "Toggle Console",
+        keywords: "console logs debug",
+    },
+    PaletteCommand {
+        id: "find",
+        title: "Find in Page",
+        keywords: "find search look",
+    },
+    PaletteCommand {
+        id: "toggle-downloads",
+        title: "Toggle Downloads",
+        keywords: "downloads files",
+    },
+    PaletteCommand {
+        id: "open-file",
+        title: "Open Local Wasm…",
+        keywords: "open file wasm upload",
+    },
+    PaletteCommand {
+        id: "home",
+        title: "Open Home",
+        keywords: "home start",
+    },
+    PaletteCommand {
+        id: "history",
+        title: "Open History",
+        keywords: "history visits",
+    },
+    PaletteCommand {
+        id: "bookmarks-page",
+        title: "Open Bookmarks Page",
+        keywords: "bookmarks page",
+    },
+    PaletteCommand {
+        id: "forge",
+        title: "Open Forge",
+        keywords: "forge ai generate",
+    },
+    PaletteCommand {
+        id: "about",
+        title: "About Oxide",
+        keywords: "about version",
+    },
+    PaletteCommand {
+        id: "settings",
+        title: "Open Settings",
+        keywords: "settings preferences appearance theme zoom",
+    },
+    PaletteCommand {
+        id: "zoom-in",
+        title: "Zoom In",
+        keywords: "zoom larger bigger scale",
+    },
+    PaletteCommand {
+        id: "zoom-out",
+        title: "Zoom Out",
+        keywords: "zoom smaller scale",
+    },
+    PaletteCommand {
+        id: "zoom-reset",
+        title: "Reset Zoom",
+        keywords: "zoom 100 reset default",
+    },
+    PaletteCommand {
+        id: "theme-system",
+        title: "Appearance: System",
+        keywords: "theme system auto appearance",
+    },
+    PaletteCommand {
+        id: "theme-dark",
+        title: "Appearance: Dark",
+        keywords: "theme dark appearance night",
+    },
+    PaletteCommand {
+        id: "theme-light",
+        title: "Appearance: Light",
+        keywords: "theme light appearance day",
+    },
+];
+
+fn filter_palette_commands(query: &str) -> Vec<&'static PaletteCommand> {
+    let q = query.trim().to_lowercase();
+    PALETTE_COMMANDS
+        .iter()
+        .filter(|cmd| {
+            q.is_empty()
+                || cmd.title.to_lowercase().contains(&q)
+                || cmd.keywords.contains(q.as_str())
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod palette_tests {
+    use super::*;
+
+    #[test]
+    fn filter_matches_title_and_keywords() {
+        let hits = filter_palette_commands("reload");
+        assert!(hits.iter().any(|c| c.id == "reload"));
+        let hits = filter_palette_commands("omnibox");
+        assert!(hits.iter().any(|c| c.id == "focus-url"));
+        assert!(filter_palette_commands("xyz-no-such-command").is_empty());
+    }
+
+    #[test]
+    fn empty_query_lists_all_commands() {
+        assert_eq!(filter_palette_commands("").len(), PALETTE_COMMANDS.len());
+    }
+
+    #[test]
+    fn settings_and_zoom_are_discoverable() {
+        assert!(filter_palette_commands("zoom")
+            .iter()
+            .any(|c| c.id == "zoom-in"));
+        assert!(filter_palette_commands("theme")
+            .iter()
+            .any(|c| c.id == "theme-dark"));
+        assert!(filter_palette_commands("settings")
+            .iter()
+            .any(|c| c.id == "settings"));
+        assert!(filter_palette_commands("find")
+            .iter()
+            .any(|c| c.id == "find"));
+    }
+
+    #[test]
+    fn settings_is_an_internal_page() {
+        assert!(matches!(
+            try_internal_page("oxide://settings"),
+            Some(InternalPage::Settings)
+        ));
+        assert_eq!(url_to_title("oxide://settings"), "Settings");
+    }
+}
+
+fn palette_shortcut(id: &str) -> &'static str {
+    match id {
+        "new-tab" => {
+            if cfg!(target_os = "macos") {
+                "⌘T"
+            } else {
+                "Ctrl+T"
+            }
+        }
+        "close-tab" => {
+            if cfg!(target_os = "macos") {
+                "⌘W"
+            } else {
+                "Ctrl+W"
+            }
+        }
+        "reload" => {
+            if cfg!(target_os = "macos") {
+                "⌘R"
+            } else {
+                "Ctrl+R"
+            }
+        }
+        "back" => {
+            if cfg!(target_os = "macos") {
+                "⌘[ / ⌥←"
+            } else {
+                "Alt+Left"
+            }
+        }
+        "forward" => {
+            if cfg!(target_os = "macos") {
+                "⌘] / ⌥→"
+            } else {
+                "Alt+Right"
+            }
+        }
+        "focus-url" => {
+            if cfg!(target_os = "macos") {
+                "⌘L"
+            } else {
+                "Ctrl+L"
+            }
+        }
+        "toggle-bookmark" => {
+            if cfg!(target_os = "macos") {
+                "⌘D"
+            } else {
+                "Ctrl+D"
+            }
+        }
+        "toggle-bookmarks" => {
+            if cfg!(target_os = "macos") {
+                "⌘B"
+            } else {
+                "Ctrl+B"
+            }
+        }
+        "toggle-console" => {
+            if cfg!(target_os = "macos") {
+                "⌘⇧J"
+            } else {
+                "Ctrl+Shift+J"
+            }
+        }
+        "find" => {
+            if cfg!(target_os = "macos") {
+                "⌘F"
+            } else {
+                "Ctrl+F"
+            }
+        }
+        "settings" => {
+            if cfg!(target_os = "macos") {
+                "⌘,"
+            } else {
+                "Ctrl+,"
+            }
+        }
+        "zoom-in" => {
+            if cfg!(target_os = "macos") {
+                "⌘+"
+            } else {
+                "Ctrl++"
+            }
+        }
+        "zoom-out" => {
+            if cfg!(target_os = "macos") {
+                "⌘-"
+            } else {
+                "Ctrl+-"
+            }
+        }
+        "zoom-reset" => {
+            if cfg!(target_os = "macos") {
+                "⌘0"
+            } else {
+                "Ctrl+0"
+            }
+        }
+        _ => "",
+    }
 }
 
 fn try_internal_page(url: &str) -> Option<InternalPage> {
@@ -110,6 +384,7 @@ fn try_internal_page(url: &str) -> Option<InternalPage> {
         "oxide://bookmarks" => Some(InternalPage::Bookmarks),
         "oxide://about" => Some(InternalPage::About),
         "oxide://forge" => Some(InternalPage::Forge),
+        "oxide://settings" => Some(InternalPage::Settings),
         _ => None,
     }
 }
@@ -666,7 +941,7 @@ fn decoded_to_render_image(
 ) -> Arc<RenderImage> {
     let mut buf = image::RgbaImage::from_raw(decoded.width, decoded.height, decoded.pixels.clone())
         .expect("decoded image dimensions");
-    for pixel in buf.chunks_exact_mut(4) {
+    for pixel in buf.as_chunks_mut::<4>().0 {
         pixel.swap(0, 2);
     }
     let frame = Frame::new(buf);
@@ -707,7 +982,10 @@ fn paint_draw_commands(
     bounds: Bounds<Pixels>,
     cmds: &[DrawCommand],
     textures: &HashMap<usize, Arc<RenderImage>>,
+    zoom: f32,
 ) {
+    let z = zoom.max(0.01);
+    let s = |v: f32| v * z;
     let rect = bounds;
     let origin_x = f32::from(rect.origin.x);
     let origin_y = f32::from(rect.origin.y);
@@ -744,13 +1022,13 @@ fn paint_draw_commands(
                 tx,
                 ty,
             } => {
-                off_x += *tx;
-                off_y += *ty;
+                off_x += s(*tx);
+                off_y += s(*ty);
             }
             DrawCommand::Clip { x, y, w, h } => {
                 let new_clip = Bounds::from_corners(
-                    point(px(off_x + *x), px(off_y + *y)),
-                    point(px(off_x + *x + *w), px(off_y + *y + *h)),
+                    point(px(off_x + s(*x)), px(off_y + s(*y))),
+                    point(px(off_x + s(*x + *w)), px(off_y + s(*y + *h))),
                 );
                 clip = Some(match clip {
                     Some(existing) => intersect_bounds(existing, new_clip),
@@ -775,8 +1053,8 @@ fn paint_draw_commands(
                 b,
                 a,
             } => {
-                let min = point(px(off_x + *x), px(off_y + *y));
-                let cmd_bounds = Bounds::from_corners(min, min + point(px(*w), px(*h)));
+                let min = point(px(off_x + s(*x)), px(off_y + s(*y)));
+                let cmd_bounds = Bounds::from_corners(min, min + point(px(s(*w)), px(s(*h))));
                 if !clipped_out(clip, cmd_bounds) {
                     let ca = apply_opacity(*a, opacity);
                     window.paint_quad(gpui::fill(cmd_bounds, rgba8(*r, *g, *b, ca)));
@@ -791,7 +1069,7 @@ fn paint_draw_commands(
                 b,
                 a,
             } => {
-                let pts = circle_polygon(off_x + *cx, off_y + *cy, *radius);
+                let pts = circle_polygon(off_x + s(*cx), off_y + s(*cy), s(*radius));
                 let mut pb = PathBuilder::fill();
                 pb.add_polygon(&pts, true);
                 if let Ok(path) = pb.build() {
@@ -809,7 +1087,7 @@ fn paint_draw_commands(
                 a,
                 text,
             } => {
-                let origin = point(px(off_x + *x), px(off_y + *y));
+                let origin = point(px(off_x + s(*x)), px(off_y + s(*y)));
                 let text_owned = text.clone();
                 let ca = apply_opacity(*a, opacity);
                 let run = TextRun {
@@ -822,11 +1100,11 @@ fn paint_draw_commands(
                 };
                 let line = window.text_system().shape_line(
                     SharedString::from(text_owned),
-                    px(*size),
+                    px(s(*size)),
                     &[run],
                     None,
                 );
-                let _ = line.paint(origin, px(*size * 1.2), window, cx);
+                let _ = line.paint(origin, px(s(*size) * 1.2), window, cx);
             }
             DrawCommand::TextEx {
                 x,
@@ -854,17 +1132,17 @@ fn paint_draw_commands(
                 };
                 let line = window.text_system().shape_line(
                     SharedString::from(text_owned),
-                    px(*size),
+                    px(s(*size)),
                     &[run],
                     None,
                 );
                 let line_x = match *align {
-                    1 => off_x + *x - f32::from(line.width) / 2.0,
-                    2 => off_x + *x - f32::from(line.width),
-                    _ => off_x + *x,
+                    1 => off_x + s(*x) - f32::from(line.width) / 2.0,
+                    2 => off_x + s(*x) - f32::from(line.width),
+                    _ => off_x + s(*x),
                 };
-                let origin = point(px(line_x), px(off_y + *y));
-                let _ = line.paint(origin, px(*size * 1.2), window, cx);
+                let origin = point(px(line_x), px(off_y + s(*y)));
+                let _ = line.paint(origin, px(s(*size) * 1.2), window, cx);
             }
             DrawCommand::Line {
                 x1,
@@ -877,9 +1155,9 @@ fn paint_draw_commands(
                 a,
                 thickness,
             } => {
-                let p1 = point(px(off_x + *x1), px(off_y + *y1));
-                let p2 = point(px(off_x + *x2), px(off_y + *y2));
-                let mut pb = PathBuilder::stroke(px(*thickness));
+                let p1 = point(px(off_x + s(*x1)), px(off_y + s(*y1)));
+                let p2 = point(px(off_x + s(*x2)), px(off_y + s(*y2)));
+                let mut pb = PathBuilder::stroke(px(s(*thickness)));
                 pb.move_to(p1);
                 pb.line_to(p2);
                 if let Ok(path) = pb.build() {
@@ -895,8 +1173,8 @@ fn paint_draw_commands(
                 image_id,
             } => {
                 if let Some(tex) = textures.get(image_id) {
-                    let min = point(px(off_x + *x), px(off_y + *y));
-                    let img_bounds = Bounds::from_corners(min, min + point(px(*w), px(*h)));
+                    let min = point(px(off_x + s(*x)), px(off_y + s(*y)));
+                    let img_bounds = Bounds::from_corners(min, min + point(px(s(*w)), px(s(*h))));
                     let _ = window.paint_image(img_bounds, (0.).into(), tex.clone(), 0, false);
                 }
             }
@@ -911,11 +1189,17 @@ fn paint_draw_commands(
                 b,
                 a,
             } => {
-                let min = point(px(off_x + *x), px(off_y + *y));
-                let cmd_bounds = Bounds::from_corners(min, min + point(px(*w), px(*h)));
+                let min = point(px(off_x + s(*x)), px(off_y + s(*y)));
+                let cmd_bounds = Bounds::from_corners(min, min + point(px(s(*w)), px(s(*h))));
                 if !clipped_out(clip, cmd_bounds) {
                     let ca = apply_opacity(*a, opacity);
-                    let pts = rounded_rect_polygon(off_x + *x, off_y + *y, *w, *h, *radius);
+                    let pts = rounded_rect_polygon(
+                        off_x + s(*x),
+                        off_y + s(*y),
+                        s(*w),
+                        s(*h),
+                        s(*radius),
+                    );
                     let mut pb = PathBuilder::fill();
                     pb.add_polygon(&pts, true);
                     if let Ok(path) = pb.build() {
@@ -935,9 +1219,15 @@ fn paint_draw_commands(
                 a,
                 thickness,
             } => {
-                let pts = arc_polyline(off_x + *cx, off_y + *cy, *radius, *start_angle, *end_angle);
+                let pts = arc_polyline(
+                    off_x + s(*cx),
+                    off_y + s(*cy),
+                    s(*radius),
+                    *start_angle,
+                    *end_angle,
+                );
                 if pts.len() >= 2 {
-                    let mut pb = PathBuilder::stroke(px(*thickness));
+                    let mut pb = PathBuilder::stroke(px(s(*thickness)));
                     pb.move_to(pts[0]);
                     for p in &pts[1..] {
                         pb.line_to(*p);
@@ -963,11 +1253,11 @@ fn paint_draw_commands(
                 a,
                 thickness,
             } => {
-                let p1 = point(px(off_x + *x1), px(off_y + *y1));
-                let p2 = point(px(off_x + *x2), px(off_y + *y2));
-                let c1 = point(px(off_x + *cp1x), px(off_y + *cp1y));
-                let c2 = point(px(off_x + *cp2x), px(off_y + *cp2y));
-                let mut pb = PathBuilder::stroke(px(*thickness));
+                let p1 = point(px(off_x + s(*x1)), px(off_y + s(*y1)));
+                let p2 = point(px(off_x + s(*x2)), px(off_y + s(*y2)));
+                let c1 = point(px(off_x + s(*cp1x)), px(off_y + s(*cp1y)));
+                let c2 = point(px(off_x + s(*cp2x)), px(off_y + s(*cp2y)));
+                let mut pb = PathBuilder::stroke(px(s(*thickness)));
                 pb.move_to(p1);
                 pb.cubic_bezier_to(p2, c1, c2);
                 if let Ok(path) = pb.build() {
@@ -990,10 +1280,10 @@ fn paint_draw_commands(
                 paint_gradient(
                     window,
                     &GradientParams {
-                        x: off_x + *x,
-                        y: off_y + *y,
-                        w: *w,
-                        h: *h,
+                        x: off_x + s(*x),
+                        y: off_y + s(*y),
+                        w: s(*w),
+                        h: s(*h),
                         kind: *kind,
                         stops: stops.clone(),
                         opacity,
@@ -1001,6 +1291,27 @@ fn paint_draw_commands(
                 );
             }
         }
+    }
+}
+
+fn paint_find_highlights(
+    window: &mut Window,
+    bounds: Bounds<Pixels>,
+    marks: &[(f32, f32, f32, f32, bool)],
+    zoom: f32,
+) {
+    let z = zoom.max(0.01);
+    let ox = f32::from(bounds.origin.x);
+    let oy = f32::from(bounds.origin.y);
+    for &(x, y, w, h, current) in marks {
+        let min = point(px(ox + x * z), px(oy + y * z));
+        let rect = Bounds::from_corners(min, min + point(px(w * z), px(h * z)));
+        let fill = if current {
+            gpui::rgba(0xfacc1588)
+        } else {
+            gpui::rgba(0xfacc1533)
+        };
+        window.paint_quad(gpui::fill(rect, fill));
     }
 }
 
@@ -1195,6 +1506,12 @@ pub struct OxideBrowserView {
     file_pick_rx: Option<mpsc::Receiver<FilePickDone>>,
     download_manager: DownloadManager,
     show_downloads: bool,
+    /// Persisted appearance and page zoom.
+    prefs: BrowserPrefs,
+    /// Shared with every tab's [`HostState`] so guests see the chrome theme.
+    theme_preference: Arc<Mutex<ThemePreference>>,
+    /// Shared page zoom; guests receive mouse coordinates in layout space.
+    page_zoom: Arc<Mutex<f32>>,
     /// Lazily-initialised Claude-backed guest app factory for `oxide://forge`.
     forge: Arc<Mutex<Option<ForgeState>>>,
     /// Whether the user is currently dragging the scrollbar thumb.
@@ -1205,6 +1522,15 @@ pub struct OxideBrowserView {
     scroll_drag_start_scroll_y: f32,
     /// Active slider drag: (widget id, slider x, slider width, min, max).
     slider_drag: Option<(u32, f32, f32, f32, f32)>,
+    command_palette_open: bool,
+    command_palette_query: String,
+    command_palette_index: usize,
+    palette_focus: FocusHandle,
+    find_open: bool,
+    find_query: String,
+    find_index: usize,
+    find_hits: Vec<FindHit>,
+    find_focus: FocusHandle,
 }
 
 impl OxideBrowserView {
@@ -1213,6 +1539,12 @@ impl OxideBrowserView {
         let shared_module_loader = host_state.module_loader.clone();
         let bookmark_store = host_state.bookmark_store.lock().unwrap().clone();
         let history_store = host_state.history_store.lock().unwrap().clone();
+        let prefs = BrowserPrefs::load();
+        crate::theme::install(crate::theme::Palette::resolve(prefs.theme));
+        *host_state.theme_preference.lock().unwrap() = prefs.theme;
+        *host_state.page_zoom.lock().unwrap() = prefs.zoom;
+        let theme_preference = host_state.theme_preference.clone();
+        let page_zoom = host_state.page_zoom.clone();
         let first_tab = TabState::new(0, host_state, status);
         Self {
             tabs: vec![first_tab],
@@ -1236,11 +1568,23 @@ impl OxideBrowserView {
             file_pick_rx: None,
             download_manager: DownloadManager::new(),
             show_downloads: false,
+            prefs,
+            theme_preference,
+            page_zoom,
             forge: Arc::new(Mutex::new(None)),
             scroll_dragging: false,
             scroll_drag_start_y: 0.0,
             scroll_drag_start_scroll_y: 0.0,
             slider_drag: None,
+            command_palette_open: false,
+            command_palette_query: String::new(),
+            command_palette_index: 0,
+            palette_focus: cx.focus_handle(),
+            find_open: false,
+            find_query: String::new(),
+            find_index: 0,
+            find_hits: Vec::new(),
+            find_focus: cx.focus_handle(),
         }
     }
 
@@ -1519,6 +1863,8 @@ impl OxideBrowserView {
             module_loader: self.shared_module_loader.clone(),
             bookmark_store: bm_shared,
             history_store: hist_shared,
+            theme_preference: self.theme_preference.clone(),
+            page_zoom: self.page_zoom.clone(),
             ..Default::default()
         };
         let status = Arc::new(Mutex::new(PageStatus::Idle));
@@ -1568,6 +1914,332 @@ impl OxideBrowserView {
             }
         }
     }
+
+    fn focus_url_bar(&mut self, window: &mut Window) {
+        self.url_focus.focus(window);
+        self.tabs[self.active_tab].url_select_all();
+    }
+
+    fn toggle_console(&mut self) {
+        let tab = &mut self.tabs[self.active_tab];
+        tab.show_console = !tab.show_console;
+    }
+
+    fn select_tab_number(&mut self, n: usize) {
+        if self.tabs.is_empty() {
+            return;
+        }
+        if n == 9 {
+            self.active_tab = self.tabs.len() - 1;
+        } else if (1..=8).contains(&n) && n <= self.tabs.len() {
+            self.active_tab = n - 1;
+        }
+    }
+
+    fn open_palette(&mut self, window: &mut Window) {
+        self.command_palette_open = true;
+        self.command_palette_query.clear();
+        self.command_palette_index = 0;
+        self.show_menu = false;
+        self.palette_focus.focus(window);
+    }
+
+    fn close_palette(&mut self, window: &mut Window) {
+        self.command_palette_open = false;
+        self.command_palette_query.clear();
+        self.command_palette_index = 0;
+        self.canvas_focus.focus(window);
+    }
+
+    fn open_find(&mut self, window: &mut Window) {
+        if self.command_palette_open {
+            self.close_palette(window);
+        }
+        self.find_open = true;
+        self.find_index = 0;
+        self.show_menu = false;
+        self.refresh_find_hits();
+        self.find_focus.focus(window);
+    }
+
+    fn close_find(&mut self, window: &mut Window) {
+        self.find_open = false;
+        self.find_index = 0;
+        self.find_hits.clear();
+        self.canvas_focus.focus(window);
+    }
+
+    fn find_next(&mut self, forward: bool) {
+        if self.find_hits.is_empty() {
+            self.refresh_find_hits();
+        }
+        if self.find_hits.is_empty() {
+            return;
+        }
+        self.find_index = step_index(self.find_index, self.find_hits.len(), forward);
+        if matches!(self.find_hits[self.find_index].source, FindSource::Console) {
+            self.tabs[self.active_tab].show_console = true;
+        }
+    }
+
+    fn refresh_find_hits(&mut self) {
+        if !self.find_open {
+            self.find_hits.clear();
+            return;
+        }
+        let q = self.find_query.clone();
+        let tab = &self.tabs[self.active_tab];
+        self.find_hits = match tab.internal_page {
+            Some(InternalPage::History) => {
+                let rows: Vec<(String, String)> = self
+                    .history_store
+                    .as_ref()
+                    .map(|store| {
+                        store
+                            .list_all()
+                            .into_iter()
+                            .map(|(_, item)| {
+                                let title = if item.title.is_empty() {
+                                    url_to_title(&item.url)
+                                } else {
+                                    item.title
+                                };
+                                (title, item.url)
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                collect_list_hits(&rows, &q, FindSource::History)
+            }
+            Some(InternalPage::Bookmarks) => {
+                let rows: Vec<(String, String)> = self
+                    .bookmark_store
+                    .as_ref()
+                    .map(|store| {
+                        store
+                            .list_all()
+                            .into_iter()
+                            .map(|b| (b.title, b.url))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                collect_list_hits(&rows, &q, FindSource::Bookmark)
+            }
+            Some(_) => Vec::new(),
+            None => {
+                let cmds = tab.host_state.canvas.lock().unwrap().commands.clone();
+                let widgets = tab.host_state.widget_commands.lock().unwrap().clone();
+                let values = tab.host_state.widget_states.lock().unwrap().clone();
+                let console = tab.host_state.console.lock().unwrap().clone();
+                let mut hits = collect_canvas_hits(&cmds, &q);
+                hits.extend(collect_widget_hits(&widgets, &values, &q));
+                hits.extend(collect_console_hits(&console, &q));
+                hits
+            }
+        };
+        if self.find_hits.is_empty() {
+            self.find_index = 0;
+        } else if self.find_index >= self.find_hits.len() {
+            self.find_index = self.find_hits.len() - 1;
+        }
+    }
+
+    fn handle_find_key(&mut self, event: &KeyDownEvent, window: &mut Window) -> bool {
+        if !self.find_open {
+            return false;
+        }
+        if event.keystroke.key.as_str() == "escape" {
+            self.close_find(window);
+            return true;
+        }
+        if !self.find_focus.is_focused(window) {
+            return false;
+        }
+        match event.keystroke.key.as_str() {
+            "enter" => {
+                self.refresh_find_hits();
+                self.find_next(!event.keystroke.modifiers.shift);
+                return true;
+            }
+            "backspace" => {
+                self.find_query.pop();
+                self.find_index = 0;
+                self.refresh_find_hits();
+                return true;
+            }
+            _ => {}
+        }
+        if event.keystroke.modifiers.secondary() && event.keystroke.key == "g" {
+            self.refresh_find_hits();
+            self.find_next(!event.keystroke.modifiers.shift);
+            return true;
+        }
+        if event.keystroke.modifiers.secondary() && event.keystroke.key == "v" {
+            if let Ok(mut cb) = arboard::Clipboard::new() {
+                if let Ok(pasted) = cb.get_text() {
+                    self.find_query.push_str(pasted.trim());
+                    self.find_index = 0;
+                    self.refresh_find_hits();
+                }
+            }
+            return true;
+        }
+        if let Some(s) = text_insert_from_keystroke(&event.keystroke) {
+            self.find_query.push_str(&s);
+            self.find_index = 0;
+            self.refresh_find_hits();
+            return true;
+        }
+        true
+    }
+
+    fn start_open_file_dialog(&mut self) {
+        if self.file_pick_rx.is_some() {
+            return;
+        }
+        let (tx, rx) = mpsc::channel();
+        self.file_pick_rx = Some(rx);
+        std::thread::spawn(move || {
+            let path = rfd::FileDialog::new()
+                .add_filter("WebAssembly", &["wasm"])
+                .set_title("Open .wasm Application")
+                .pick_file();
+            let msg = match path {
+                Some(p) => match std::fs::read(&p) {
+                    Ok(bytes) => FilePickDone::Chosen { path: p, bytes },
+                    Err(_) => FilePickDone::Cancelled,
+                },
+                None => FilePickDone::Cancelled,
+            };
+            let _ = tx.send(msg);
+        });
+    }
+
+    fn navigate_active(&mut self, url: &str) {
+        self.tabs[self.active_tab].navigate_to(url.to_string(), true, &self.download_manager);
+    }
+
+    fn run_palette_command(&mut self, id: &str, window: &mut Window) {
+        self.close_palette(window);
+        match id {
+            "new-tab" => {
+                let i = self.create_tab();
+                self.active_tab = i;
+            }
+            "close-tab" => self.close_tab(self.active_tab),
+            "reload" => self.tabs[self.active_tab].reload(),
+            "back" => self.tabs[self.active_tab].go_back(),
+            "forward" => self.tabs[self.active_tab].go_forward(),
+            "focus-url" => self.focus_url_bar(window),
+            "toggle-bookmark" => self.toggle_active_bookmark(),
+            "toggle-bookmarks" => self.show_bookmarks = !self.show_bookmarks,
+            "toggle-console" => self.toggle_console(),
+            "find" => self.open_find(window),
+            "toggle-downloads" => self.show_downloads = !self.show_downloads,
+            "open-file" => self.start_open_file_dialog(),
+            "home" => self.navigate_active("oxide://home"),
+            "history" => self.navigate_active("oxide://history"),
+            "bookmarks-page" => self.navigate_active("oxide://bookmarks"),
+            "forge" => self.navigate_active("oxide://forge"),
+            "about" => self.navigate_active("oxide://about"),
+            "settings" => self.navigate_active("oxide://settings"),
+            "zoom-in" => self.zoom_in(),
+            "zoom-out" => self.zoom_out(),
+            "zoom-reset" => self.zoom_reset(),
+            "theme-system" => self.set_theme(ThemePreference::System),
+            "theme-dark" => self.set_theme(ThemePreference::Dark),
+            "theme-light" => self.set_theme(ThemePreference::Light),
+            _ => {}
+        }
+    }
+
+    fn persist_prefs(&mut self) {
+        self.prefs.zoom = crate::prefs::clamp_zoom(self.prefs.zoom);
+        *self.theme_preference.lock().unwrap() = self.prefs.theme;
+        *self.page_zoom.lock().unwrap() = self.prefs.zoom;
+        crate::theme::install(crate::theme::Palette::resolve(self.prefs.theme));
+        if let Err(e) = self.prefs.save() {
+            tracing::debug!("prefs save failed: {e}");
+        }
+    }
+
+    fn set_theme(&mut self, theme: ThemePreference) {
+        self.prefs.theme = theme;
+        self.persist_prefs();
+    }
+
+    fn zoom_in(&mut self) {
+        self.prefs.zoom_in();
+        self.persist_prefs();
+    }
+
+    fn zoom_out(&mut self) {
+        self.prefs.zoom_out();
+        self.persist_prefs();
+    }
+
+    fn zoom_reset(&mut self) {
+        self.prefs.zoom_reset();
+        self.persist_prefs();
+    }
+
+    fn page_zoom(&self) -> f32 {
+        crate::prefs::clamp_zoom(self.prefs.zoom)
+    }
+
+    fn handle_palette_key(&mut self, event: &KeyDownEvent, window: &mut Window) -> bool {
+        if !self.command_palette_open {
+            return false;
+        }
+        match event.keystroke.key.as_str() {
+            "escape" => {
+                self.close_palette(window);
+                return true;
+            }
+            "enter" => {
+                let cmds = filter_palette_commands(&self.command_palette_query);
+                if let Some(cmd) = cmds.get(self.command_palette_index) {
+                    let id = cmd.id;
+                    self.run_palette_command(id, window);
+                }
+                return true;
+            }
+            "up" => {
+                if self.command_palette_index > 0 {
+                    self.command_palette_index -= 1;
+                }
+                return true;
+            }
+            "down" => {
+                let len = filter_palette_commands(&self.command_palette_query).len();
+                if len > 0 {
+                    self.command_palette_index = (self.command_palette_index + 1).min(len - 1);
+                }
+                return true;
+            }
+            "backspace" => {
+                self.command_palette_query.pop();
+                self.command_palette_index = 0;
+                return true;
+            }
+            _ => {}
+        }
+        if event.keystroke.modifiers.secondary() && event.keystroke.key == "v" {
+            if let Ok(mut cb) = arboard::Clipboard::new() {
+                if let Ok(pasted) = cb.get_text() {
+                    self.command_palette_query.push_str(pasted.trim());
+                    self.command_palette_index = 0;
+                }
+            }
+            return true;
+        }
+        if let Some(s) = text_insert_from_keystroke(&event.keystroke) {
+            self.command_palette_query.push_str(&s);
+            self.command_palette_index = 0;
+            return true;
+        }
+        true
+    }
 }
 
 impl Render for OxideBrowserView {
@@ -1598,6 +2270,7 @@ impl Render for OxideBrowserView {
             tab.update_texture_cache(window);
             tab.refresh_pip_texture(window);
         }
+        self.refresh_find_hits();
 
         let canvas_offset = self.tabs[active].host_state.canvas_offset.clone();
         let cmds = self.tabs[active]
@@ -1657,6 +2330,8 @@ impl Render for OxideBrowserView {
             .lock()
             .unwrap()
             .can_go_forward();
+        crate::theme::install(crate::theme::Palette::resolve(self.prefs.theme));
+        let page_zoom = self.page_zoom();
 
         let mut root = div()
             .id("oxide_root")
@@ -1665,7 +2340,7 @@ impl Render for OxideBrowserView {
             .size_full()
             .flex()
             .flex_col()
-            .bg(gpui::rgb(theme::BG))
+            .bg(gpui::rgb(theme::bg()))
             .on_key_down(cx.listener(
                 |this: &mut OxideBrowserView, event: &KeyDownEvent, window, cx| {
                     {
@@ -1747,6 +2422,98 @@ impl Render for OxideBrowserView {
                     }
                     if event.keystroke.modifiers.secondary() && event.keystroke.key == "b" {
                         this.show_bookmarks = !this.show_bookmarks;
+                        cx.notify();
+                        return;
+                    }
+                    if event.keystroke.modifiers.secondary() && event.keystroke.key == "l" {
+                        this.focus_url_bar(window);
+                        cx.notify();
+                        return;
+                    }
+                    if event.keystroke.modifiers.secondary()
+                        && event.keystroke.modifiers.shift
+                        && event.keystroke.key == "j"
+                    {
+                        this.toggle_console();
+                        cx.notify();
+                        return;
+                    }
+                    if event.keystroke.modifiers.secondary() && event.keystroke.key == "k" {
+                        if this.command_palette_open {
+                            this.close_palette(window);
+                        } else {
+                            this.open_palette(window);
+                        }
+                        cx.notify();
+                        return;
+                    }
+                    if event.keystroke.modifiers.secondary() && event.keystroke.key == "f" {
+                        this.open_find(window);
+                        cx.notify();
+                        return;
+                    }
+                    if event.keystroke.modifiers.secondary()
+                        && event.keystroke.key == "g"
+                        && this.find_open
+                    {
+                        this.refresh_find_hits();
+                        this.find_next(!event.keystroke.modifiers.shift);
+                        cx.notify();
+                        return;
+                    }
+                    if event.keystroke.modifiers.secondary() && event.keystroke.key == "," {
+                        this.navigate_active("oxide://settings");
+                        cx.notify();
+                        return;
+                    }
+                    if event.keystroke.modifiers.secondary()
+                        && matches!(event.keystroke.key.as_str(), "=" | "+" | "equal" | "plus")
+                    {
+                        this.zoom_in();
+                        cx.notify();
+                        return;
+                    }
+                    if event.keystroke.modifiers.secondary()
+                        && matches!(event.keystroke.key.as_str(), "-" | "minus")
+                    {
+                        this.zoom_out();
+                        cx.notify();
+                        return;
+                    }
+                    if event.keystroke.modifiers.secondary()
+                        && !event.keystroke.modifiers.shift
+                        && event.keystroke.key == "0"
+                    {
+                        this.zoom_reset();
+                        cx.notify();
+                        return;
+                    }
+                    if (event.keystroke.modifiers.alt && event.keystroke.key == "left")
+                        || (event.keystroke.modifiers.secondary() && event.keystroke.key == "[")
+                    {
+                        this.tabs[this.active_tab].go_back();
+                        cx.notify();
+                        return;
+                    }
+                    if (event.keystroke.modifiers.alt && event.keystroke.key == "right")
+                        || (event.keystroke.modifiers.secondary() && event.keystroke.key == "]")
+                    {
+                        this.tabs[this.active_tab].go_forward();
+                        cx.notify();
+                        return;
+                    }
+                    if event.keystroke.modifiers.secondary() && !event.keystroke.modifiers.shift {
+                        if let Ok(n) = event.keystroke.key.parse::<usize>() {
+                            this.select_tab_number(n);
+                            cx.notify();
+                            return;
+                        }
+                    }
+                    if this.handle_palette_key(event, window) {
+                        cx.notify();
+                        return;
+                    }
+                    if this.handle_find_key(event, window) {
                         cx.notify();
                         return;
                     }
@@ -2038,12 +2805,12 @@ impl Render for OxideBrowserView {
                         .h(px(32.0))
                         .px_3()
                         .rounded_md()
-                        .bg(gpui::rgb(theme::SURFACE))
+                        .bg(gpui::rgb(theme::surface()))
                         .border_1()
                         .border_color(if url_focused {
-                            gpui::rgb(theme::RING)
+                            gpui::rgb(theme::ring())
                         } else {
-                            gpui::rgb(theme::BORDER)
+                            gpui::rgb(theme::border())
                         })
                         .track_focus(&self.url_focus)
                         .overflow_hidden()
@@ -2095,7 +2862,17 @@ impl Render for OxideBrowserView {
                                 }
                                 let tab = &mut this.tabs[this.active_tab];
                                 match event.keystroke.key.as_str() {
+                                    "escape" => {
+                                        this.canvas_focus.focus(window);
+                                        cx.notify();
+                                        return;
+                                    }
                                     "left" => {
+                                        if event.keystroke.modifiers.alt {
+                                            tab.go_back();
+                                            cx.notify();
+                                            return;
+                                        }
                                         if shift {
                                             tab.url_select_to(tab.url_prev_boundary());
                                         } else if tab.url_has_selection() {
@@ -2109,6 +2886,11 @@ impl Render for OxideBrowserView {
                                         return;
                                     }
                                     "right" => {
+                                        if event.keystroke.modifiers.alt {
+                                            tab.go_forward();
+                                            cx.notify();
+                                            return;
+                                        }
                                         if shift {
                                             tab.url_select_to(tab.url_next_boundary());
                                         } else if tab.url_has_selection() {
@@ -2362,25 +3144,7 @@ impl Render for OxideBrowserView {
                         .text_color(gpui::rgb(0xc8c8d4))
                         .child("Open")
                         .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                            if this.file_pick_rx.is_some() {
-                                return;
-                            }
-                            let (tx, rx) = mpsc::channel();
-                            this.file_pick_rx = Some(rx);
-                            std::thread::spawn(move || {
-                                let path = rfd::FileDialog::new()
-                                    .add_filter("WebAssembly", &["wasm"])
-                                    .set_title("Open .wasm Application")
-                                    .pick_file();
-                                let msg = match path {
-                                    Some(p) => match std::fs::read(&p) {
-                                        Ok(bytes) => FilePickDone::Chosen { path: p, bytes },
-                                        Err(_) => FilePickDone::Cancelled,
-                                    },
-                                    None => FilePickDone::Cancelled,
-                                };
-                                let _ = tx.send(msg);
-                            });
+                            this.start_open_file_dialog();
                             cx.notify();
                         })),
                 )
@@ -2407,6 +3171,30 @@ impl Render for OxideBrowserView {
                         .child("⬇")
                         .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                             this.show_downloads = !this.show_downloads;
+                            cx.notify();
+                        }))
+                })
+                .child({
+                    let zoom_pct = self.prefs.zoom_percent();
+                    div()
+                        .id("oxide_zoom_btn")
+                        .cursor_pointer()
+                        .px_2()
+                        .h(px(28.0))
+                        .flex()
+                        .items_center()
+                        .justify_center()
+                        .rounded_md()
+                        .hover(|s| s.bg(gpui::rgb(theme::surface_hover())))
+                        .text_xs()
+                        .text_color(if zoom_pct == 100 {
+                            gpui::rgb(theme::fg_dim())
+                        } else {
+                            gpui::rgb(theme::accent())
+                        })
+                        .child(format!("{zoom_pct}%"))
+                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                            this.navigate_active("oxide://settings");
                             cx.notify();
                         }))
                 })
@@ -2576,6 +3364,56 @@ impl Render for OxideBrowserView {
                                                         },
                                                     )),
                                             ),
+                                    )
+                                    .child(
+                                        div()
+                                            .mt_3()
+                                            .flex()
+                                            .flex_row()
+                                            .items_center()
+                                            .justify_between()
+                                            .gap_3()
+                                            .child(
+                                                div()
+                                                    .flex_1()
+                                                    .min_w_0()
+                                                    .child(
+                                                        div()
+                                                            .text_sm()
+                                                            .font_weight(gpui::FontWeight::SEMIBOLD)
+                                                            .text_color(gpui::rgb(theme::fg()))
+                                                            .child("Appearance"),
+                                                    )
+                                                    .child(
+                                                        div()
+                                                            .mt_1()
+                                                            .text_xs()
+                                                            .text_color(gpui::rgb(theme::fg_muted()))
+                                                            .child("Dark, light, or system theme, plus page zoom."),
+                                                    ),
+                                            )
+                                            .child(
+                                                div()
+                                                    .id("oxide_home_settings")
+                                                    .px_3()
+                                                    .py_2()
+                                                    .rounded_md()
+                                                    .bg(gpui::rgb(theme::muted()))
+                                                    .text_sm()
+                                                    .text_color(gpui::rgb(theme::fg()))
+                                                    .cursor_pointer()
+                                                    .child("oxide://settings")
+                                                    .on_click(cx.listener(
+                                                        |this, _: &ClickEvent, _, cx| {
+                                                            this.tabs[this.active_tab].navigate_to(
+                                                                "oxide://settings".to_string(),
+                                                                true,
+                                                                &this.download_manager,
+                                                            );
+                                                            cx.notify();
+                                                        },
+                                                    )),
+                                            ),
                                     ),
                             ),
                     );
@@ -2682,6 +3520,14 @@ impl Render for OxideBrowserView {
                                         title
                                     };
                                     let friendly = format_friendly_timestamp(ts);
+                                    let find_hit = self.find_open
+                                        && self.find_hits.iter().any(|h| {
+                                            h.source == FindSource::History && h.row == Some(i)
+                                        });
+                                    let find_current = find_hit
+                                        && self.find_hits.get(self.find_index).is_some_and(|h| {
+                                            h.source == FindSource::History && h.row == Some(i)
+                                        });
                                     div()
                                         .id(("oxide_hist", i))
                                         .flex()
@@ -2691,6 +3537,13 @@ impl Render for OxideBrowserView {
                                         .py_2()
                                         .px_2()
                                         .rounded_md()
+                                        .bg(gpui::rgba(if find_current {
+                                            0xfacc1555
+                                        } else if find_hit {
+                                            0xfacc1528
+                                        } else {
+                                            0x00000000
+                                        }))
                                         .hover(|s| s.bg(gpui::rgb(0x2a2a34)))
                                         .border_b_1()
                                         .border_color(gpui::rgb(0x222230))
@@ -2820,6 +3673,14 @@ impl Render for OxideBrowserView {
                                 } else {
                                     bm.title.clone()
                                 };
+                                let find_hit = self.find_open
+                                    && self.find_hits.iter().any(|h| {
+                                        h.source == FindSource::Bookmark && h.row == Some(i)
+                                    });
+                                let find_current = find_hit
+                                    && self.find_hits.get(self.find_index).is_some_and(|h| {
+                                        h.source == FindSource::Bookmark && h.row == Some(i)
+                                    });
                                 div()
                                     .id(("oxide_bmp", i))
                                     .flex()
@@ -2829,6 +3690,13 @@ impl Render for OxideBrowserView {
                                     .px_2()
                                     .rounded_md()
                                     .cursor_pointer()
+                                    .bg(gpui::rgba(if find_current {
+                                        0xfacc1555
+                                    } else if find_hit {
+                                        0xfacc1528
+                                    } else {
+                                        0x00000000
+                                    }))
                                     .hover(|s| s.bg(gpui::rgb(0x2a2a34)))
                                     .border_b_1()
                                     .border_color(gpui::rgb(0x222230))
@@ -2941,6 +3809,197 @@ impl Render for OxideBrowserView {
                                             .text_xs()
                                             .text_color(gpui::rgb(0x6a6a80))
                                             .child("github.com/niklabh/oxide"),
+                                    ),
+                            ),
+                    );
+                }
+                InternalPage::Settings => {
+                    let current_theme = self.prefs.theme;
+                    let zoom_label = format!("{}%", self.prefs.zoom_percent());
+                    let theme_btn =
+                        |id: &'static str, pref: ThemePreference, current: ThemePreference| {
+                            let selected = pref == current;
+                            div()
+                                .id(id)
+                                .px_3()
+                                .py_2()
+                                .rounded_md()
+                                .text_sm()
+                                .cursor_pointer()
+                                .bg(gpui::rgb(if selected {
+                                    theme::primary()
+                                } else {
+                                    theme::muted()
+                                }))
+                                .text_color(gpui::rgb(if selected {
+                                    theme::primary_fg()
+                                } else {
+                                    theme::fg()
+                                }))
+                                .child(pref.label())
+                                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                    this.set_theme(pref);
+                                    cx.notify();
+                                }))
+                        };
+                    content_col = content_col.child(
+                        div()
+                            .id("oxide_settings_page")
+                            .flex_1()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .p_4()
+                            .child(
+                                div()
+                                    .w(px(480.0))
+                                    .p_5()
+                                    .rounded_lg()
+                                    .bg(gpui::rgb(theme::surface()))
+                                    .border_1()
+                                    .border_color(gpui::rgb(theme::border_strong()))
+                                    .child(
+                                        div()
+                                            .text_xl()
+                                            .font_weight(gpui::FontWeight::BOLD)
+                                            .text_color(gpui::rgb(theme::fg()))
+                                            .child("Settings"),
+                                    )
+                                    .child(
+                                        div()
+                                            .mt_1()
+                                            .text_sm()
+                                            .text_color(gpui::rgb(theme::fg_muted()))
+                                            .child("Appearance and page zoom. Changes apply immediately and persist."),
+                                    )
+                                    .child(
+                                        div()
+                                            .mt_4()
+                                            .text_xs()
+                                            .font_weight(gpui::FontWeight::SEMIBOLD)
+                                            .text_color(gpui::rgb(theme::fg_dim()))
+                                            .child("APPEARANCE"),
+                                    )
+                                    .child(
+                                        div()
+                                            .mt_2()
+                                            .flex()
+                                            .flex_row()
+                                            .gap_2()
+                                            .child(theme_btn(
+                                                "oxide_theme_system",
+                                                ThemePreference::System,
+                                                current_theme,
+                                            ))
+                                            .child(theme_btn(
+                                                "oxide_theme_dark",
+                                                ThemePreference::Dark,
+                                                current_theme,
+                                            ))
+                                            .child(theme_btn(
+                                                "oxide_theme_light",
+                                                ThemePreference::Light,
+                                                current_theme,
+                                            )),
+                                    )
+                                    .child(
+                                        div()
+                                            .mt_4()
+                                            .text_xs()
+                                            .font_weight(gpui::FontWeight::SEMIBOLD)
+                                            .text_color(gpui::rgb(theme::fg_dim()))
+                                            .child("PAGE ZOOM"),
+                                    )
+                                    .child(
+                                        div()
+                                            .mt_2()
+                                            .flex()
+                                            .flex_row()
+                                            .items_center()
+                                            .gap_2()
+                                            .child(
+                                                div()
+                                                    .id("oxide_zoom_out")
+                                                    .w(px(32.0))
+                                                    .h(px(32.0))
+                                                    .rounded_md()
+                                                    .flex()
+                                                    .items_center()
+                                                    .justify_center()
+                                                    .bg(gpui::rgb(theme::muted()))
+                                                    .text_color(gpui::rgb(theme::fg()))
+                                                    .cursor_pointer()
+                                                    .child("−")
+                                                    .on_click(cx.listener(
+                                                        |this, _: &ClickEvent, _, cx| {
+                                                            this.zoom_out();
+                                                            cx.notify();
+                                                        },
+                                                    )),
+                                            )
+                                            .child(
+                                                div()
+                                                    .min_w(px(64.0))
+                                                    .text_sm()
+                                                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                                                    .text_color(gpui::rgb(theme::fg()))
+                                                    .child(zoom_label),
+                                            )
+                                            .child(
+                                                div()
+                                                    .id("oxide_zoom_in")
+                                                    .w(px(32.0))
+                                                    .h(px(32.0))
+                                                    .rounded_md()
+                                                    .flex()
+                                                    .items_center()
+                                                    .justify_center()
+                                                    .bg(gpui::rgb(theme::muted()))
+                                                    .text_color(gpui::rgb(theme::fg()))
+                                                    .cursor_pointer()
+                                                    .child("+")
+                                                    .on_click(cx.listener(
+                                                        |this, _: &ClickEvent, _, cx| {
+                                                            this.zoom_in();
+                                                            cx.notify();
+                                                        },
+                                                    )),
+                                            )
+                                            .child(
+                                                div()
+                                                    .id("oxide_zoom_reset")
+                                                    .px_3()
+                                                    .py_2()
+                                                    .rounded_md()
+                                                    .text_sm()
+                                                    .bg(gpui::rgb(theme::muted()))
+                                                    .text_color(gpui::rgb(theme::fg()))
+                                                    .cursor_pointer()
+                                                    .child("Reset")
+                                                    .on_click(cx.listener(
+                                                        |this, _: &ClickEvent, _, cx| {
+                                                            this.zoom_reset();
+                                                            cx.notify();
+                                                        },
+                                                    )),
+                                            ),
+                                    )
+                                    .child(
+                                        div()
+                                            .mt_4()
+                                            .h(px(1.0))
+                                            .bg(gpui::rgb(theme::border())),
+                                    )
+                                    .child(
+                                        div()
+                                            .mt_3()
+                                            .text_xs()
+                                            .text_color(gpui::rgb(theme::fg_dim()))
+                                            .child(if cfg!(target_os = "macos") {
+                                                "⌘+ / ⌘- / ⌘0 zoom · ⌘F find · ⌘, settings · ⌘K command palette"
+                                            } else {
+                                                "Ctrl++ / Ctrl+- / Ctrl+0 zoom · Ctrl+F find · Ctrl+, settings · Ctrl+K command palette"
+                                            }),
                                     ),
                             ),
                     );
@@ -3856,6 +4915,7 @@ impl Render for OxideBrowserView {
                 .on_mouse_move(cx.listener({
                     let hyperlinks_hover = hyperlinks_hover.clone();
                     move |this, event: &gpui::MouseMoveEvent, _, cx| {
+                        let z = this.page_zoom();
                         let tab = &mut this.tabs[this.active_tab];
                         let mut input = tab.host_state.input_state.lock().unwrap();
                         input.mouse_x = f32::from(event.position.x);
@@ -3897,8 +4957,8 @@ impl Render for OxideBrowserView {
 
                         let tab = &mut this.tabs[this.active_tab];
                         let (ox, oy) = *tab.host_state.canvas_offset.lock().unwrap();
-                        let lx = f32::from(event.position.x) - ox;
-                        let ly = f32::from(event.position.y) - oy;
+                        let lx = (f32::from(event.position.x) - ox) / z;
+                        let ly = (f32::from(event.position.y) - oy) / z;
                         let mut hovered = None;
                         for link in &hyperlinks_hover {
                             if lx >= link.x
@@ -3955,10 +5015,11 @@ impl Render for OxideBrowserView {
                 )
                 .on_click(cx.listener(move |this, event: &ClickEvent, window, cx| {
                     if let Some(pos) = event.mouse_position() {
+                        let z = this.page_zoom();
                         let tab = &mut this.tabs[this.active_tab];
                         let (ox, oy) = *tab.host_state.canvas_offset.lock().unwrap();
-                        let lx = f32::from(pos.x) - ox;
-                        let ly = f32::from(pos.y) - oy;
+                        let lx = (f32::from(pos.x) - ox) / z;
+                        let ly = (f32::from(pos.y) - oy) / z;
                         if canvas_point_hits_widget(lx, ly, &widget_cmds_overlay) {
                             return;
                         }
@@ -4023,13 +5084,23 @@ impl Render for OxideBrowserView {
                     let textures = textures.clone();
                     let canvas_offset = canvas_offset.clone();
                     let canvas_state_for_dims = self.tabs[active].host_state.canvas.clone();
+                    let find_marks: Vec<(f32, f32, f32, f32, bool)> = self
+                        .find_hits
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(i, hit)| {
+                            hit.bounds
+                                .map(|(x, y, w, h)| (x, y, w, h, i == self.find_index))
+                        })
+                        .collect();
                     canvas(
                         move |bounds, _window, _cx| {
                             *canvas_offset.lock().unwrap() =
                                 (f32::from(bounds.origin.x), f32::from(bounds.origin.y));
                             let mut cs = canvas_state_for_dims.lock().unwrap();
-                            cs.width = f32::from(bounds.size.width) as u32;
-                            cs.height = f32::from(bounds.size.height) as u32;
+                            let z = page_zoom.max(0.01);
+                            cs.width = (f32::from(bounds.size.width) / z) as u32;
+                            cs.height = (f32::from(bounds.size.height) / z) as u32;
                         },
                         move |bounds, (), window, cx| {
                             if cmds.is_empty() {
@@ -4055,7 +5126,10 @@ impl Render for OxideBrowserView {
                                         cx,
                                     );
                             } else {
-                                paint_draw_commands(window, cx, bounds, &cmds, &textures);
+                                paint_draw_commands(
+                                    window, cx, bounds, &cmds, &textures, page_zoom,
+                                );
+                                paint_find_highlights(window, bounds, &find_marks, page_zoom);
                             }
                         },
                     )
@@ -4085,6 +5159,7 @@ impl Render for OxideBrowserView {
             }
             let widget_bounds_cache_snapshot = self.tabs[active].widget_bounds_cache.clone();
 
+            let z = page_zoom;
             let canvas_with_widgets =
                 widget_commands
                     .into_iter()
@@ -4097,7 +5172,16 @@ impl Render for OxideBrowserView {
                             h,
                             label,
                             variant,
-                        } => el.child(render_button(cx, id, x, y, w, h, label, variant)),
+                        } => el.child(render_button(
+                            cx,
+                            id,
+                            x * z,
+                            y * z,
+                            w * z,
+                            h * z,
+                            label,
+                            variant,
+                        )),
                         WidgetCommand::Checkbox { id, x, y, label } => {
                             let checked = widget_states_snapshot
                                 .get(&id)
@@ -4106,7 +5190,7 @@ impl Render for OxideBrowserView {
                                     _ => None,
                                 })
                                 .unwrap_or(false);
-                            el.child(render_checkbox(cx, id, x, y, &label, checked))
+                            el.child(render_checkbox(cx, id, x * z, y * z, &label, checked))
                         }
                         WidgetCommand::Switch { id, x, y, label } => {
                             let checked = widget_states_snapshot
@@ -4116,7 +5200,7 @@ impl Render for OxideBrowserView {
                                     _ => None,
                                 })
                                 .unwrap_or(false);
-                            el.child(render_switch(cx, id, x, y, &label, checked))
+                            el.child(render_switch(cx, id, x * z, y * z, &label, checked))
                         }
                         WidgetCommand::Slider {
                             id,
@@ -4133,7 +5217,7 @@ impl Render for OxideBrowserView {
                                     _ => None,
                                 })
                                 .unwrap_or(min);
-                            el.child(render_slider(cx, id, x, y, w, min, max, cur))
+                            el.child(render_slider(cx, id, x * z, y * z, w * z, min, max, cur))
                         }
                         WidgetCommand::TextInput {
                             id,
@@ -4157,9 +5241,9 @@ impl Render for OxideBrowserView {
                             el.child(render_text_input(
                                 cx,
                                 id,
-                                x,
-                                y,
-                                w,
+                                x * z,
+                                y * z,
+                                w * z,
                                 placeholder,
                                 value,
                                 edit,
@@ -4191,10 +5275,10 @@ impl Render for OxideBrowserView {
                             el.child(render_textarea(
                                 cx,
                                 id,
-                                x,
-                                y,
-                                w,
-                                h,
+                                x * z,
+                                y * z,
+                                w * z,
+                                h * z,
                                 placeholder,
                                 value,
                                 edit,
@@ -4210,21 +5294,28 @@ impl Render for OxideBrowserView {
                             h,
                             title,
                             description,
-                        } => el.child(render_card(x, y, w, h, &title, &description)),
+                        } => el.child(render_card(
+                            x * z,
+                            y * z,
+                            w * z,
+                            h * z,
+                            &title,
+                            &description,
+                        )),
                         WidgetCommand::Badge {
                             x,
                             y,
                             label,
                             variant,
-                        } => el.child(render_badge(x, y, &label, variant)),
+                        } => el.child(render_badge(x * z, y * z, &label, variant)),
                         WidgetCommand::Separator {
                             x,
                             y,
                             length,
                             vertical,
-                        } => el.child(render_separator(x, y, length, vertical)),
+                        } => el.child(render_separator(x * z, y * z, length * z, vertical)),
                         WidgetCommand::Progress { x, y, w, value } => {
-                            el.child(render_progress(x, y, w, value))
+                            el.child(render_progress(x * z, y * z, w * z, value))
                         }
                         WidgetCommand::Label {
                             x,
@@ -4232,7 +5323,7 @@ impl Render for OxideBrowserView {
                             text,
                             muted,
                             size,
-                        } => el.child(render_label(x, y, &text, muted, size)),
+                        } => el.child(render_label(x * z, y * z, &text, muted, size)),
                     });
 
             let viewport_h = {
@@ -4364,16 +5455,33 @@ impl Render for OxideBrowserView {
                             .p_2()
                             .font_family("Monaco")
                             .text_xs()
-                            .children(entries.into_iter().map(|e| {
+                            .children(entries.into_iter().enumerate().map(|(i, e)| {
                                 let color = match e.level {
                                     ConsoleLevel::Log => gpui::rgb(0xc8c8c8),
                                     ConsoleLevel::Warn => gpui::rgb(0xf0c83c),
                                     ConsoleLevel::Error => gpui::rgb(0xf05050),
                                 };
+                                let find_hit = self.find_open
+                                    && self.find_hits.iter().any(|h| {
+                                        h.source == FindSource::Console && h.row == Some(i)
+                                    });
+                                let find_current = find_hit
+                                    && self.find_hits.get(self.find_index).is_some_and(|h| {
+                                        h.source == FindSource::Console && h.row == Some(i)
+                                    });
                                 div()
                                     .flex()
                                     .flex_row()
                                     .gap_2()
+                                    .px_1()
+                                    .rounded_sm()
+                                    .bg(gpui::rgba(if find_current {
+                                        0xfacc1555
+                                    } else if find_hit {
+                                        0xfacc1528
+                                    } else {
+                                        0x00000000
+                                    }))
                                     .child(
                                         div()
                                             .text_color(gpui::rgb(0x646464))
@@ -4672,8 +5780,8 @@ impl Render for OxideBrowserView {
                                         .rounded_sm()
                                         .text_sm()
                                         .font_weight(gpui::FontWeight::SEMIBOLD)
-                                        .text_color(gpui::rgb(theme::PRIMARY_FG))
-                                        .bg(gpui::rgb(theme::PRIMARY))
+                                        .text_color(gpui::rgb(theme::primary_fg()))
+                                        .bg(gpui::rgb(theme::primary()))
                                         .hover(|s| s.bg(gpui::rgb(0xd4d4d8)))
                                         .child("Allow")
                                         .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
@@ -4828,7 +5936,30 @@ impl Render for OxideBrowserView {
                                 cx.notify();
                             })),
                     )
-                    .child(div().h(px(1.0)).mx_2().my_1().bg(gpui::rgb(0x3a3a44)))
+                    .child(
+                        div()
+                            .id("oxide_menu_settings")
+                            .px_3()
+                            .py(px(8.0))
+                            .cursor_pointer()
+                            .text_sm()
+                            .text_color(gpui::rgb(theme::fg()))
+                            .hover(|s| s.bg(gpui::rgb(theme::surface_hover())))
+                            .rounded_sm()
+                            .child("  Settings")
+                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                this.navigate_active("oxide://settings");
+                                this.show_menu = false;
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        div()
+                            .h(px(1.0))
+                            .mx_2()
+                            .my_1()
+                            .bg(gpui::rgb(theme::border())),
+                    )
                     .child(
                         div()
                             .id("oxide_menu_about")
@@ -4851,6 +5982,208 @@ impl Render for OxideBrowserView {
                                 this.show_menu = false;
                                 cx.notify();
                             })),
+                    ),
+            );
+        }
+
+        if self.find_open {
+            let query = if self.find_query.is_empty() {
+                String::from("Find in page")
+            } else {
+                self.find_query.clone()
+            };
+            let count = if self.find_hits.is_empty() {
+                "0/0".to_string()
+            } else {
+                format!("{}/{}", self.find_index + 1, self.find_hits.len())
+            };
+            let find_focused = self.find_focus.is_focused(window);
+            root = root.child(
+                div()
+                    .id("oxide_find_bar")
+                    .absolute()
+                    .top(px(84.0))
+                    .right(px(16.0))
+                    .flex()
+                    .flex_row()
+                    .items_center()
+                    .gap_2()
+                    .px_3()
+                    .py_2()
+                    .rounded_lg()
+                    .bg(gpui::rgb(theme::surface()))
+                    .border_1()
+                    .border_color(gpui::rgb(if find_focused {
+                        theme::ring()
+                    } else {
+                        theme::border_strong()
+                    }))
+                    .child(
+                        div()
+                            .id("oxide_find_query")
+                            .track_focus(&self.find_focus)
+                            .min_w(px(160.0))
+                            .text_sm()
+                            .text_color(gpui::rgb(if self.find_query.is_empty() {
+                                theme::fg_dim()
+                            } else {
+                                theme::fg()
+                            }))
+                            .child(query),
+                    )
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(gpui::rgb(
+                                if self.find_hits.is_empty() && !self.find_query.trim().is_empty() {
+                                    theme::destructive()
+                                } else {
+                                    theme::fg_muted()
+                                },
+                            ))
+                            .child(count),
+                    )
+                    .child(
+                        div()
+                            .id("oxide_find_prev")
+                            .cursor_pointer()
+                            .px_1()
+                            .text_sm()
+                            .text_color(gpui::rgb(theme::fg_muted()))
+                            .child("↑")
+                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                this.refresh_find_hits();
+                                this.find_next(false);
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        div()
+                            .id("oxide_find_next")
+                            .cursor_pointer()
+                            .px_1()
+                            .text_sm()
+                            .text_color(gpui::rgb(theme::fg_muted()))
+                            .child("↓")
+                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                                this.refresh_find_hits();
+                                this.find_next(true);
+                                cx.notify();
+                            })),
+                    )
+                    .child(
+                        div()
+                            .id("oxide_find_close")
+                            .cursor_pointer()
+                            .px_1()
+                            .text_sm()
+                            .text_color(gpui::rgb(theme::fg_muted()))
+                            .child("✕")
+                            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                                this.close_find(window);
+                                cx.notify();
+                            })),
+                    ),
+            );
+        }
+
+        if self.command_palette_open {
+            let query = self.command_palette_query.clone();
+            let selected = self.command_palette_index;
+            let commands = filter_palette_commands(&query);
+            root = root.child(
+                div()
+                    .id("oxide_palette_scrim")
+                    .absolute()
+                    .size_full()
+                    .top_0()
+                    .left_0()
+                    .bg(gpui::rgba(0x00000088))
+                    .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                        this.close_palette(window);
+                        cx.notify();
+                    })),
+            );
+            root = root.child(
+                div()
+                    .id("oxide_palette_wrap")
+                    .absolute()
+                    .top(px(72.0))
+                    .w_full()
+                    .flex()
+                    .justify_center()
+                    .child(
+                        div()
+                            .id("oxide_palette")
+                            .track_focus(&self.palette_focus)
+                            .focusable()
+                            .w(px(480.0))
+                            .max_h(px(420.0))
+                            .rounded_md()
+                            .bg(gpui::rgb(0x1c1c22))
+                            .border_1()
+                            .border_color(gpui::rgb(theme::border_strong()))
+                            .shadow_lg()
+                            .flex()
+                            .flex_col()
+                            .child(
+                                div()
+                                    .px_3()
+                                    .py_2()
+                                    .border_b_1()
+                                    .border_color(gpui::rgb(theme::border()))
+                                    .text_sm()
+                                    .text_color(gpui::rgb(theme::fg()))
+                                    .child(if query.is_empty() {
+                                        SharedString::from("Type a command…")
+                                    } else {
+                                        SharedString::from(query.clone())
+                                    }),
+                            )
+                            .children(commands.iter().enumerate().map(|(i, cmd)| {
+                                let id = cmd.id;
+                                let title = cmd.title;
+                                let shortcut = palette_shortcut(cmd.id);
+                                let is_sel = i == selected;
+                                div()
+                                    .id(("oxide_palette_item", i))
+                                    .px_3()
+                                    .py(px(8.0))
+                                    .flex()
+                                    .flex_row()
+                                    .items_center()
+                                    .justify_between()
+                                    .cursor_pointer()
+                                    .when(is_sel, |d| d.bg(gpui::rgb(0x2a2a36)))
+                                    .child(
+                                        div()
+                                            .text_sm()
+                                            .text_color(gpui::rgb(theme::fg()))
+                                            .child(title),
+                                    )
+                                    .child(
+                                        div()
+                                            .text_xs()
+                                            .text_color(gpui::rgb(theme::fg_dim()))
+                                            .child(shortcut),
+                                    )
+                                    .on_click(cx.listener(
+                                        move |this, _: &ClickEvent, window, cx| {
+                                            this.run_palette_command(id, window);
+                                            cx.notify();
+                                        },
+                                    ))
+                            }))
+                            .when(commands.is_empty(), |d| {
+                                d.child(
+                                    div()
+                                        .px_3()
+                                        .py_3()
+                                        .text_sm()
+                                        .text_color(gpui::rgb(theme::fg_muted()))
+                                        .child("No matching commands"),
+                                )
+                            }),
                     ),
             );
         }
@@ -5212,21 +6545,21 @@ fn handle_widget_key(view: &mut OxideBrowserView, id: u32, event: &KeyDownEvent)
 /// Colour scheme for one variant (bg, fg, border).
 fn variant_colors(variant: WidgetVariant) -> (u32, u32, u32) {
     match variant {
-        WidgetVariant::Default => (theme::PRIMARY, theme::PRIMARY_FG, theme::PRIMARY),
-        WidgetVariant::Secondary => (theme::SURFACE_HOVER, theme::FG, theme::SURFACE_HOVER),
-        WidgetVariant::Outline => (theme::BG, theme::FG, theme::BORDER_STRONG),
-        WidgetVariant::Ghost => (theme::BG, theme::FG, theme::BG),
-        WidgetVariant::Destructive => (theme::DESTRUCTIVE, theme::FG, theme::DESTRUCTIVE),
+        WidgetVariant::Default => (theme::primary(), theme::primary_fg(), theme::primary()),
+        WidgetVariant::Secondary => (theme::surface_hover(), theme::fg(), theme::surface_hover()),
+        WidgetVariant::Outline => (theme::bg(), theme::fg(), theme::border_strong()),
+        WidgetVariant::Ghost => (theme::bg(), theme::fg(), theme::bg()),
+        WidgetVariant::Destructive => (theme::destructive(), theme::fg(), theme::destructive()),
     }
 }
 
 /// Hover-state background tint for a variant.
 fn variant_hover_bg(variant: WidgetVariant) -> u32 {
     match variant {
-        WidgetVariant::Default => 0xe4e4e7,
-        WidgetVariant::Secondary => theme::BORDER_STRONG,
-        WidgetVariant::Outline | WidgetVariant::Ghost => theme::SURFACE_HOVER,
-        WidgetVariant::Destructive => 0x991b1b,
+        WidgetVariant::Default => theme::primary_hover(),
+        WidgetVariant::Secondary => theme::border_strong(),
+        WidgetVariant::Outline | WidgetVariant::Ghost => theme::surface_hover(),
+        WidgetVariant::Destructive => theme::destructive_hover(),
     }
 }
 
@@ -5317,22 +6650,26 @@ fn render_checkbox(
                 .rounded_sm()
                 .border_1()
                 .border_color(gpui::rgb(if checked {
-                    theme::PRIMARY
+                    theme::primary()
                 } else {
-                    theme::BORDER_STRONG
+                    theme::border_strong()
                 }))
-                .bg(gpui::rgb(if checked { theme::PRIMARY } else { theme::BG }))
+                .bg(gpui::rgb(if checked {
+                    theme::primary()
+                } else {
+                    theme::bg()
+                }))
                 .flex()
                 .items_center()
                 .justify_center()
-                .text_color(gpui::rgb(theme::PRIMARY_FG))
+                .text_color(gpui::rgb(theme::primary_fg()))
                 .text_xs()
                 .child(if checked { "✓" } else { "" }),
         )
         .child(
             div()
                 .text_sm()
-                .text_color(gpui::rgb(theme::FG))
+                .text_color(gpui::rgb(theme::fg()))
                 .child(label),
         )
 }
@@ -5384,9 +6721,9 @@ fn render_switch(
                 .h(px(track_h))
                 .rounded_full()
                 .bg(gpui::rgb(if checked {
-                    theme::PRIMARY
+                    theme::primary()
                 } else {
-                    theme::MUTED
+                    theme::muted()
                 }))
                 .child(
                     div()
@@ -5397,16 +6734,16 @@ fn render_switch(
                         .h(px(knob))
                         .rounded_full()
                         .bg(gpui::rgb(if checked {
-                            theme::PRIMARY_FG
+                            theme::primary_fg()
                         } else {
-                            theme::FG
+                            theme::fg()
                         })),
                 ),
         )
         .child(
             div()
                 .text_sm()
-                .text_color(gpui::rgb(theme::FG))
+                .text_color(gpui::rgb(theme::fg()))
                 .child(label),
         )
 }
@@ -5463,7 +6800,7 @@ fn render_slider(
                 .w(px(w))
                 .h(px(4.0))
                 .rounded_full()
-                .bg(gpui::rgb(theme::MUTED)),
+                .bg(gpui::rgb(theme::muted())),
         )
         .child(
             div()
@@ -5473,7 +6810,7 @@ fn render_slider(
                 .w(px(frac * w))
                 .h(px(4.0))
                 .rounded_full()
-                .bg(gpui::rgb(theme::PRIMARY)),
+                .bg(gpui::rgb(theme::primary())),
         )
         .child(
             div()
@@ -5483,9 +6820,9 @@ fn render_slider(
                 .w(px(handle_size))
                 .h(px(handle_size))
                 .rounded_full()
-                .bg(gpui::rgb(theme::PRIMARY))
+                .bg(gpui::rgb(theme::primary()))
                 .border_2()
-                .border_color(gpui::rgb(theme::BG)),
+                .border_color(gpui::rgb(theme::bg())),
         )
 }
 
@@ -5519,9 +6856,13 @@ fn render_text_input(
         .px_3()
         .py(px(8.0))
         .rounded_md()
-        .bg(gpui::rgb(theme::BG))
+        .bg(gpui::rgb(theme::bg()))
         .border_1()
-        .border_color(gpui::rgb(if focused { theme::RING } else { theme::BORDER }))
+        .border_color(gpui::rgb(if focused {
+            theme::ring()
+        } else {
+            theme::border()
+        }))
         .cursor_text()
         .flex()
         .flex_row()
@@ -5782,9 +7123,13 @@ fn render_textarea(
         .px_3()
         .py_2()
         .rounded_md()
-        .bg(gpui::rgb(theme::BG))
+        .bg(gpui::rgb(theme::bg()))
         .border_1()
-        .border_color(gpui::rgb(if focused { theme::RING } else { theme::BORDER }))
+        .border_color(gpui::rgb(if focused {
+            theme::ring()
+        } else {
+            theme::border()
+        }))
         .cursor_text()
         .overflow_hidden()
         .on_mouse_down(
@@ -6104,9 +7449,9 @@ fn render_card(x: f32, y: f32, w: f32, h: f32, title: &str, description: &str) -
         .w(px(w))
         .h(px(h))
         .rounded_lg()
-        .bg(gpui::rgb(theme::SURFACE))
+        .bg(gpui::rgb(theme::surface()))
         .border_1()
-        .border_color(gpui::rgb(theme::BORDER))
+        .border_color(gpui::rgb(theme::border()))
         .p_4()
         .flex()
         .flex_col()
@@ -6114,7 +7459,7 @@ fn render_card(x: f32, y: f32, w: f32, h: f32, title: &str, description: &str) -
     if !title.is_empty() {
         card = card.child(
             div()
-                .text_color(gpui::rgb(theme::FG))
+                .text_color(gpui::rgb(theme::fg()))
                 .font_weight(gpui::FontWeight::SEMIBOLD)
                 .text_size(px(16.0))
                 .child(title.to_string()),
@@ -6124,7 +7469,7 @@ fn render_card(x: f32, y: f32, w: f32, h: f32, title: &str, description: &str) -
         card = card.child(
             div()
                 .text_sm()
-                .text_color(gpui::rgb(theme::FG_MUTED))
+                .text_color(gpui::rgb(theme::fg_muted()))
                 .child(description.to_string()),
         );
     }
@@ -6133,11 +7478,11 @@ fn render_card(x: f32, y: f32, w: f32, h: f32, title: &str, description: &str) -
 
 fn render_badge(x: f32, y: f32, label: &str, variant: WidgetVariant) -> impl IntoElement {
     let (bg, fg, border) = match variant {
-        WidgetVariant::Default => (theme::PRIMARY, theme::PRIMARY_FG, theme::PRIMARY),
-        WidgetVariant::Secondary => (theme::SURFACE_HOVER, theme::FG, theme::SURFACE_HOVER),
-        WidgetVariant::Outline => (theme::BG, theme::FG, theme::BORDER_STRONG),
-        WidgetVariant::Ghost => (theme::BG, theme::FG_MUTED, theme::BG),
-        WidgetVariant::Destructive => (theme::DESTRUCTIVE, theme::FG, theme::DESTRUCTIVE),
+        WidgetVariant::Default => (theme::primary(), theme::primary_fg(), theme::primary()),
+        WidgetVariant::Secondary => (theme::surface_hover(), theme::fg(), theme::surface_hover()),
+        WidgetVariant::Outline => (theme::bg(), theme::fg(), theme::border_strong()),
+        WidgetVariant::Ghost => (theme::bg(), theme::fg_muted(), theme::bg()),
+        WidgetVariant::Destructive => (theme::destructive(), theme::fg(), theme::destructive()),
     };
     div()
         .absolute()
@@ -6170,7 +7515,7 @@ fn render_separator(x: f32, y: f32, length: f32, vertical: bool) -> impl IntoEle
         .top(px(y))
         .w(px(w))
         .h(px(h))
-        .bg(gpui::rgb(theme::BORDER))
+        .bg(gpui::rgb(theme::border()))
 }
 
 fn render_progress(x: f32, y: f32, w: f32, value: f32) -> impl IntoElement {
@@ -6182,13 +7527,13 @@ fn render_progress(x: f32, y: f32, w: f32, value: f32) -> impl IntoElement {
         .w(px(w))
         .h(px(8.0))
         .rounded_full()
-        .bg(gpui::rgb(theme::MUTED))
+        .bg(gpui::rgb(theme::muted()))
         .child(
             div()
                 .h(px(8.0))
                 .w(px(fill))
                 .rounded_full()
-                .bg(gpui::rgb(theme::PRIMARY)),
+                .bg(gpui::rgb(theme::primary())),
         )
 }
 
@@ -6198,7 +7543,11 @@ fn render_label(x: f32, y: f32, text: &str, muted: bool, size: f32) -> impl Into
         .left(px(x))
         .top(px(y))
         .text_size(px(size))
-        .text_color(gpui::rgb(if muted { theme::FG_MUTED } else { theme::FG }))
+        .text_color(gpui::rgb(if muted {
+            theme::fg_muted()
+        } else {
+            theme::fg()
+        }))
         .font_weight(if muted {
             gpui::FontWeight::NORMAL
         } else {
@@ -6354,6 +7703,7 @@ fn url_to_title(url: &str) -> String {
         "oxide://bookmarks" => return "Bookmarks".to_string(),
         "oxide://about" => return "About Oxide".to_string(),
         "oxide://forge" => return "Forge".to_string(),
+        "oxide://settings" => return "Settings".to_string(),
         _ => {}
     }
     if let Some(stripped) = url
