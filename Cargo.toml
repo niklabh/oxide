@@ -24,6 +24,7 @@ members = [
     "examples/shadcn-demo",
     "examples/worker-demo",
     "examples/worker-demo-bg",
+    "examples/drawing-pad",
     "examples/platform-demo",
     "examples/sse-demo",
 ]
