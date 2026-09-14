@@ -10,11 +10,8 @@ pub struct SubtitleCue {
 fn parse_timestamp(s: &str) -> Option<u64> {
     let s = s.trim();
     // 00:00:01,234 or 00:00:01.234
-    let (hms, ms_part) = if let Some(i) = s.rfind([',', '.']) {
-        (&s[..i], &s[i + 1..])
-    } else {
-        return None;
-    };
+    let i = s.rfind([',', '.'])?;
+    let (hms, ms_part) = (&s[..i], &s[i + 1..]);
     let parts: Vec<&str> = hms.split(':').collect();
     if parts.len() != 3 {
         return None;
